@@ -1,4 +1,15 @@
-node_modules/
-npm-debug.log*
+# Local OS and editor files
 .DS_Store
+.idea/
+.vscode/
+
+# Dependencies and generated output
+node_modules/
 dist/
+*.tsbuildinfo
+
+# Caches and test reports
+.cache/
+coverage/
+test-results/
+playwright-report/
