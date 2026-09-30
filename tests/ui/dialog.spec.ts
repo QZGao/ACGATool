@@ -20,8 +20,11 @@ test.beforeAll(async () => {
                 import { createTranslator } from './src/i18n/index.ts';
                 export function mount(language = 'zh-Hant', options = {}) {
                     const effects = { saves: [], errors: [], notices: [], outcome: null };
+                    const checkBatchEffects = { completions: [], discards: [] };
+                    const stagedChecks = new Map();
                     const suggestionRequests = [];
                     const existingNominationRequests = [];
+                    const dykRequests = [];
                     const previews = [];
                     const getSuggestedRecipient = options.deferredSuggestions ? (pageName) => {
                         let resolve;
@@ -49,7 +52,19 @@ test.beforeAll(async () => {
                             });
                         },
                         saveModifiedNomination: (data, target) => save('edit', data, target),
-                        saveNominationCheck: (data, target) => save('check', data, target),
+                        saveNominationCheck: (data, target) => {
+                            stagedChecks.set(JSON.stringify(target), structuredClone({ data, target }));
+                            return save('check', data, target);
+                        },
+                        discardNominationCheck: target => {
+                            checkBatchEffects.discards.push(structuredClone(target));
+                            stagedChecks.delete(JSON.stringify(target));
+                        },
+                        completeNominationCheckBatch: () => {
+                            checkBatchEffects.completions.push([...stagedChecks.values()]);
+                            stagedChecks.clear();
+                            return Promise.resolve(false);
+                        },
                         saveRawNominationSource: (data, target) => save('source', data, target),
                     }, {
                         document,
@@ -58,6 +73,12 @@ test.beforeAll(async () => {
                         getPageName: () => options.pageName ?? '',
                         getSuggestedRecipient,
                         getExistingNominations,
+                        getDykStatus: options.deferredDyk ? (pageName) => {
+                            let resolve, reject;
+                            const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+                            dykRequests.push({ pageName, resolve, reject });
+                            return promise;
+                        } : undefined,
                         getUrl: (title) => '/wiki/' + encodeURIComponent(title),
                         notify: (message) => effects.notices.push(message),
                         reportError: (error) => effects.errors.push(String(error)),
@@ -70,7 +91,7 @@ test.beforeAll(async () => {
                         }
                     });
                     return {
-                        effects, dialogs, suggestionRequests, existingNominationRequests, previews,
+                        effects, checkBatchEffects, dialogs, suggestionRequests, existingNominationRequests, dykRequests, previews,
                         async resolveSuggestion(index, recipient) {
                             const request = suggestionRequests[index];
                             request.resolve(recipient);
@@ -117,10 +138,14 @@ async function mount(
     options: {
         pageName?: string;
         deferredSuggestions?: boolean;
+        deferredDyk?: boolean;
         userName?: string | null;
         existingNominations?: Array<{
             pageName: string;
             awarder: string;
+            date?: string;
+            index?: number;
+            sectionOccurrence?: number;
             dateLabel: string;
             dateAnchor: string;
             reasonText: string;
@@ -187,7 +212,27 @@ test("new nomination uses five exclusive groups and cancel discards the draft", 
     }
     await expect(
         dialog.getByText("此項須與得分項目1或2同時選用。", { exact: true }),
-    ).toBeVisible();
+    ).toBeHidden();
+    const formatControl = dialog
+        .getByRole("group", { name: /^得分項目3 — 格式/u })
+        .locator(".acga-article-core-control");
+    await expect(formatControl.getByRole("checkbox")).toBeDisabled();
+    await expect(formatControl).toHaveAttribute(
+        "title",
+        "此項須與得分項目1或2同時選用。",
+    );
+    const contentToggle = dialog
+        .getByRole("group", { name: "得分項目1 — 篇幅", exact: true })
+        .getByRole("checkbox");
+    await contentToggle.check();
+    await expect(formatControl.getByRole("checkbox")).toBeEnabled();
+    await expect(formatControl).not.toHaveAttribute("title");
+    await contentToggle.uncheck();
+    await expect(formatControl.getByRole("checkbox")).toBeDisabled();
+    await expect(formatControl).toHaveAttribute(
+        "title",
+        "此項須與得分項目1或2同時選用。",
+    );
     for (const [name, ruleLabel] of [
         [/^\(5\)/u, null],
         [/^\(6\)/u, null],
@@ -251,10 +296,10 @@ test("nomination tab icons manage drafts and support keyboard navigation", async
     });
     const dialog = page.getByRole("dialog");
     const tab = (index: number) =>
-        dialog.getByRole("tab", { name: `Nomination ${index}`, exact: true });
+        dialog.getByRole("tab", { name: `Item ${index}`, exact: true });
     const remove = (index: number) =>
         dialog.getByRole("button", {
-            name: `Delete this nomination: Nomination ${index}`,
+            name: `Delete this nomination: Item ${index}`,
             exact: true,
         });
     const add = dialog.getByRole("button", {
@@ -262,7 +307,7 @@ test("nomination tab icons manage drafts and support keyboard navigation", async
         exact: true,
     });
     const article = dialog
-        .getByRole("tabpanel")
+        .locator(".acga-nomination-panel:visible")
         .getByRole("textbox", { name: "Article title", exact: true });
     const length = dialog.getByRole("checkbox", {
         name: "Scoring item 1 — Length",
@@ -316,7 +361,7 @@ test("nomination tab icons manage drafts and support keyboard navigation", async
 
     await tab(1).click();
     await remove(1).click();
-    await expect(dialog.getByRole("tab")).toHaveCount(2);
+    await expect(dialog.getByRole("tab", { name: /^Item /u })).toHaveCount(2);
     await expect(tab(1)).toHaveAttribute("aria-selected", "true");
     await expect(article).toHaveValue("Second article");
     await tab(2).click();
@@ -328,12 +373,12 @@ test("nomination tab icons manage drafts and support keyboard navigation", async
     await add.click();
     await tab(2).focus();
     await page.keyboard.press("Delete");
-    await expect(dialog.getByRole("tab")).toHaveCount(1);
+    await expect(dialog.getByRole("tab", { name: /^Item /u })).toHaveCount(1);
     await expect(tab(1)).toBeFocused();
     await expect(article).toHaveValue("Second article");
     await expect(remove(1)).toBeDisabled();
     await page.keyboard.press("Delete");
-    await expect(dialog.getByRole("tab")).toHaveCount(1);
+    await expect(dialog.getByRole("tab", { name: /^Item /u })).toHaveCount(1);
 
     await dialog.locator(".cdx-dialog__header__close-button").click();
     await expect(dialog).toBeHidden();
@@ -377,9 +422,6 @@ test("adding an item or table requires a recipient, article, and positive scorin
     const initialCategoryColor = await selectedCategory.evaluate(
         (element) => getComputedStyle(element).backgroundColor,
     );
-    await dialog
-        .getByRole("button", { name: "Split table", exact: true })
-        .click();
     await expect(dialog.getByRole("tab", { name: /^Table /u })).toHaveCount(1);
     await expect(dialog.getByRole("tab", { name: /^Item /u })).toHaveCount(1);
 
@@ -498,21 +540,14 @@ test("nomination summary preserves comments and edits before submitting the batc
     const mainFooter = dialog.locator(".acga-dialog-footer");
     await expect(mainFooter.getByRole("button")).toHaveText([
         "Cancel",
-        "Split table",
         "Preview",
     ]);
     const cancel = mainFooter.getByRole("button", {
         name: "Cancel",
         exact: true,
     });
-    const split = mainFooter.getByRole("button", {
-        name: "Split table",
-        exact: true,
-    });
     await expect(cancel).toHaveClass(/cdx-button--weight-quiet/u);
     await expect(cancel).toHaveClass(/cdx-button--action-destructive/u);
-    await expect(split).toHaveClass(/cdx-button--weight-normal/u);
-    await expect(split).toHaveClass(/cdx-button--action-default/u);
     await expect(openSummary).toHaveClass(/cdx-button--weight-primary/u);
     await expect(openSummary).toHaveClass(/cdx-button--action-progressive/u);
     await expect(dialog.locator(".acga-additional-message")).toHaveCount(0);
@@ -526,7 +561,7 @@ test("nomination summary preserves comments and edits before submitting the batc
     await article.fill("Second article");
     await enabled.check();
     const secondTab = dialog.getByRole("tab", {
-        name: "Nomination 2",
+        name: "Item 2",
         exact: true,
     });
     await expect(secondTab).toHaveAttribute(
@@ -542,7 +577,7 @@ test("nomination summary preserves comments and edits before submitting the batc
     await openSummary.click();
 
     const summary = dialog.getByRole("table", {
-        name: "Nomination table",
+        name: "Nomination table 1",
         exact: true,
     });
     await expect(summary).toBeVisible();
@@ -697,9 +732,7 @@ test("nomination summary preserves comments and edits before submitting the batc
     await dialog.getByRole("button", { name: "Back", exact: true }).click();
     await expect(summary).toHaveCount(0);
     await expect(dialog.locator(".acga-additional-message")).toHaveCount(0);
-    await dialog
-        .getByRole("tab", { name: "Nomination 1", exact: true })
-        .click();
+    await dialog.getByRole("tab", { name: "Item 1", exact: true }).click();
     await expect(article).toHaveValue("First article");
     await expect(recipient).toHaveValue("");
     await expect(recipient).toHaveAttribute("placeholder", "Example");
@@ -784,7 +817,7 @@ test("frozen summary rows keep their draft but are excluded from preview and sub
         exact: true,
     });
     const table = summaryDialog.getByRole("table", {
-        name: "Nomination table",
+        name: "Nomination table 1",
         exact: true,
     });
     const first = table.getByRole("row").nth(1);
@@ -872,7 +905,7 @@ test("frozen summary rows keep their draft but are excluded from preview and sub
     expect(errors).toEqual([]);
 });
 
-test("split tables keep separate comments and submit earlier-table edits in one batch", async ({
+test("table tabs keep separate comments and submit earlier-table edits in one batch", async ({
     page,
 }) => {
     const errors = await mount(page, "en");
@@ -880,10 +913,6 @@ test("split tables keep separate comments and submit earlier-table edits in one 
         void (window as any).acgaFixture.dialogs.showNewNominationDialog();
     });
     const dialog = page.getByRole("dialog");
-    const split = dialog.getByRole("button", {
-        name: "Split table",
-        exact: true,
-    });
     const firstTableTab = dialog.getByRole("tab", {
         name: "Table 1",
         exact: true,
@@ -904,12 +933,6 @@ test("split tables keep separate comments and submit earlier-table edits in one 
         .locator(".acga-content-expansion-row")
         .getByRole("spinbutton", { name: "Score", exact: true });
 
-    await expect(firstTableTab).toHaveCount(0);
-    await expect(secondTableTab).toHaveCount(0);
-    await expect(
-        dialog.getByRole("tab", { name: "Nomination 1", exact: true }),
-    ).toBeVisible();
-    await split.click();
     await expect(firstTableTab).toBeVisible();
     await expect(firstTableTab).toHaveAttribute("aria-selected", "true");
     await expect(secondTableTab).toHaveCount(0);
@@ -917,8 +940,10 @@ test("split tables keep separate comments and submit earlier-table edits in one 
         dialog.getByRole("tab", { name: "Item 1", exact: true }),
     ).toBeVisible();
     await expect(
-        dialog.getByRole("button", { name: "Merge tables", exact: true }),
-    ).toBeVisible();
+        dialog.getByRole("button", {
+            name: /^(?:Split table|Merge tables)$/u,
+        }),
+    ).toHaveCount(0);
     const addTable = dialog.getByRole("button", {
         name: "Add table",
         exact: true,
@@ -942,7 +967,7 @@ test("split tables keep separate comments and submit earlier-table edits in one 
             name: "Delete this nomination: Item 1",
             exact: true,
         }),
-    ).toBeDisabled();
+    ).toBeEnabled();
     await expect(
         dialog.getByRole("button", { name: /^(?:Previous|Next) table$/u }),
     ).toHaveCount(0);
@@ -1104,7 +1129,7 @@ test("split tables keep separate comments and submit earlier-table edits in one 
     expect(errors).toEqual([]);
 });
 
-test("merged item tabs retain their table groups and submit one combined table", async ({
+test("table tabs restore active drafts and removing a group's last item preserves the remaining table", async ({
     page,
 }) => {
     const errors = await mount(page, "en");
@@ -1123,17 +1148,15 @@ test("merged item tabs retain their table groups and submit one combined table",
     const score = dialog
         .locator(".acga-content-expansion-row")
         .getByRole("spinbutton", { name: "Score", exact: true });
-    const split = dialog.getByRole("button", {
-        name: "Split table",
-        exact: true,
-    });
-    const merge = dialog.getByRole("button", {
-        name: "Merge tables",
+    const add = dialog.getByRole("button", {
+        name: "Add nomination",
         exact: true,
     });
     await article.fill("Original first table");
     await length.check();
-    await split.click();
+    await add.click();
+    await article.fill("First table second item");
+    await length.check();
     await expect(
         dialog.getByRole("tab", { name: "Table 1", exact: true }),
     ).toBeVisible();
@@ -1143,36 +1166,21 @@ test("merged item tabs retain their table groups and submit one combined table",
         .click();
     await article.fill("Original second table");
     await length.check();
-    await score.fill("4");
-    await merge.click();
-    await expect(dialog.getByRole("tab", { name: /^Table /u })).toHaveCount(0);
-    await expect(dialog.getByRole("tab")).toHaveText([
-        "Nomination 1",
-        "Nomination 2",
-    ]);
-    await expect(
-        dialog.getByRole("tab", { name: "Nomination 2", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
-    await expect(article).toHaveValue("Original second table");
     await score.fill("4.5");
-    await dialog
-        .getByRole("button", { name: "Add nomination", exact: true })
-        .click();
-    await expect(dialog.getByRole("tab")).toHaveText([
-        "Nomination 1",
-        "Nomination 2",
-        "Nomination 3",
+    await add.click();
+    await expect(dialog.getByRole("tab", { name: /^Item /u })).toHaveText([
+        "Item 1",
+        "Item 2",
     ]);
-    await article.fill("Temporary merged item");
+    await article.fill("Temporary second table item");
     await dialog
         .getByRole("button", {
-            name: "Delete this nomination: Nomination 3",
+            name: "Delete this nomination: Item 2",
             exact: true,
         })
         .click();
-    await expect(dialog.getByRole("tab")).toHaveCount(2);
+    await expect(dialog.getByRole("tab", { name: /^Item /u })).toHaveCount(1);
     await expect(article).toHaveValue("Original second table");
-    await split.click();
     await expect(dialog.getByRole("tab", { name: /^Table /u })).toHaveText([
         "Table 1",
         "Table 2",
@@ -1186,29 +1194,50 @@ test("merged item tabs retain their table groups and submit one combined table",
     await expect(article).toHaveValue("Original second table");
     await expect(score).toHaveValue("4.5");
     await dialog.getByRole("tab", { name: "Table 1", exact: true }).click();
+    await expect(
+        dialog.getByRole("tab", { name: "Item 2", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(article).toHaveValue("First table second item");
+    await dialog.getByRole("tab", { name: "Item 1", exact: true }).click();
     await expect(article).toHaveValue("Original first table");
     await expect(score).toHaveValue("3");
-    await merge.click();
+    await dialog.getByRole("tab", { name: "Table 2", exact: true }).click();
+    await expect(article).toHaveValue("Original second table");
+    await dialog.getByRole("tab", { name: "Table 1", exact: true }).click();
     await expect(
-        dialog.getByRole("tab", { name: "Nomination 1", exact: true }),
+        dialog.getByRole("tab", { name: "Item 1", exact: true }),
     ).toHaveAttribute("aria-selected", "true");
-    await capture(page, "nomination-merged-tabs-en");
+    await dialog
+        .getByRole("button", {
+            name: "Delete this nomination: Item 1",
+            exact: true,
+        })
+        .click();
+    await expect(article).toHaveValue("First table second item");
+    await dialog.getByRole("tab", { name: "Item 1", exact: true }).focus();
+    await page.keyboard.press("Delete");
+    await expect(dialog.getByRole("tab", { name: /^Table /u })).toHaveText([
+        "Table 1",
+    ]);
+    await expect(dialog.getByRole("tab", { name: /^Item /u })).toHaveText([
+        "Item 1",
+    ]);
+    await expect(article).toHaveValue("Original second table");
+    await expect(score).toHaveValue("4.5");
+    await expect(
+        dialog.getByRole("button", {
+            name: "Delete this nomination: Item 1",
+            exact: true,
+        }),
+    ).toBeDisabled();
     await dialog.getByRole("button", { name: "Preview", exact: true }).click();
     const table = dialog.getByRole("table", {
-        name: "Nomination table",
+        name: "Nomination table 1",
         exact: true,
     });
     await expect(dialog.getByRole("table")).toHaveCount(1);
     await expect(table.getByRole("row").nth(1).getByRole("cell")).toHaveText([
         "1",
-        "Original first table",
-        "Example",
-        "3 points",
-        "1c",
-        "",
-    ]);
-    await expect(table.getByRole("row").nth(2).getByRole("cell")).toHaveText([
-        "2",
         "Original second table",
         "Example",
         "4.5 points",
@@ -1225,10 +1254,6 @@ test("merged item tabs retain their table groups and submit one combined table",
         {
             comment: "",
             nominations: [
-                {
-                    pageName: "Original first table",
-                    ruleStatus: { "1c": { score: 3, selected: true } },
-                },
                 {
                     pageName: "Original second table",
                     ruleStatus: { "1c": { score: 4.5, selected: true } },
@@ -1302,26 +1327,26 @@ test("current-registry duplicate notices follow the effective article and recipi
     });
     const notice = dialog.locator(".acga-existing-nomination");
     await expect(recipient).toHaveValue("");
-    await expect(recipient).toHaveAttribute("placeholder", "Example");
+    await expect(recipient).toHaveAttribute("placeholder", "...");
     await expect(article).toHaveValue("");
     await expect(article).toHaveAttribute("placeholder", "Example article");
-    await expect(notice).toHaveAttribute("data-level", "notice");
-    await expect(notice).toContainText("2026-09-21");
-    await expect(notice).toContainText("Leading editor");
-    await expect(notice).toContainText("1c 3");
-    await expect(notice.locator(`a[href="${registryUrl}"]`)).toHaveCount(1);
+    await expect(notice).toHaveCount(0);
     await page.evaluate(() =>
         (window as any).acgaFixture.resolveSuggestion(0, "Leading editor"),
     );
     await expect(recipient).toHaveValue("");
     await expect(recipient).toHaveAttribute("placeholder", "Leading editor");
+    await expect(notice).toContainText("2026-09-21");
+    await expect(notice).toContainText("Leading editor");
+    await expect(notice).toContainText("1c 3");
+    await expect(notice.locator(`a[href="${registryUrl}"]`)).toHaveCount(1);
     await expect(notice).toHaveAttribute("data-level", "warning");
     await expect(notice).toHaveClass(
         /acga-existing-nomination--same-recipient/u,
     );
     await capture(page, "nomination-duplicate-warning-en");
     await recipient.fill("Another editor");
-    await expect(notice).toHaveAttribute("data-level", "notice");
+    await expect(notice).toHaveCount(0);
     expect(
         await page.evaluate(
             () => (window as any).acgaFixture.existingNominationRequests,
@@ -1332,6 +1357,79 @@ test("current-registry duplicate notices follow the effective article and recipi
     expect(
         await page.evaluate(() => (window as any).acgaFixture.effects.saves),
     ).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
+test("checking warns about other registry requests while excluding the opened nomination", async ({
+    page,
+}) => {
+    const base = {
+        pageName: "Example article",
+        awarder: "Example",
+        date: "9月27日",
+        dateLabel: "9月27日",
+        dateAnchor: "9月27日",
+        reasonText: "1c",
+        checked: false,
+        url: "/wiki/Registry#first",
+    };
+    const errors = await mount(page, "en", {
+        existingNominations: [
+            { ...base, index: 1, sectionOccurrence: 0 },
+            {
+                ...base,
+                index: 1,
+                sectionOccurrence: 1,
+                checked: true,
+                reasonText: "1c 3",
+                url: "/wiki/Registry#second",
+            },
+            {
+                ...base,
+                index: 2,
+                sectionOccurrence: 1,
+                awarder: "Other",
+                reasonText: "5x",
+                url: "/wiki/Registry#third",
+            },
+        ],
+    });
+    await page.evaluate(() => {
+        const global = window as any;
+        void global.acgaFixture.dialogs.showCheckNominationDialog(
+            global.AcgaTestUI.nomination("1c"),
+            {
+                type: "acg2",
+                position: 1,
+                date: "9月27日",
+                index: 1,
+                sectionOccurrence: 0,
+            },
+        );
+    });
+    const dialog = page.getByRole("dialog");
+    const notices = dialog.locator(".acga-existing-nomination");
+    await expect(notices).toHaveCount(1);
+    await expect(notices.nth(0)).toHaveAttribute("data-level", "warning");
+    await expect(notices.nth(0)).toContainText("1c 3");
+    await expect(notices.nth(0)).toContainText("Reviewed");
+    await expect(notices.nth(0).locator("a")).toHaveAttribute(
+        "href",
+        "/wiki/Registry#second",
+    );
+    await expect(dialog.locator('a[href="/wiki/Registry#third"]')).toHaveCount(
+        0,
+    );
+    await expect(dialog.locator('a[href="/wiki/Registry#first"]')).toHaveCount(
+        0,
+    );
+    await expect(
+        dialog.getByRole("button", { name: "Save", exact: true }),
+    ).toBeEnabled();
+    expect(
+        await page.evaluate(() => (window as any).acgaFixture.effects.saves),
+    ).toEqual([]);
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
     expect(errors).toEqual([]);
 });
 
@@ -1354,6 +1452,8 @@ test("recipient suggestions stay in placeholders and follow article and category
         name: "Add nomination",
         exact: true,
     });
+    await expect(recipient).toHaveValue("");
+    await expect(recipient).toHaveAttribute("placeholder", "...");
     await recipient.fill("Chosen editor");
     await page.evaluate(() =>
         (window as any).acgaFixture.resolveSuggestion(0, "Leading editor"),
@@ -1409,7 +1509,7 @@ test("recipient suggestions stay in placeholders and follow article and category
     expect(errors).toEqual([]);
 });
 
-test("recipient suggestions resolve for stored drafts after splitting and switching tables", async ({
+test("recipient suggestions resolve for stored drafts after switching tables", async ({
     page,
 }) => {
     const errors = await mount(page, "en", {
@@ -1428,10 +1528,8 @@ test("recipient suggestions resolve for stored drafts after splitting and switch
         name: "Scoring item 1 — Length",
         exact: true,
     });
+    await recipient.fill("Temporary recipient");
     await length.check();
-    await dialog
-        .getByRole("button", { name: "Split table", exact: true })
-        .click();
     expect(
         await page.evaluate(
             () => (window as any).acgaFixture.suggestionRequests.length,
@@ -1442,11 +1540,12 @@ test("recipient suggestions resolve for stored drafts after splitting and switch
         .click();
     await length.check();
     await dialog.getByRole("tab", { name: "Table 1", exact: true }).click();
+    await recipient.fill("");
     await page.evaluate(() =>
         (window as any).acgaFixture.resolveSuggestion(1, "Later table editor"),
     );
     await expect(recipient).toHaveValue("");
-    await expect(recipient).toHaveAttribute("placeholder", "Example");
+    await expect(recipient).toHaveAttribute("placeholder", "...");
     await page.evaluate(() =>
         (window as any).acgaFixture.resolveSuggestion(
             0,
@@ -1509,7 +1608,7 @@ test("a closed dialog's recipient suggestion cannot change a reopened draft", as
         (window as any).acgaFixture.resolveSuggestion(0, "Stale editor"),
     );
     await expect(recipient).toHaveValue("");
-    await expect(recipient).toHaveAttribute("placeholder", "Example");
+    await expect(recipient).toHaveAttribute("placeholder", "...");
     await page.evaluate(() =>
         (window as any).acgaFixture.resolveSuggestion(1, "Current editor"),
     );
@@ -1522,7 +1621,7 @@ test("a closed dialog's recipient suggestion cannot change a reopened draft", as
     await dialog.getByRole("button", { name: "Preview", exact: true }).click();
     await expect(
         dialog
-            .getByRole("table", { name: "Nomination table", exact: true })
+            .getByRole("table", { name: "Nomination table 1", exact: true })
             .getByRole("cell", { name: "Current editor", exact: true }),
     ).toBeVisible();
     await dialog.getByRole("button", { name: "Submit", exact: true }).click();
@@ -1564,7 +1663,7 @@ test("nominations without article context do not request recipient suggestions",
     await expect(recipient).toHaveValue("");
     await expect(recipient).toHaveAttribute("placeholder", "Example");
     await expect(
-        dialog.getByRole("tab", { name: "Nomination 2", exact: true }),
+        dialog.getByRole("tab", { name: "Item 2", exact: true }),
     ).toHaveAttribute("aria-selected", "true");
     expect(
         await page.evaluate(
@@ -1609,7 +1708,7 @@ test("checking renders source as text and submits edited score once", async ({
     });
     const originalScore = await score.inputValue();
     await addRow.getByRole("combobox").click();
-    await dialog
+    await addRow
         .locator(".cdx-menu-item__text__label")
         .filter({ hasText: /^3$/u })
         .click();
@@ -1624,14 +1723,26 @@ test("checking renders source as text and submits edited score once", async ({
     await score.fill("1.5");
     const reset = dialog.locator(".cdx-table__header .acga-check-reset");
     await expect(reset).toBeVisible();
+    await expect(reset).toHaveClass(/cdx-button--weight-quiet/u);
+    await expect(reset).toHaveClass(/cdx-button--action-destructive/u);
     await reset.click();
+    await expect(score).toHaveValue(originalScore);
+    await expect(
+        dialog.getByRole("spinbutton", { name: "3 得分", exact: true }),
+    ).toHaveCount(0);
+    await dialog.getByRole("button", { name: "復原", exact: true }).click();
+    await expect(score).toHaveValue("1.5");
+    await expect(
+        dialog.getByRole("spinbutton", { name: "3 得分", exact: true }),
+    ).toHaveValue("0.5");
+    await dialog.getByRole("button", { name: "重做", exact: true }).click();
     await expect(score).toHaveValue(originalScore);
     await expect(
         dialog.getByRole("spinbutton", { name: "3 得分", exact: true }),
     ).toHaveCount(0);
     await expect(addRow).toBeVisible();
     await addRow.getByRole("combobox").click();
-    await dialog
+    await addRow
         .locator(".cdx-menu-item__text__label")
         .filter({ hasText: /^3$/u })
         .click();
@@ -1652,6 +1763,381 @@ test("checking renders source as text and submits edited score once", async ({
         code: "3",
         score: 0.5,
     });
+    expect(effects.errors).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
+test("checking row icons and table-footer comments support undo and redo", async ({
+    page,
+}) => {
+    const errors = await mount(page);
+    await page.evaluate(() => {
+        const global = window as any;
+        void global.acgaFixture.dialogs.showCheckNominationDialog(
+            global.AcgaTestUI.nomination("1a 3"),
+            { type: "acg2", position: 1 },
+        );
+    });
+    const dialog = page.getByRole("dialog");
+    const table = dialog.locator(".acga-check-table");
+    const header = table.locator(".cdx-table__header");
+    const undo = header.getByRole("button", { name: "復原", exact: true });
+    const redo = header.getByRole("button", { name: "重做", exact: true });
+    await expect(undo).toBeDisabled();
+    await expect(redo).toBeDisabled();
+    for (const button of [undo, redo]) {
+        await expect(button).toHaveText("");
+        await expect(button.locator("svg")).toHaveCount(1);
+        await expect(button).toHaveClass(/cdx-button--weight-quiet/u);
+    }
+
+    const score = table.getByRole("spinbutton", {
+        name: "1a 得分",
+        exact: true,
+    });
+    const description = table.getByRole("textbox", {
+        name: "1a 描述",
+        exact: true,
+    });
+    const rowReset = table.getByRole("button", {
+        name: "1a 重設項目",
+        exact: true,
+    });
+    const remove = table.getByRole("button", {
+        name: "3 刪除項目",
+        exact: true,
+    });
+    const originalScore = await score.inputValue();
+    const originalDescription = await description.inputValue();
+    for (const button of [rowReset, remove]) {
+        await expect(button).toHaveText("");
+        await expect(button.locator("svg")).toHaveCount(1);
+        await expect(button).toHaveClass(/cdx-button--weight-quiet/u);
+    }
+    await expect(remove).toHaveClass(/cdx-button--action-destructive/u);
+    await expect(
+        rowReset.locator(
+            "xpath=following-sibling::button[contains(@class, 'acga-check-item-delete')]",
+        ),
+    ).toHaveCount(1);
+
+    await score.fill("1.5");
+    await undo.click();
+    await expect(score).toHaveValue(originalScore);
+    await expect(undo).toBeDisabled();
+    await redo.click();
+    await expect(score).toHaveValue("1.5");
+    await expect(redo).toBeDisabled();
+    await description.fill("核對後的自訂說明");
+    await rowReset.click();
+    await expect(score).toHaveValue(originalScore);
+    await expect(description).toHaveValue(originalDescription);
+    await undo.click();
+    await expect(score).toHaveValue("1.5");
+    await expect(description).toHaveValue("核對後的自訂說明");
+    await redo.click();
+    await expect(score).toHaveValue(originalScore);
+    await expect(description).toHaveValue(originalDescription);
+
+    const thirdScore = table.getByRole("spinbutton", {
+        name: "3 得分",
+        exact: true,
+    });
+    await remove.click();
+    await expect(thirdScore).toHaveCount(0);
+    await undo.click();
+    await expect(thirdScore).toBeVisible();
+    await redo.click();
+    await expect(thirdScore).toHaveCount(0);
+    await undo.click();
+    await expect(thirdScore).toBeVisible();
+
+    const footer = table.locator(".cdx-table__footer");
+    const comment = footer.locator(".acga-additional-message textarea");
+    const preview = dialog.locator(".acga-code-preview-text textarea");
+    await expect(footer).toContainText("附加說明");
+    await expect(dialog.locator(".acga-additional-message")).toHaveCount(1);
+    await comment.fill("表格頁腳的核對說明");
+    await expect(preview).toHaveValue(/表格頁腳的核對說明/u);
+    await expect(redo).toBeDisabled();
+    await undo.click();
+    await expect(comment).toHaveValue("");
+    await expect(preview).not.toHaveValue(/表格頁腳的核對說明/u);
+    await redo.click();
+    await expect(comment).toHaveValue("表格頁腳的核對說明");
+    await expect(preview).toHaveValue(/表格頁腳的核對說明/u);
+    await capture(page, "check-history-and-footer-zh");
+    expect(
+        await page.evaluate(() => (window as any).acgaFixture.effects.saves),
+    ).toEqual([]);
+    await dialog.getByRole("button", { name: "儲存", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const effects = await page.evaluate(
+        () => (window as any).acgaFixture.effects,
+    );
+    expect(effects.saves).toHaveLength(1);
+    expect(effects.saves[0].data.message).toBe("表格頁腳的核對說明");
+    expect(effects.saves[0].data.ruleTokens).toHaveLength(2);
+    expect(effects.errors).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
+async function openCheckBatch(page: Page) {
+    await page.evaluate(() => {
+        const global = window as any;
+        const fixture = global.acgaFixture;
+        void fixture.dialogs
+            .showCheckBatchDialog([
+                {
+                    nomination: global.AcgaTestUI.nomination(
+                        "1a",
+                        "First article",
+                    ),
+                    target: { type: "acg2", position: 1 },
+                    tableKey: "table-one",
+                    tableIndex: 0,
+                },
+                {
+                    nomination: global.AcgaTestUI.nomination(
+                        "1a",
+                        "Second article",
+                    ),
+                    target: { type: "acg2", position: 2 },
+                    tableKey: "table-one",
+                    tableIndex: 0,
+                },
+                {
+                    nomination: global.AcgaTestUI.nomination(
+                        "1a",
+                        "Third article",
+                    ),
+                    target: { type: "acg2", position: 3 },
+                    tableKey: "table-two",
+                    tableIndex: 1,
+                },
+            ])
+            .then((outcome: unknown) => (fixture.effects.outcome = outcome));
+    });
+    await expect(page.getByRole("dialog")).toBeVisible();
+}
+
+test("batch checking tabs retain drafts and history while staging each accepted item once", async ({
+    page,
+}) => {
+    const errors = await mount(page);
+    await openCheckBatch(page);
+    const dialog = page.getByRole("dialog");
+    const tables = dialog.locator(".acga-check-table-tabs");
+    const items = dialog.locator(".acga-check-item-tabs:visible");
+    const expectActiveTabs = async (
+        tableNumber: number,
+        itemNumber: number,
+    ) => {
+        for (const number of [1, 2]) {
+            await expect(
+                dialog.getByRole("tab", {
+                    name: `表格${number}`,
+                    exact: true,
+                }),
+            ).toHaveAttribute("aria-selected", String(number === tableNumber));
+        }
+        const itemTabs = items.getByRole("tab");
+        await expect(
+            itemTabs.filter({
+                hasText: new RegExp(`^項目${itemNumber} ·`, "u"),
+            }),
+        ).toHaveAttribute("aria-selected", "true");
+        await expect(
+            items.locator('[role="tab"][aria-selected="true"]'),
+        ).toHaveCount(1);
+    };
+    await expect(tables).toHaveClass(/cdx-tabs--framed/u);
+    await expect(items).not.toHaveClass(/cdx-tabs--framed/u);
+    await expect(
+        dialog.getByRole("tab", { name: "表格1", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expectActiveTabs(1, 1);
+    await expect(items.getByRole("tab")).toHaveText([
+        "項目1 · 待核對",
+        "項目2 · 待核對",
+    ]);
+    const footer = dialog.locator(".acga-dialog-footer");
+    const previous = footer.getByRole("button", {
+        name: "上一項",
+        exact: true,
+    });
+    const next = footer.getByRole("button", { name: "下一項", exact: true });
+    const cancel = footer.getByRole("button", { name: "取消", exact: true });
+    const quit = footer.getByRole("button", { name: "退出", exact: true });
+    await expect(previous).toBeDisabled();
+    await expect(cancel).toHaveClass(/cdx-button--weight-quiet/u);
+    await expect(cancel).toHaveClass(/cdx-button--action-destructive/u);
+    await expect(quit).toHaveClass(/cdx-button--weight-quiet/u);
+    await expect(quit).toHaveClass(/cdx-button--action-default/u);
+    await expect(quit).toHaveAttribute(
+        "title",
+        "提交已完成的核對並退出，未完成的項目保持未核對狀態。",
+    );
+    await expect(next).toHaveClass(/cdx-button--weight-primary/u);
+    await expect(next).toHaveClass(/cdx-button--action-progressive/u);
+    const score = dialog.getByRole("spinbutton", {
+        name: "1a 得分",
+        exact: true,
+    });
+    const comment = dialog.locator(
+        ".cdx-table__footer .acga-additional-message textarea",
+    );
+    const undo = dialog.getByRole("button", { name: "復原", exact: true });
+    const redo = dialog.getByRole("button", { name: "重做", exact: true });
+    await score.fill("1.5");
+    await comment.fill("第一項的核對說明");
+    await dialog.getByRole("tab", { name: "表格2", exact: true }).click();
+    await expectActiveTabs(2, 1);
+    await expect(dialog.locator(".acga-check-summary")).toContainText(
+        "Third article",
+    );
+    await expect(comment).toHaveValue("");
+    await expect(undo).toBeDisabled();
+    await score.fill("2.5");
+    await comment.fill("第三項的核對說明");
+    await dialog.getByRole("tab", { name: "表格1", exact: true }).click();
+    await expectActiveTabs(1, 1);
+    await expect(score).toHaveValue("1.5");
+    await expect(comment).toHaveValue("第一項的核對說明");
+    await undo.click();
+    await expect(comment).toHaveValue("");
+    await expect(score).toHaveValue("1.5");
+    await redo.click();
+    await expect(comment).toHaveValue("第一項的核對說明");
+    await items
+        .getByRole("tab", { name: "項目2 · 待核對", exact: true })
+        .click();
+    await expectActiveTabs(1, 2);
+    await expect(dialog.locator(".acga-check-summary")).toContainText(
+        "Second article",
+    );
+    await expect(comment).toHaveValue("");
+    await expect(undo).toBeDisabled();
+    await score.fill("0.5");
+    await previous.click();
+    await expectActiveTabs(1, 1);
+    await expect(score).toHaveValue("1.5");
+    await next.click();
+    await expectActiveTabs(1, 2);
+    await expect(score).toHaveValue("0.5");
+    await expect(
+        items.getByRole("tab", { name: "項目1 · 已核對", exact: true }),
+    ).toBeVisible();
+    await previous.click();
+    await expectActiveTabs(1, 1);
+    await next.click();
+    await expectActiveTabs(1, 2);
+    await expect(score).toHaveValue("0.5");
+    expect(
+        await page.evaluate(() => (window as any).acgaFixture.effects.saves),
+    ).toHaveLength(1);
+    await previous.click();
+    await expectActiveTabs(1, 1);
+    await footer.getByRole("button", { name: "略過", exact: true }).click();
+    await expectActiveTabs(1, 2);
+    await expect(
+        items.getByRole("tab", { name: "項目1 · 已跳過", exact: true }),
+    ).toBeVisible();
+    await next.click();
+    await expectActiveTabs(2, 1);
+    await expect(dialog.locator(".acga-check-summary")).toContainText(
+        "Third article",
+    );
+    await expect(score).toHaveValue("2.5");
+    await expect(comment).toHaveValue("第三項的核對說明");
+    await capture(page, "check-batch-navigation-zh");
+    await footer.getByRole("button", { name: "儲存全部", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const { effects, checkBatchEffects } = await page.evaluate(() => {
+        const fixture = (window as any).acgaFixture;
+        return {
+            effects: fixture.effects,
+            checkBatchEffects: fixture.checkBatchEffects,
+        };
+    });
+    expect(effects.outcome).toBe("save");
+    expect(effects.saves.map((save: any) => save.target.position)).toEqual([
+        1, 2, 3,
+    ]);
+    expect(checkBatchEffects.discards).toEqual([{ type: "acg2", position: 1 }]);
+    expect(checkBatchEffects.completions).toHaveLength(1);
+    expect(
+        checkBatchEffects.completions[0].map(
+            (save: any) => save.target.position,
+        ),
+    ).toEqual([2, 3]);
+    expect(checkBatchEffects.completions[0][0].data.ruleTokens[0].score).toBe(
+        0.5,
+    );
+    expect(checkBatchEffects.completions[0][1].data.message).toBe(
+        "第三項的核對說明",
+    );
+    expect(effects.errors).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
+test("batch checking cancel closes without submitting staged results", async ({
+    page,
+}) => {
+    const errors = await mount(page);
+    await openCheckBatch(page);
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "下一項", exact: true }).click();
+    await expect(dialog.locator(".acga-check-summary")).toContainText(
+        "Second article",
+    );
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const { effects, checkBatchEffects } = await page.evaluate(() => {
+        const fixture = (window as any).acgaFixture;
+        return {
+            effects: fixture.effects,
+            checkBatchEffects: fixture.checkBatchEffects,
+        };
+    });
+    expect(effects.saves).toHaveLength(1);
+    expect(effects.outcome).toBe("cancel");
+    expect(checkBatchEffects.completions).toEqual([]);
+    expect(effects.errors).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
+test("batch checking Quit submits only completed rows", async ({ page }) => {
+    const errors = await mount(page);
+    await openCheckBatch(page);
+    const dialog = page.getByRole("dialog");
+    await dialog
+        .getByRole("spinbutton", { name: "1a 得分", exact: true })
+        .fill("1.5");
+    await dialog.getByRole("button", { name: "下一項", exact: true }).click();
+    await expect(dialog.locator(".acga-check-summary")).toContainText(
+        "Second article",
+    );
+    await dialog
+        .getByRole("spinbutton", { name: "1a 得分", exact: true })
+        .fill("0.5");
+    await dialog.getByRole("button", { name: "退出", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const { effects, checkBatchEffects } = await page.evaluate(() => {
+        const fixture = (window as any).acgaFixture;
+        return {
+            effects: fixture.effects,
+            checkBatchEffects: fixture.checkBatchEffects,
+        };
+    });
+    expect(effects.saves).toHaveLength(1);
+    expect(effects.outcome).toBe("quit");
+    expect(checkBatchEffects.completions).toHaveLength(1);
+    expect(checkBatchEffects.completions[0]).toHaveLength(1);
+    expect(checkBatchEffects.completions[0][0].target.position).toBe(1);
+    expect(checkBatchEffects.completions[0][0].data.ruleTokens[0].score).toBe(
+        1.5,
+    );
     expect(effects.errors).toEqual([]);
     expect(errors).toEqual([]);
 });
@@ -1720,13 +2206,13 @@ test("review presets and exclusive modes produce specialist and comprehensive su
         .getByRole("textbox", { name: "條目名", exact: true })
         .fill("評審條目");
     await dialog.getByRole("button", { name: /^\(5\)/u }).click();
-    const tiers = dialog.getByRole("group", { name: /^評審層次/u });
+    const tiers = dialog.getByRole("group", { name: /^初選評審等級/u });
     await expect(
-        tiers.getByText("預填下方評審項目", { exact: true }),
+        tiers.getByText("用於預選下方「得分項目」。", { exact: true }),
     ).toBeVisible();
     await expect(tiers.getByRole("radio")).toHaveCount(5);
     await expect(
-        tiers.getByRole("radio", { name: "通用評審", exact: true }),
+        tiers.getByRole("radio", { name: "通用", exact: true }),
     ).toBeChecked();
     await expect(
         dialog.getByRole("button", { name: "一般評審", exact: true }),
@@ -1735,7 +2221,7 @@ test("review presets and exclusive modes produce specialist and comprehensive su
     const general = dialog.locator('[data-review-row="general"]');
     await expect(general.getByRole("combobox")).toHaveValue("通用評審");
     await expect(
-        dialog.getByRole("checkbox", { name: "文筆", exact: true }),
+        dialog.getByRole("checkbox", { name: "行文", exact: true }),
     ).toHaveCount(0);
     const score = dialog.getByRole("spinbutton", {
         name: "評審得分",
@@ -1753,7 +2239,7 @@ test("review presets and exclusive modes produce specialist and comprehensive su
         );
     }
     await expect(dialog.locator(".acga-review-custom-score")).toHaveCount(0);
-    await tiers.getByRole("radio", { name: "甲級評審", exact: true }).check();
+    await tiers.getByRole("radio", { name: "甲級", exact: true }).check();
     await expect(general.getByRole("combobox")).toHaveValue("甲級評審");
     await expect(score).toHaveValue("2");
     await dialog.getByRole("checkbox", { name: "快評", exact: true }).check();
@@ -1767,14 +2253,14 @@ test("review presets and exclusive modes produce specialist and comprehensive su
         dialog.getByRole("button", { name: "一般評審", exact: true }),
     ).toHaveAttribute("aria-pressed", "false");
     await expect(general).toHaveCount(0);
-    await tiers.getByRole("radio", { name: "通用評審", exact: true }).check();
+    await tiers.getByRole("radio", { name: "通用", exact: true }).check();
     const writing = dialog.locator('[data-review-row="writing"]');
     const coverage = dialog.locator('[data-review-row="coverage"]');
     const source = dialog.locator('[data-review-row="source"]');
     for (const [row, label] of [
-        [writing, "文筆"],
-        [coverage, "覆蓋面"],
-        [source, "來源格式"],
+        [writing, "行文"],
+        [coverage, "內容"],
+        [source, "來源"],
     ] as const) {
         await expect(row.getByRole("combobox")).toBeDisabled();
         await row.getByRole("checkbox", { name: label, exact: true }).check();
@@ -1800,7 +2286,7 @@ test("review presets and exclusive modes produce specialist and comprehensive su
     await dialog.getByRole("button", { name: "返回", exact: true }).click();
     await dialog.getByRole("button", { name: "綜合評審", exact: true }).click();
     await expect(dialog.locator(".acga-review-item-row")).toHaveCount(1);
-    await tiers.getByRole("radio", { name: "乙級評審", exact: true }).check();
+    await tiers.getByRole("radio", { name: "乙級", exact: true }).check();
     const complete = dialog.locator('[data-review-row="complete"]');
     await expect(complete.getByRole("combobox")).toHaveValue("乙級評審");
     await expect(
@@ -1897,9 +2383,7 @@ test("review score stepper uses half-points, clamps zero, and saves custom score
     await expect(decrease).toBeDisabled();
     await score.fill("1.5");
     await expect(score).toHaveValue("1.5");
-    await dialog
-        .getByRole("radio", { name: "A-class review", exact: true })
-        .check();
+    await dialog.getByRole("radio", { name: "A-class", exact: true }).check();
     await expect(score).toHaveValue("2");
     await increase.click();
     await expect(score).toHaveValue("2.5");
@@ -1908,7 +2392,7 @@ test("review score stepper uses half-points, clamps zero, and saves custom score
     ).toHaveValue(/5-acr\[2\.5\]/u);
     await dialog.getByRole("button", { name: "Preview", exact: true }).click();
     await expect(
-        dialog.getByRole("table", { name: "Nomination table", exact: true }),
+        dialog.getByRole("table", { name: "Nomination table 1", exact: true }),
     ).toBeVisible();
     await dialog.getByRole("button", { name: "Submit", exact: true }).click();
     await expect(dialog).toBeHidden();
@@ -1926,7 +2410,7 @@ test("review score stepper uses half-points, clamps zero, and saves custom score
     expect(errors).toEqual([]);
 });
 
-test("preview identifies every invalid draft across split and merged tables", async ({
+test("preview identifies every invalid draft across table tabs", async ({
     page,
 }) => {
     const errors = await mount(page, "zh-Hans");
@@ -1951,7 +2435,6 @@ test("preview identifies every invalid draft across split and merged tables", as
     await dialog.getByRole("button", { name: "新增提名", exact: true }).click();
     await article.fill("第二项条目");
     await length.check();
-    await dialog.getByRole("button", { name: "分表", exact: true }).click();
     await dialog.getByRole("button", { name: "新增表格", exact: true }).click();
     await article.fill("第二表条目");
     await length.check();
@@ -1964,20 +2447,13 @@ test("preview identifies every invalid draft across split and merged tables", as
     await score.fill("0.25");
     await preview.click();
     await expect(globalError).toBeVisible();
-    await expect(globalError).toHaveCSS("padding-top", "0px");
+    await expect(globalError).toHaveCSS("padding-top", "12px");
     await expect(globalError).toContainText(
         "请检查错误表单后预览。错误表单：（表格1）提名1、（表格1）提名2、（表格2）提名1。",
     );
     await expect(article).toBeFocused();
     await expect(dialog.getByRole("table")).toHaveCount(0);
-    await dialog.getByRole("button", { name: "合表", exact: true }).click();
-    await preview.click();
-    await expect(globalError).toContainText(
-        "请检查错误表单后预览。错误表单：提名1、提名2、提名3。",
-    );
-    await expect(globalError).not.toContainText("表格");
-    await expect(article).toBeFocused();
-    await dialog.getByRole("tab", { name: "提名2", exact: true }).click();
+    await dialog.getByRole("tab", { name: "项目2", exact: true }).click();
     await expect(
         activePanel.locator(".acga-code-preview-text textarea"),
     ).toHaveValue(/1c\[0\.25\]/u);
@@ -2049,5 +2525,272 @@ test("English checking and mobile forms use the same accessible dialog", async (
         clipped,
         "Mobile article controls must fit within their visible form container",
     ).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
+async function openDykCheck(page: Page, title: string, reason = "4-dyk") {
+    await page.evaluate(
+        ({ title, reason }) => {
+            const global = window as any;
+            void global.acgaFixture.dialogs.showCheckNominationDialog(
+                global.AcgaTestUI.nomination(reason, title),
+                { type: "acg2", position: 1 },
+            );
+        },
+        { title, reason },
+    );
+    await expect(page.getByRole("dialog")).toBeVisible();
+}
+
+async function closeDykCheck(page: Page) {
+    await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Cancel", exact: true })
+        .click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+}
+
+test("DYK score-check rows show the latest archive author and discard older session replies", async ({
+    page,
+}) => {
+    const errors = await mount(page, "en", { deferredDyk: true });
+    await openDykCheck(page, "First article");
+    const dialog = page.getByRole("dialog");
+    const status = dialog.locator(".acga-check-summary .acga-dyk-status");
+    await expect(status).toContainText("Checking the talk page");
+    await expect
+        .poll(() =>
+            page.evaluate(() => (window as any).acgaFixture.dykRequests.length),
+        )
+        .toBe(1);
+    await closeDykCheck(page);
+    await openDykCheck(page, "Second article");
+    await expect
+        .poll(() =>
+            page.evaluate(() => (window as any).acgaFixture.dykRequests.length),
+        )
+        .toBe(2);
+    const previewBefore = await dialog
+        .locator(".acga-code-preview-text textarea")
+        .inputValue();
+    await page.evaluate(() =>
+        (window as any).acgaFixture.dykRequests[0].resolve({
+            passed: false,
+            date: "2025-01-01",
+            nominated: true,
+        }),
+    );
+    await expect(status).toContainText("Checking the talk page");
+    await expect(status.locator(".acga-dyk-nomination")).toHaveCount(0);
+    await page.evaluate(() =>
+        (window as any).acgaFixture.dykRequests[1].resolve({
+            passed: true,
+            date: "2025-08-05",
+            records: [
+                { author: "a2569875", date: "2016-03-28", passed: true },
+                { author: "Newbamboo", date: "2025-08-05", passed: true },
+            ],
+        }),
+    );
+    await expect(status).toContainText("Newbamboo; passed on 2025-08-05");
+    await expect(status).not.toContainText("a2569875");
+    await expect(status.getByRole("link")).toHaveAttribute(
+        "href",
+        "/wiki/Talk%3ASecond%20article",
+    );
+    await expect(
+        dialog.locator(".acga-code-preview-text textarea"),
+    ).toHaveValue(previewBefore);
+    expect(errors).toEqual([]);
+});
+
+test("DYK score checking distinguishes unsuccessful nominations, absent records and lookup failures", async ({
+    page,
+}) => {
+    const errors = await mount(page, "en", { deferredDyk: true });
+    const status = page.locator(".acga-check-summary .acga-dyk-status");
+    await openDykCheck(page, "No record");
+    await expect
+        .poll(() =>
+            page.evaluate(() => (window as any).acgaFixture.dykRequests.length),
+        )
+        .toBe(1);
+    await page.evaluate(() =>
+        (window as any).acgaFixture.dykRequests[0].resolve({
+            passed: false,
+            date: null,
+        }),
+    );
+    await expect(status).toContainText(
+        "No successful DYK appearance was found",
+    );
+    await closeDykCheck(page);
+    await openDykCheck(page, "地球冒险3");
+    await expect
+        .poll(() =>
+            page.evaluate(() => (window as any).acgaFixture.dykRequests.length),
+        )
+        .toBe(2);
+    await page.evaluate(() =>
+        (window as any).acgaFixture.dykRequests[1].resolve({
+            passed: false,
+            date: "2026-09-27",
+            records: [
+                { author: "Pathfinbird", date: "2026-09-27", passed: false },
+            ],
+        }),
+    );
+    await expect(status).toContainText(
+        "Pathfinbird; did not pass on 2026-09-27",
+    );
+    await closeDykCheck(page);
+    await openDykCheck(page, "Unreadable talk page");
+    await expect
+        .poll(() =>
+            page.evaluate(() => (window as any).acgaFixture.dykRequests.length),
+        )
+        .toBe(3);
+    await page.evaluate(() =>
+        (window as any).acgaFixture.dykRequests[2].reject(
+            new Error("offline fixture failure"),
+        ),
+    );
+    await expect(status).toContainText("DYK record could not be checked");
+    await expect
+        .poll(() =>
+            page.evaluate(
+                () => (window as any).acgaFixture.effects.errors.length,
+            ),
+        )
+        .toBe(1);
+    expect(errors).toEqual([]);
+});
+
+test("current DYK nomination tags coexist with previous outcomes and disappear between sessions", async ({
+    page,
+}) => {
+    const errors = await mount(page, "en", { deferredDyk: true });
+    const status = page.locator(".acga-check-summary .acga-dyk-status");
+    const tag = status.locator(".acga-dyk-nomination");
+    const cases = [
+        {
+            title: "Current nomination only",
+            result: { passed: false, date: null, nominated: true },
+            history: "",
+        },
+        {
+            title: "Previous appearance and new nomination",
+            result: { passed: true, date: "2025-08-05", nominated: true },
+            history: "successful DYK appearance on 2025-08-05",
+        },
+        {
+            title: "Archived nomination and new nomination",
+            result: {
+                passed: false,
+                date: "2026-09-27",
+                nominated: true,
+                records: [
+                    {
+                        author: "Pathfinbird",
+                        date: "2026-09-27",
+                        passed: false,
+                    },
+                ],
+            },
+            history: "Pathfinbird; did not pass on 2026-09-27",
+        },
+    ];
+    for (const [index, item] of cases.entries()) {
+        await openDykCheck(page, item.title);
+        await expect(tag).toHaveCount(0);
+        await expect
+            .poll(() =>
+                page.evaluate(
+                    () => (window as any).acgaFixture.dykRequests.length,
+                ),
+            )
+            .toBe(index + 1);
+        await page.evaluate(
+            ({ index, result }) =>
+                (window as any).acgaFixture.dykRequests[index].resolve(result),
+            { index, result: item.result },
+        );
+        await expect(tag).toHaveText("Currently nominated for DYK");
+        await expect(status).not.toContainText("No successful DYK appearance");
+        if (item.history) await expect(status).toContainText(item.history);
+        await closeDykCheck(page);
+    }
+    await openDykCheck(page, "No current nomination");
+    await expect(tag).toHaveCount(0);
+    await expect
+        .poll(() =>
+            page.evaluate(() => (window as any).acgaFixture.dykRequests.length),
+        )
+        .toBe(4);
+    await page.evaluate(() =>
+        (window as any).acgaFixture.dykRequests[3].resolve({
+            passed: false,
+            date: null,
+        }),
+    );
+    await expect(tag).toHaveCount(0);
+    await expect(status).toContainText(
+        "No successful DYK appearance was found",
+    );
+    expect(errors).toEqual([]);
+});
+
+test("DYK status appears only for nominations requesting the DYK scoring item", async ({
+    page,
+}) => {
+    const errors = await mount(page, "zh-Hans", {
+        pageName: "Example article",
+        deferredDyk: true,
+    });
+    await page.evaluate(() => {
+        void (window as any).acgaFixture.dialogs.showNewNominationDialog();
+    });
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator(".acga-dyk-status")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await openDykCheck(page, "Example article", "1c");
+    await expect(dialog.locator(".acga-dyk-status")).toHaveCount(0);
+    expect(
+        await page.evaluate(
+            () => (window as any).acgaFixture.dykRequests.length,
+        ),
+    ).toBe(0);
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await openDykCheck(page, "紅石電路");
+    await expect
+        .poll(() =>
+            page.evaluate(() => (window as any).acgaFixture.dykRequests.length),
+        )
+        .toBe(1);
+    await page.evaluate(() =>
+        (window as any).acgaFixture.dykRequests[0].resolve({
+            passed: true,
+            date: "2025-08-05",
+            nominated: true,
+            records: [
+                { author: "Newbamboo", date: "2025-08-05", passed: true },
+            ],
+        }),
+    );
+    await expect(dialog.locator(".acga-check-summary dt")).toHaveText([
+        "得分者",
+        "得分条目",
+        "DYK状态",
+    ]);
+    await expect(dialog.locator(".acga-dyk-status")).toContainText(
+        "最近一次提名主编为Newbamboo，通过于2025-08-05。",
+    );
+    await expect(dialog.locator(".acga-dyk-nomination")).toHaveText(
+        "正在提名 DYK",
+    );
+    await capture(page, "dyk-check-zh");
     expect(errors).toEqual([]);
 });

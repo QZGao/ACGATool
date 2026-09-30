@@ -1,6 +1,7 @@
 /** Adapt ResourceLoader and MediaWiki globals to explicit startup capabilities. */
 import type { StartupHost } from "../../app/main.ts";
 import type { DialogRuntime } from "../../features/nomination/contracts.ts";
+import { nominationPageContext } from "./page-context.ts";
 
 export function createBrowserHost(
     win: Window,
@@ -13,7 +14,21 @@ export function createBrowserHost(
         namespaceNumber: host.config.get("wgNamespaceNumber"),
         articleTitle: [0, 1].includes(host.config.get("wgNamespaceNumber"))
             ? host.config.get("wgTitle")
-            : "",
+            : host.config.get("wgNamespaceNumber") === 6
+              ? host.config.get("wgPageName").replaceAll("_", " ")
+              : "",
+        getNominationContext: () =>
+            nominationPageContext(
+                {
+                    pageName: host.config.get("wgPageName"),
+                    title: host.config.get("wgTitle"),
+                    namespaceNumber: host.config.get("wgNamespaceNumber"),
+                    revisionId: host.config.get("wgRevisionId"),
+                    currentRevisionId: host.config.get("wgCurRevisionId"),
+                    diffNewId: host.config.get("wgDiffNewId"),
+                },
+                win.location,
+            ),
         action: host.config.get("wgAction"),
         revisionId: host.config.get("wgRevisionId"),
         language: host.config.get("wgUserLanguage") || "en",

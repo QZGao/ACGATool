@@ -2,6 +2,7 @@ import dialogStyles from "./dialog.css";
 import { createDialogHost } from "./dialog-host.ts";
 import { CHECK_OUTCOME, normalizeCheckOutcome } from "./check-batch.ts";
 import type {
+    CheckBatchEntry,
     ConfirmationOptions,
     DialogOperations,
     DialogRuntime,
@@ -23,6 +24,7 @@ interface DialogController {
         target: NominationTarget,
         batchStatus: BatchStatus | null,
     ): Promise<unknown>;
+    openCheckBatch(entries: CheckBatchEntry[]): Promise<unknown>;
     openConfirmation(options: ConfirmationOptions): Promise<boolean>;
     sessionResolve: ((result: unknown) => void) | null;
     kind: string | null;
@@ -67,6 +69,12 @@ export function createNominationDialogs(
                 ? Promise.resolve(CHECK_OUTCOME.CANCEL)
                 : controller
                       .openCheck(nomination, target, batchStatus)
+                      .then(normalizeCheckOutcome),
+        showCheckBatchDialog: (entries) =>
+            disposed
+                ? Promise.resolve(CHECK_OUTCOME.CANCEL)
+                : controller
+                      .openCheckBatch(entries)
                       .then(normalizeCheckOutcome),
         showConfirmDialog: (options) =>
             disposed

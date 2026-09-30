@@ -554,6 +554,75 @@ test("stored edit and check recipients stay explicit and never inherit new-draft
     assert.equal(model.nominationPayload(check, true).awarder, "");
 });
 
+test("pending suggestions display a loading placeholder without validating or saving it as a user", async () => {
+    const { NominationRuleSet } = await import("../../src/domain/rules.ts");
+    const { ruleNames, ruleDict } = NominationRuleSet();
+    const model = createNominationModel({
+        msg: createTranslator("en").msg,
+        getUserName: () => "Current user",
+        getPageName: () => "Example article",
+        getSuggestedRecipient: async () => "Leading editor",
+    });
+    const draft = model.makeAuthorNomination(null, ruleNames, ruleDict);
+    draft.ruleStatus["1a"].selected = true;
+    assert.equal(model.recipientPlaceholder(draft), "...");
+    assert.equal(model.effectiveRecipient(draft), "");
+    assert.equal(model.authorValidation([draft]), draft);
+    assert.ok(draft.errors.awarder);
+    assert.equal(model.nominationPayload(draft).awarder, "");
+    draft.awarder = "Explicit editor";
+    assert.equal(model.authorValidation([draft]), null);
+    assert.equal(model.nominationPayload(draft).awarder, "Explicit editor");
+    draft.awarder = "";
+    draft.articleRecipientDefault = "Leading editor";
+    draft.recipientSuggestionPending = false;
+    assert.equal(model.recipientPlaceholder(draft), "Leading editor");
+    assert.equal(model.authorValidation([draft]), null);
+});
+
+test("file drafts select media and use uploaders, while revision editors apply to every category except recommendation", async () => {
+    const { NominationRuleSet } = await import("../../src/domain/rules.ts");
+    const { ruleNames, ruleDict } = NominationRuleSet();
+    for (const scope of ["media", "revision"] as const) {
+        const model = createNominationModel({
+            msg: createTranslator("en").msg,
+            getUserName: () => "Current user",
+            getPageName: () => "File:Example.svg",
+            getInitialRuleCategory: () => "media",
+            getRecipientSuggestionScope: () => scope,
+        });
+        const draft = model.makeAuthorNomination(null, ruleNames, ruleDict);
+        draft.articleRecipientDefault = "Context editor";
+        assert.equal(draft.activeRuleCategory, "media");
+        assert.equal(model.mediaPageNamePlaceholder(draft), "File:Example.svg");
+        assert.equal(model.recipientPlaceholder(draft), "Context editor");
+        assert.equal(model.nominationPayload(draft).awarder, "Context editor");
+        assert.equal(model.authorValidation([draft]), null);
+        for (const category of [
+            "article",
+            "review",
+            "media",
+            "recommendation",
+            "other",
+        ]) {
+            draft.activeRuleCategory = category;
+            assert.equal(
+                model.recipientPlaceholder(draft),
+                category === "recommendation" ||
+                    (scope === "media" && category !== "media")
+                    ? "Current user"
+                    : "Context editor",
+            );
+        }
+        draft.activeRuleCategory = "media";
+        draft.media.pageName = "File:Different.svg";
+        assert.equal(
+            model.recipientPlaceholder(draft),
+            scope === "media" ? "Current user" : "Context editor",
+        );
+    }
+});
+
 test("new article nominations without launch context require an explicit title", async () => {
     const { NominationRuleSet } = await import("../../src/domain/rules.ts");
     const { ruleNames, ruleDict } = NominationRuleSet();

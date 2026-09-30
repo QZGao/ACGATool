@@ -1,12 +1,20 @@
 import type { Translator } from "../../i18n/index.ts";
 /** Enhance rendered ACG nomination tables without rewriting their content. */
 import type { EntrySelection } from "../../app/nomination-service.ts";
+import {
+    getNominationCheckRestriction,
+    isSameNomination,
+    type ExistingNomination,
+} from "../../domain/existing-nominations.ts";
 import type { Feedback } from "../../shared/ports.ts";
 import { findPrecedingDiscussionCommentId } from "./identity.ts";
 import styles from "./registry.css";
 
 export interface RegistryActions {
-    newNomination(): Promise<unknown>;
+    getExistingNominations?(
+        pageName?: string,
+        expectedRevisionId?: string | number | null,
+    ): Promise<ExistingNomination[]>;
     editNomination(selection: EntrySelection): Promise<unknown>;
     checkNomination(selection: EntrySelection): Promise<unknown>;
     checkBatch(selections: EntrySelection[]): Promise<unknown>;
@@ -20,6 +28,7 @@ export interface RegistryOptions extends Feedback {
     msg: Translator;
     revisionId: string | number | null;
     addStyles(css: string): () => void;
+    getUserName?(): string | null;
 }
 
 export function mountRegistry(
@@ -30,18 +39,37 @@ export function mountRegistry(
     const doc = root.ownerDocument;
     const controller = new AbortController();
     const inserted: Element[] = [];
-    const selected = new Map<HTMLInputElement, EntrySelection>();
-    const checkboxes: HTMLLabelElement[] = [];
+    const selected = new Map<HTMLButtonElement, EntrySelection>();
+    const nominationRows: Array<{
+        selection: EntrySelection;
+        check: HTMLButtonElement;
+        select: HTMLButtonElement;
+        checked: boolean;
+    }> = [];
+    const restrictions = new Map<Element, string>();
     const msg = options.msg;
     const removeStyles = options.addStyles(styles);
-    let choosing = false;
     let busy = false;
     let disposed = false;
 
-    const toolbar = doc.createElement("div");
-    toolbar.className = "acga-registry-toolbar";
-    toolbar.setAttribute("role", "group");
-    toolbar.setAttribute("aria-label", msg("acg_award_tool"));
+    function restrictCheck(
+        row: (typeof nominationRows)[number],
+        reason: string | null,
+    ) {
+        for (const element of [row.check, row.select]) {
+            if (reason) {
+                restrictions.set(element, reason);
+                element.title = reason;
+            } else {
+                restrictions.delete(element);
+                element.removeAttribute("title");
+            }
+        }
+        if (reason) {
+            selected.delete(row.select);
+        }
+    }
+
     const status = doc.createElement("span");
     status.setAttribute("role", "status");
     status.className = "acga-registry-status";
@@ -66,72 +94,64 @@ export function mountRegistry(
     function button(
         label: string,
         action: () => Promise<unknown> | void,
-        quiet = false,
+        classes = "",
     ) {
         const element = doc.createElement("button");
         element.type = "button";
-        element.className = quiet
-            ? "cdx-button cdx-button--weight-quiet acga-registry-action"
-            : "cdx-button";
+        element.className = classes ? `cdx-button ${classes}` : "cdx-button";
         element.textContent = label;
         element.addEventListener(
             "click",
             () => {
-                if (!busy) void action();
+                if (!busy && !element.disabled) void action();
             },
             { signal: controller.signal },
         );
         return element;
     }
-    const create = button(msg("register_a_new_nomination"), () =>
-        invoke(actions.newNomination),
-    );
-    create.classList.add(
-        "cdx-button--action-progressive",
-        "cdx-button--weight-primary",
-    );
-    const choose = button(msg("batch_checking"), () => {
-        choosing = !choosing;
-        if (!choosing) {
-            selected.clear();
-            for (const label of checkboxes)
-                label.querySelector("input")!.checked = false;
-        }
-        sync();
-    });
-    const begin = button(msg("start_checking"), () =>
+    function checkSelection(selection: EntrySelection) {
         invoke(async () => {
+            if (!selected.size) {
+                await actions.checkNomination(selection);
+                return;
+            }
             await actions.checkBatch([...selected.values()]);
             selected.clear();
-            for (const label of checkboxes)
-                label.querySelector("input")!.checked = false;
-        }),
-    );
+        });
+    }
     function sync() {
         for (const element of inserted.flatMap((item) => [
             item,
-            ...item.querySelectorAll("button,input"),
+            ...item.querySelectorAll("button"),
         ])) {
-            if (
-                element instanceof doc.defaultView!.HTMLButtonElement ||
-                element instanceof doc.defaultView!.HTMLInputElement
-            )
-                element.disabled = busy;
+            if (element instanceof doc.defaultView!.HTMLButtonElement)
+                element.disabled = busy || restrictions.has(element);
         }
-        choose.setAttribute("aria-pressed", String(choosing));
-        begin.hidden = !choosing;
-        begin.disabled = busy || selected.size === 0;
-        for (const label of checkboxes) label.hidden = !choosing;
+        for (const row of nominationRows) {
+            row.check.textContent = msg(
+                selected.size
+                    ? "batch_checking"
+                    : row.checked
+                      ? "recheck"
+                      : "check",
+            );
+            const pressed = selected.has(row.select);
+            row.select.setAttribute("aria-pressed", String(pressed));
+            row.select.classList.toggle(
+                "cdx-toggle-button--toggled-on",
+                pressed,
+            );
+            row.select.classList.toggle(
+                "cdx-toggle-button--toggled-off",
+                !pressed,
+            );
+        }
         status.textContent = busy
             ? msg("working")
-            : choosing
+            : selected.size
               ? msg("count_items_selected", { count: selected.size })
               : "";
     }
-    toolbar.append(create, choose, begin, status);
-    root.prepend(toolbar);
-    inserted.push(toolbar);
-
     const occurrences = new Map<string, number>();
     let section: { date: string; occurrence: number; index: number } | null =
         null;
@@ -165,7 +185,7 @@ export function mountRegistry(
                             options.revisionId,
                         ),
                     ),
-                true,
+                "cdx-button--weight-quiet acga-registry-action",
             );
             const slot = node.closest(".mw-heading") ?? node;
             slot.append(archive);
@@ -194,39 +214,76 @@ export function mountRegistry(
             const edit = button(
                 msg("edit_nomination"),
                 () => invoke(() => actions.editNomination(selection)),
-                true,
+                "acga-registry-edit",
             );
-            heading.append(edit);
-            inserted.push(edit);
+            const editControl = doc.createElement("div");
+            editControl.className = "acga-registry-edit-control";
+            editControl.append(edit);
+            heading.append(editControl);
+            inserted.push(editControl);
             const checkRow = row.nextElementSibling;
-            const anchor = checkRow?.querySelector<HTMLElement>(".mw-notalk");
+            if (
+                !(checkRow instanceof doc.defaultView!.HTMLTableRowElement) ||
+                checkRow.closest("table") !== table
+            )
+                continue;
+            const anchor =
+                Array.from(
+                    checkRow.querySelectorAll<HTMLElement>(".mw-notalk"),
+                ).find((candidate) => candidate.closest("table") === table) ??
+                Array.from(checkRow.cells).find(
+                    (cell) => cell.tagName === "TD",
+                );
             if (!anchor || anchor.closest("table") !== table) continue;
-            const controls = doc.createElement("div");
+            const controls = doc.createElement("span");
             controls.className = "acga-registry-controls";
             const check = button(
                 msg("check"),
-                () => invoke(() => actions.checkNomination(selection)),
-                true,
+                () => checkSelection(selection),
+                "cdx-button--action-progressive",
             );
-            const label = doc.createElement("label");
-            label.className = "acga-registry-select";
-            const checkbox = doc.createElement("input");
-            checkbox.type = "checkbox";
-            checkbox.addEventListener(
-                "change",
-                () => {
-                    if (checkbox.checked) selected.set(checkbox, selection);
-                    else selected.delete(checkbox);
-                    sync();
-                },
-                { signal: controller.signal },
-            );
-            label.append(checkbox, doc.createTextNode(msg("add_to_batch")));
-            controls.append(check, label);
+            const select = button(msg("add_to_batch"), () => {
+                if (selected.has(select)) selected.delete(select);
+                else selected.set(select, selection);
+                sync();
+            });
+            select.className =
+                "cdx-toggle-button cdx-toggle-button--framed cdx-toggle-button--size-medium acga-registry-select";
+            controls.append(check, select);
             anchor.append(controls);
-            checkboxes.push(label);
+            nominationRows.push({ selection, check, select, checked: false });
             inserted.push(controls);
         }
+    }
+    nominationRows[0]?.check.parentElement?.append(status);
+    const currentUser = options.getUserName?.() ?? null;
+    const readNominations = actions.getExistingNominations;
+    if (readNominations && nominationRows.length) {
+        for (const row of nominationRows) restrictCheck(row, msg("working"));
+        void (async () => {
+            const nominations = await readNominations(
+                undefined,
+                options.revisionId,
+            );
+            if (disposed) return;
+            for (const row of nominationRows) {
+                const nomination = nominations.find((item) =>
+                    isSameNomination(item, row.selection),
+                );
+                row.checked = Boolean(nomination?.checked);
+                const restriction = nomination
+                    ? getNominationCheckRestriction(nomination, currentUser)
+                    : "this_nomination_or_the_registry_has_changed_refresh_the_page";
+                restrictCheck(row, restriction ? msg(restriction) : null);
+            }
+            sync();
+        })().catch((cause) => {
+            if (disposed) return;
+            options.reportError(cause, "Checking registry eligibility");
+            for (const row of nominationRows)
+                restrictCheck(row, msg("existing_nomination_lookup_failed"));
+            sync();
+        });
     }
     sync();
     return () => {

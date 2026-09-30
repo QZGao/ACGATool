@@ -48,7 +48,7 @@ export function NominationRules(
  * 提名規則別名。
  * @returns 包含別名的對象。
  */
-export function NominationRuleAliases(): any {
+export function NominationRuleAliases(): Record<string, string> {
     return {
         "2a": "2-c",
         c: "2-c",
@@ -475,12 +475,12 @@ function parseRuleToken(
  *
  * @param reason 原始代碼或完整的 ACG提名2/request 模板。
  * @param ruleDict 標準規則字典。
- * @param aliases 小寫別名至標準代碼的對照表。
+ * @param aliases 小寫別名至標準代碼的對照表；預設為提名規則的全部別名。
  */
 export function parseReasonTokens(
     reason: string,
     ruleDict: Record<string, any>,
-    aliases: Record<string, string> = {},
+    aliases: Record<string, string> = NominationRuleAliases(),
 ): any {
     if (!ruleDict || typeof ruleDict !== "object" || Array.isArray(ruleDict)) {
         throw new TypeError("Rule dictionary must be an object");

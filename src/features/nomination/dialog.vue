@@ -11,7 +11,7 @@
         @update:open="onOpenUpdate"
     >
         <div v-if="batchStatus && kind === 'check'" class="acga-batch-progress">
-            <div>{{ batchStatus.current }} / {{ batchStatus.total }}</div>
+            <div>{{ batchProgressValue }} / {{ batchStatus.total }}</div>
             <p>
                 {{
                     msg(
@@ -20,12 +20,12 @@
                 }}
             </p>
             <cdx-progress-bar
-                :value="batchStatus.current"
+                :value="batchProgressValue"
                 :max="batchStatus.total"
                 :aria-label="
                     msg('batch_progress') +
                     ' ' +
-                    batchStatus.current +
+                    batchProgressValue +
                     ' / ' +
                     batchStatus.total
                 "
@@ -36,59 +36,80 @@
             class="acga-save-progress"
             :aria-label="saveLabel"
         />
-        <cdx-message
-            v-if="error"
-            type="error"
-            class="acga-dialog-error"
-            tabindex="-1"
+        <!-- Codex trims padding on direct dialog-body children; keep messages nested. -->
+        <div v-if="error">
+            <cdx-message type="error" class="acga-dialog-error" tabindex="-1">
+                <div>{{ error }}</div>
+                <ul
+                    v-if="errorDetails.length"
+                    class="acga-dialog-error-details"
+                >
+                    <li v-for="(issue, index) in errorDetails" :key="index">
+                        {{ issue }}
+                    </li>
+                </ul>
+            </cdx-message>
+        </div>
+
+        <div
+            v-if="
+                view !== 'nomination-summary' &&
+                (existingNominationNotices.length ||
+                    existingNominationLookupFailed)
+            "
         >
-            <div>{{ error }}</div>
-            <ul v-if="errorDetails.length" class="acga-dialog-error-details">
-                <li v-for="(issue, index) in errorDetails" :key="index">
-                    {{ issue }}
-                </li>
-            </ul>
-        </cdx-message>
+            <cdx-message
+                v-for="item in existingNominationNotices"
+                :key="item.key"
+                :type="item.sameRecipient ? 'warning' : 'notice'"
+                class="acga-existing-nomination"
+                :class="{
+                    'acga-existing-nomination--same-recipient':
+                        item.sameRecipient,
+                }"
+                :data-level="item.sameRecipient ? 'warning' : 'notice'"
+            >
+                <p>
+                    {{
+                        msg(
+                            item.sameRecipient
+                                ? "existing_nomination_warning"
+                                : "existing_nomination_notice",
+                        )
+                    }}
+                </p>
+                <a :href="item.url" target="_blank" rel="noopener">{{
+                    item.description
+                }}</a>
+            </cdx-message>
+            <cdx-message
+                v-if="existingNominationLookupFailed"
+                type="warning"
+                class="acga-existing-nomination-error"
+                >{{ msg("existing_nomination_lookup_failed") }}</cdx-message
+            >
+        </div>
 
         <div
             v-if="kind === 'new' && view === 'main'"
             class="acga-nomination-table-layout"
         >
-            <component
-                :is="splitTableMode ? 'CdxTabs' : 'div'"
+            <cdx-tabs
                 class="acga-nomination-table-tabs"
-                v-bind="
-                    splitTableMode
-                        ? {
-                              active: String(activeNominationTableIndex),
-                              framed: true,
-                          }
-                        : {}
-                "
+                :active="String(activeNominationTableIndex)"
+                framed
                 @update:active="switchNominationTable(Number($event))"
             >
-                <component
-                    :is="splitTableMode ? 'CdxTab' : 'div'"
-                    v-for="(table, tableIndex) in visibleNominationTables"
+                <cdx-tab
+                    v-for="(table, tableIndex) in nominationTables"
                     :key="tableIndex"
-                    v-bind="
-                        splitTableMode
-                            ? {
-                                  name: String(tableIndex),
-                                  label: msg('nomination_table_tab', {
-                                      number: tableIndex + 1,
-                                  }),
-                                  disabled: busy,
-                              }
-                            : {}
+                    :name="String(tableIndex)"
+                    :label="
+                        msg('nomination_table_tab', { number: tableIndex + 1 })
                     "
+                    :disabled="busy"
                 >
-                    <template
-                        v-if="
-                            !splitTableMode ||
-                            tableIndex === activeNominationTableIndex
-                        "
-                    >
+                    <template v-if="tableIndex === activeNominationTableIndex">
                         <div
                             class="acga-nomination-tabs cdx-tabs cdx-tabs--quiet"
                         >
@@ -172,7 +193,9 @@
                                                 "
                                                 :disabled="
                                                     busy ||
-                                                    nominations.length <= 1
+                                                    (nominations.length <= 1 &&
+                                                        nominationTables.length <=
+                                                            1)
                                                 "
                                                 @click="
                                                     removeNomination(
@@ -237,10 +260,9 @@
                             </div>
                         </div>
                     </template>
-                </component>
-            </component>
+                </cdx-tab>
+            </cdx-tabs>
             <cdx-button
-                v-if="splitTableMode"
                 class="acga-nomination-table-add"
                 type="button"
                 weight="quiet"
@@ -403,228 +425,428 @@
             </cdx-field>
         </div>
 
-        <div
+        <component
             v-else-if="kind === 'check' && currentNomination"
-            class="acga-check-form"
+            :is="isCheckBatch ? 'CdxTabs' : 'div'"
+            :class="{ 'acga-check-table-tabs': isCheckBatch }"
+            :active="activeCheckTable"
+            :framed="true"
+            @update:active="selectCheckBatchTable"
         >
-            <cdx-message
-                v-if="checkReasonBuilderActive"
-                type="warning"
-                class="acga-source-warning"
+            <component
+                v-for="table in checkNavigationTables"
+                :key="table.key"
+                :is="isCheckBatch ? 'CdxTab' : 'div'"
+                :name="table.key"
+                :label="
+                    msg('nomination_table_tab', { number: table.index + 1 })
+                "
             >
-                {{ checkReasonBuilderMessage }}
-            </cdx-message>
-            <cdx-message
-                v-else-if="sourceFallbackActive"
-                type="warning"
-                class="acga-source-warning"
-            >
-                {{ sourceFallbackMessage }}
-            </cdx-message>
-            <dl class="acga-check-summary">
-                <dt>{{ awarderLabel }}</dt>
-                <dd>
-                    <a :href="userUrl()">{{ currentNomination.awarder }}</a>
-                    （<a :href="userUrl('User talk:')">{{ msg("talk") }}</a>
-                    ·
-                    <a :href="userUrl('Special:用户贡献/')">{{
-                        msg("contributions")
-                    }}</a
-                    >）
-                </dd>
-                <dt>{{ pageNameLabel }}</dt>
-                <dd v-if="checkIsOtherRecommendation">
-                    {{ currentNomination.pageName }}
-                </dd>
-                <dd v-else>
-                    <a :href="pageUrl()">{{ currentNomination.pageName }}</a>
-                    （<a :href="pageUrl('Talk:')">{{ msg("talk") }}</a>
-                    ·
-                    <a :href="pageUrl('', { action: 'history' })">{{
-                        msg("history")
-                    }}</a>
-                    ·
-                    <a :href="backlinksUrl()">{{ msg("what_links_here") }}</a
-                    >）
-                </dd>
-            </dl>
-            <template v-if="checkReasonBuilderActive">
-                <cdx-field class="acga-original-request-reason">
-                    <template #label>{{ originalRequestReasonLabel }}</template>
-                    <cdx-text-area
-                        :model-value="checkOriginalRequestReasonText"
-                        :rows="3"
-                        readonly
-                        spellcheck="false"
-                    />
-                </cdx-field>
-                <acga-author-form
-                    :nomination="checkReasonDraft"
-                    :rule-groups="ruleGroups"
-                    :rule-dict="ruleDict"
-                    :disabled="busy"
-                    @change="clearError"
-                />
-            </template>
-            <template v-else>
-                <fieldset
-                    v-if="!sourceFallbackActive"
-                    class="acga-check-table-fieldset"
-                    :disabled="busy"
+                <component
+                    :is="isCheckBatch ? 'CdxTabs' : 'div'"
+                    :class="{ 'acga-check-item-tabs': isCheckBatch }"
+                    :active="table.active"
+                    :framed="false"
+                    @update:active="selectCheckBatchItem"
                 >
-                    <cdx-table
-                        v-model:selected-rows="checkedRowsModel"
-                        :columns="checkColumns"
-                        :data="checkTableRows"
-                        :use-row-selection="true"
-                        :show-vertical-borders="true"
-                        :caption="msg('nomination_checks')"
-                        :hide-caption="true"
-                    >
-                        <template #header>
-                            <cdx-button
-                                class="acga-check-reset"
-                                weight="quiet"
-                                action="default"
-                                :disabled="busy"
-                                :title="msg('reset_nomination_checks')"
-                                @click="resetCheckItems"
-                                >{{ msg("reset") }}</cdx-button
-                            >
-                        </template>
-                        <template v-if="checkTableRows.length === 0" #tbody>
-                            <tbody></tbody>
-                        </template>
-                        <template #item-code="{ row }">
-                            <span class="acga-check-code-control">
-                                <cdx-select
-                                    class="acga-check-code"
-                                    :selected="row.rule"
-                                    :menu-items="checkRuleItems"
-                                    :disabled="busy"
-                                    :aria-label="row.code + ' ' + msg('code')"
-                                    @update:selected="
-                                        (value) => setCheckCode(row, value)
-                                    "
-                                />
-                                <span v-if="row.status.pending">?</span>
-                            </span>
-                        </template>
-                        <template #item-description="{ row }">
-                            <cdx-text-input
-                                class="acga-check-description"
-                                :model-value="row.status.desc"
-                                :disabled="busy"
-                                :aria-label="
-                                    row.code + ' ' + msg('description')
-                                "
-                                @update:model-value="
-                                    (value) => setCheckDescription(row, value)
-                                "
-                            />
-                        </template>
-                        <template #item-score="{ row }">
-                            <acga-score-input
-                                :model-value="row.score"
-                                :disabled="busy"
-                                :label="row.code + ' ' + msg('score')"
-                                @update:model-value="
-                                    (value) => setCheckScore(row, value)
-                                "
-                            />
-                        </template>
-                        <template #item-actions="{ row }">
-                            <span class="acga-check-actions">
-                                <cdx-button
-                                    weight="quiet"
-                                    :disabled="busy || row.index === 0"
-                                    :aria-label="
-                                        row.code + ' ' + msg('move_up')
-                                    "
-                                    @click="moveCheckItem(row, -1)"
-                                    >↑</cdx-button
-                                >
-                                <cdx-button
-                                    weight="quiet"
-                                    :disabled="
-                                        busy ||
-                                        row.index === checkTableRows.length - 1
-                                    "
-                                    :aria-label="
-                                        row.code + ' ' + msg('move_down')
-                                    "
-                                    @click="moveCheckItem(row, 1)"
-                                    >↓</cdx-button
-                                >
-                                <cdx-button
-                                    weight="quiet"
-                                    action="destructive"
-                                    :disabled="busy"
-                                    :aria-label="
-                                        row.code + ' ' + msg('delete_item')
-                                    "
-                                    @click="removeCheckItem(row)"
-                                    >{{ msg("delete") }}</cdx-button
-                                >
-                            </span>
-                        </template>
-                        <template #tfoot>
-                            <tfoot>
-                                <tr class="acga-check-add-row">
-                                    <td></td>
-                                    <td>
-                                        <cdx-select
-                                            :key="checkTableRows.length"
-                                            class="acga-check-code"
-                                            :selected="null"
-                                            :menu-items="checkRuleItems"
-                                            :disabled="busy"
-                                            default-label=""
-                                            :aria-label="msg('add_item_code')"
-                                            @update:selected="
-                                                addCheckItem($event)
-                                            "
-                                        />
-                                    </td>
-                                    <td></td>
-                                    <td></td>
-                                    <td></td>
-                                </tr>
-                            </tfoot>
-                        </template>
-                    </cdx-table>
-                </fieldset>
-                <cdx-field class="acga-code-preview">
-                    <template #label>{{ codePreviewLabel }}</template>
-                    <cdx-text-area
-                        class="acga-code-preview-text"
-                        :model-value="
-                            sourceFallbackActive
-                                ? currentNomination.rawSourceText
-                                : codePreviewResult.text
+                    <component
+                        v-for="item in table.items"
+                        :key="item.index"
+                        :is="isCheckBatch ? 'CdxTab' : 'div'"
+                        :name="String(item.index)"
+                        :label="isCheckBatch ? checkBatchItemLabel(item) : ''"
+                        :title="
+                            isCheckBatch
+                                ? checkBatchEntries[item.index].nomination
+                                      .pageName
+                                : ''
                         "
-                        :rows="4"
-                        :readonly="!sourceFallbackActive"
-                        spellcheck="false"
-                        @update:model-value="setRawSourceText"
-                    />
-                </cdx-field>
-                <cdx-field
-                    v-if="!sourceFallbackActive"
-                    class="acga-additional-message"
-                    optional
-                >
-                    <template #label>{{ additionalMessageLabel }}</template>
-                    <cdx-text-area
-                        v-model="currentNomination.message"
-                        :autosize="true"
-                        :rows="1"
-                        :placeholder="additionalMessagePlaceholder"
-                        :disabled="busy"
-                    />
-                </cdx-field>
-            </template>
-        </div>
+                    >
+                        <div
+                            v-if="
+                                !isCheckBatch || item.index === checkBatchIndex
+                            "
+                            class="acga-check-form"
+                        >
+                            <cdx-message
+                                v-if="checkReasonBuilderActive"
+                                type="warning"
+                                class="acga-source-warning"
+                            >
+                                {{ checkReasonBuilderMessage }}
+                            </cdx-message>
+                            <cdx-message
+                                v-else-if="sourceFallbackActive"
+                                type="warning"
+                                class="acga-source-warning"
+                            >
+                                {{ sourceFallbackMessage }}
+                            </cdx-message>
+                            <dl class="acga-check-summary">
+                                <dt>{{ awarderLabel }}</dt>
+                                <dd>
+                                    <a :href="userUrl()">{{
+                                        currentNomination.awarder
+                                    }}</a>
+                                    （<a :href="userUrl('User talk:')">{{
+                                        msg("talk")
+                                    }}</a>
+                                    ·
+                                    <a :href="userUrl('Special:用户贡献/')">{{
+                                        msg("contributions")
+                                    }}</a
+                                    >）
+                                </dd>
+                                <dt>{{ pageNameLabel }}</dt>
+                                <dd v-if="checkIsOtherRecommendation">
+                                    {{ currentNomination.pageName }}
+                                </dd>
+                                <dd v-else>
+                                    <a :href="pageUrl()">{{
+                                        currentNomination.pageName
+                                    }}</a>
+                                    （<a :href="pageUrl('Talk:')">{{
+                                        msg("talk")
+                                    }}</a>
+                                    ·
+                                    <a
+                                        :href="
+                                            pageUrl('', { action: 'history' })
+                                        "
+                                        >{{ msg("history") }}</a
+                                    >
+                                    ·
+                                    <a :href="backlinksUrl()">{{
+                                        msg("what_links_here")
+                                    }}</a
+                                    >）
+                                </dd>
+                                <template v-if="dykTarget">
+                                    <dt>{{ msg("dyk_status_label") }}</dt>
+                                    <dd
+                                        class="acga-dyk-status"
+                                        aria-live="polite"
+                                    >
+                                        {{ dykMessage }}
+                                        <span
+                                            v-if="dykStatus?.nominated"
+                                            class="acga-dyk-nomination"
+                                            >{{
+                                                msg("dyk_status_nominated")
+                                            }}</span
+                                        >
+                                        <a
+                                            :href="dykTalkUrl"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            >{{
+                                                msg("dyk_status_talk_link")
+                                            }}</a
+                                        >
+                                    </dd>
+                                </template>
+                            </dl>
+                            <template v-if="checkReasonBuilderActive">
+                                <cdx-field class="acga-original-request-reason">
+                                    <template #label>{{
+                                        originalRequestReasonLabel
+                                    }}</template>
+                                    <cdx-text-area
+                                        :model-value="
+                                            checkOriginalRequestReasonText
+                                        "
+                                        :rows="3"
+                                        readonly
+                                        spellcheck="false"
+                                    />
+                                </cdx-field>
+                                <acga-author-form
+                                    :nomination="checkReasonDraft"
+                                    :rule-groups="ruleGroups"
+                                    :rule-dict="ruleDict"
+                                    :disabled="busy"
+                                    @change="clearError"
+                                />
+                            </template>
+                            <template v-else>
+                                <fieldset
+                                    v-if="!sourceFallbackActive"
+                                    class="acga-check-table-fieldset"
+                                    :disabled="busy"
+                                >
+                                    <cdx-table
+                                        class="acga-check-table"
+                                        v-model:selected-rows="checkedRowsModel"
+                                        :columns="checkColumns"
+                                        :data="checkTableRows"
+                                        :use-row-selection="true"
+                                        :show-vertical-borders="true"
+                                        :caption="msg('nomination_checks')"
+                                        :hide-caption="true"
+                                    >
+                                        <template #header>
+                                            <span
+                                                class="acga-check-header-actions"
+                                            >
+                                                <cdx-button
+                                                    weight="quiet"
+                                                    :disabled="
+                                                        !canUndoCheckEdit
+                                                    "
+                                                    :aria-label="msg('undo')"
+                                                    :title="msg('undo')"
+                                                    @click="undoCheckEdit"
+                                                    ><cdx-icon :icon="undoIcon"
+                                                /></cdx-button>
+                                                <cdx-button
+                                                    weight="quiet"
+                                                    :disabled="
+                                                        !canRedoCheckEdit
+                                                    "
+                                                    :aria-label="msg('redo')"
+                                                    :title="msg('redo')"
+                                                    @click="redoCheckEdit"
+                                                    ><cdx-icon :icon="redoIcon"
+                                                /></cdx-button>
+                                                <cdx-button
+                                                    class="acga-check-reset"
+                                                    weight="quiet"
+                                                    action="destructive"
+                                                    :disabled="busy"
+                                                    :title="
+                                                        msg(
+                                                            'reset_nomination_checks',
+                                                        )
+                                                    "
+                                                    @click="resetCheckItems"
+                                                    >{{
+                                                        msg("reset")
+                                                    }}</cdx-button
+                                                >
+                                            </span>
+                                        </template>
+                                        <template
+                                            v-if="checkTableRows.length === 0"
+                                            #tbody
+                                        >
+                                            <tbody></tbody>
+                                        </template>
+                                        <template #item-code="{ row }">
+                                            <span
+                                                class="acga-check-code-control"
+                                            >
+                                                <cdx-select
+                                                    class="acga-check-code"
+                                                    :selected="row.rule"
+                                                    :menu-items="checkRuleItems"
+                                                    :disabled="busy"
+                                                    :aria-label="
+                                                        row.code +
+                                                        ' ' +
+                                                        msg('code')
+                                                    "
+                                                    @update:selected="
+                                                        (value) =>
+                                                            setCheckCode(
+                                                                row,
+                                                                value,
+                                                            )
+                                                    "
+                                                />
+                                                <span v-if="row.status.pending"
+                                                    >?</span
+                                                >
+                                            </span>
+                                        </template>
+                                        <template #item-description="{ row }">
+                                            <cdx-text-input
+                                                class="acga-check-description"
+                                                :model-value="row.status.desc"
+                                                :disabled="busy"
+                                                :aria-label="
+                                                    row.code +
+                                                    ' ' +
+                                                    msg('description')
+                                                "
+                                                @update:model-value="
+                                                    (value) =>
+                                                        setCheckDescription(
+                                                            row,
+                                                            value,
+                                                        )
+                                                "
+                                            />
+                                        </template>
+                                        <template #item-score="{ row }">
+                                            <acga-score-input
+                                                :model-value="row.score"
+                                                :disabled="busy"
+                                                :label="
+                                                    row.code +
+                                                    ' ' +
+                                                    msg('score')
+                                                "
+                                                @update:model-value="
+                                                    (value) =>
+                                                        setCheckScore(
+                                                            row,
+                                                            value,
+                                                        )
+                                                "
+                                            />
+                                        </template>
+                                        <template #item-actions="{ row }">
+                                            <span class="acga-check-actions">
+                                                <cdx-button
+                                                    weight="quiet"
+                                                    :disabled="
+                                                        busy || row.index === 0
+                                                    "
+                                                    :aria-label="
+                                                        row.code +
+                                                        ' ' +
+                                                        msg('move_up')
+                                                    "
+                                                    @click="
+                                                        moveCheckItem(row, -1)
+                                                    "
+                                                    >↑</cdx-button
+                                                >
+                                                <cdx-button
+                                                    weight="quiet"
+                                                    :disabled="
+                                                        busy ||
+                                                        row.index ===
+                                                            checkTableRows.length -
+                                                                1
+                                                    "
+                                                    :aria-label="
+                                                        row.code +
+                                                        ' ' +
+                                                        msg('move_down')
+                                                    "
+                                                    @click="
+                                                        moveCheckItem(row, 1)
+                                                    "
+                                                    >↓</cdx-button
+                                                >
+                                                <cdx-button
+                                                    class="acga-check-item-reset"
+                                                    weight="quiet"
+                                                    action="destructive"
+                                                    :disabled="busy"
+                                                    :aria-label="
+                                                        row.code +
+                                                        ' ' +
+                                                        msg('reset_item')
+                                                    "
+                                                    :title="msg('reset_item')"
+                                                    @click="resetCheckItem(row)"
+                                                    ><cdx-icon
+                                                        :icon="resetIcon"
+                                                /></cdx-button>
+                                                <cdx-button
+                                                    class="acga-check-item-delete"
+                                                    weight="quiet"
+                                                    action="destructive"
+                                                    :disabled="busy"
+                                                    :aria-label="
+                                                        row.code +
+                                                        ' ' +
+                                                        msg('delete_item')
+                                                    "
+                                                    :title="msg('delete_item')"
+                                                    @click="
+                                                        removeCheckItem(row)
+                                                    "
+                                                    ><cdx-icon
+                                                        :icon="removeIcon"
+                                                /></cdx-button>
+                                            </span>
+                                        </template>
+                                        <template #tfoot>
+                                            <tfoot>
+                                                <tr class="acga-check-add-row">
+                                                    <td></td>
+                                                    <td>
+                                                        <cdx-select
+                                                            :key="
+                                                                checkTableRows.length
+                                                            "
+                                                            class="acga-check-code"
+                                                            :selected="null"
+                                                            :menu-items="
+                                                                checkRuleItems
+                                                            "
+                                                            :disabled="busy"
+                                                            default-label=""
+                                                            :aria-label="
+                                                                msg(
+                                                                    'add_item_code',
+                                                                )
+                                                            "
+                                                            @update:selected="
+                                                                addCheckItem(
+                                                                    $event,
+                                                                )
+                                                            "
+                                                        />
+                                                    </td>
+                                                    <td></td>
+                                                    <td></td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
+                                        </template>
+                                        <template #footer>
+                                            <cdx-field
+                                                class="acga-additional-message"
+                                                optional
+                                            >
+                                                <template #label>{{
+                                                    additionalMessageLabel
+                                                }}</template>
+                                                <cdx-text-area
+                                                    :model-value="
+                                                        currentNomination.message
+                                                    "
+                                                    :autosize="true"
+                                                    :rows="1"
+                                                    :placeholder="
+                                                        additionalMessagePlaceholder
+                                                    "
+                                                    :disabled="busy"
+                                                    @update:model-value="
+                                                        setCheckMessage
+                                                    "
+                                                />
+                                            </cdx-field>
+                                        </template>
+                                    </cdx-table>
+                                </fieldset>
+                                <cdx-field class="acga-code-preview">
+                                    <template #label>{{
+                                        codePreviewLabel
+                                    }}</template>
+                                    <cdx-text-area
+                                        class="acga-code-preview-text"
+                                        :model-value="
+                                            sourceFallbackActive
+                                                ? currentNomination.rawSourceText
+                                                : codePreviewResult.text
+                                        "
+                                        :rows="4"
+                                        :readonly="!sourceFallbackActive"
+                                        spellcheck="false"
+                                        @update:model-value="setRawSourceText"
+                                    />
+                                </cdx-field>
+                            </template>
+                        </div>
+                    </component>
+                </component>
+            </component>
+        </component>
 
         <p v-else-if="kind === 'confirm'" class="acga-confirm-message">
             {{ confirmData.message }}
@@ -679,22 +901,54 @@
                             >{{ cancelLabel }}</cdx-button
                         >
                         <cdx-button
-                            :disabled="busy"
-                            @click="splitNominationTable"
-                            >{{
-                                msg(
-                                    splitTableMode
-                                        ? "merge_nomination_tables"
-                                        : "split_nomination_table",
-                                )
-                            }}</cdx-button
-                        >
-                        <cdx-button
                             weight="primary"
                             action="progressive"
                             :disabled="busy"
                             @click="reviewNominations"
                             >{{ msg("preview") }}</cdx-button
+                        >
+                    </template>
+                    <template v-else-if="isCheckBatch">
+                        <cdx-button
+                            weight="quiet"
+                            action="destructive"
+                            :disabled="busy"
+                            @click="requestCancel"
+                            >{{ cancelLabel }}</cdx-button
+                        >
+                        <cdx-button
+                            weight="quiet"
+                            :disabled="busy"
+                            :title="msg('quit_check_batch_help')"
+                            @click="quitCheckBatch"
+                            >{{ msg("quit") }}</cdx-button
+                        >
+                        <cdx-button
+                            :disabled="busy || checkBatchIndex === 0"
+                            @click="previousCheckItem"
+                            >{{ msg("previous") }}</cdx-button
+                        >
+                        <cdx-button
+                            weight="quiet"
+                            :disabled="busy"
+                            @click="skip"
+                            >{{ skipLabel }}</cdx-button
+                        >
+                        <cdx-button
+                            v-if="checkReasonBuilderActive"
+                            weight="primary"
+                            action="progressive"
+                            :disabled="busy"
+                            @click="continueCheckReasonBuilder"
+                            >{{ continueLabel }}</cdx-button
+                        >
+                        <cdx-button
+                            v-else
+                            weight="primary"
+                            action="progressive"
+                            :disabled="busy"
+                            @click="save"
+                            >{{ saveLabel }}</cdx-button
                         >
                     </template>
                     <template v-else>
@@ -749,25 +1003,22 @@
         fixed-height
         @update:open="onNominationEditorOpenUpdate"
     >
-        <cdx-message
-            v-if="nominationEditError"
-            type="error"
-            class="acga-editor-error"
-            tabindex="-1"
-        >
-            <div>{{ nominationEditError }}</div>
-            <ul
-                v-if="nominationEditErrorDetails.length"
-                class="acga-dialog-error-details"
-            >
-                <li
-                    v-for="(issue, index) in nominationEditErrorDetails"
-                    :key="index"
+        <div v-if="nominationEditError">
+            <cdx-message type="error" class="acga-editor-error" tabindex="-1">
+                <div>{{ nominationEditError }}</div>
+                <ul
+                    v-if="nominationEditErrorDetails.length"
+                    class="acga-dialog-error-details"
                 >
-                    {{ issue }}
-                </li>
-            </ul>
-        </cdx-message>
+                    <li
+                        v-for="(issue, index) in nominationEditErrorDetails"
+                        :key="index"
+                    >
+                        {{ issue }}
+                    </li>
+                </ul>
+            </cdx-message>
+        </div>
         <acga-author-form
             v-if="editingNomination"
             :nomination="editingNomination"
@@ -967,6 +1218,9 @@
                 :status="nomination.errors.other ? 'error' : 'default'"
             >
                 <template #label>{{ $root.relatedPageLabel }}</template>
+                <template #description>{{
+                    $root.relatedPageDescription
+                }}</template>
                 <cdx-text-input
                     :id="relatedPageInputId"
                     :model-value="nomination.otherPageName"
@@ -1008,13 +1262,15 @@
                     :disabled="disabled"
                 >
                     <template #label>{{ compactLineLabel(line) }}</template>
-                    <template v-if="groupType(line) === 'format'" #description>
-                        {{ $root.msg("format_prerequisite_help") }}
-                    </template>
                     <div class="acga-article-core-row">
                         <div
                             v-if="groupType(line) === 'format'"
                             class="acga-article-core-control"
+                            :title="
+                                !canSelectFormat() && !compactLineSelected(line)
+                                    ? $root.msg('format_prerequisite_help')
+                                    : undefined
+                            "
                         >
                             <acga-rule-editor
                                 :ruleset="formatRule(line)"
@@ -1371,7 +1627,7 @@
                     :disabled="disabled"
                     inline
                     @update:model-value="setPresetTier"
-                    >{{ tier.label }}</cdx-radio
+                    >{{ tier.presetLabel }}</cdx-radio
                 >
             </div>
         </cdx-field>

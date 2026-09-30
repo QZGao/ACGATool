@@ -12,10 +12,6 @@
     width: 100%;
 }
 
-.acga-codex-dialog .cdx-dialog__body > .acga-dialog-error {
-    padding-top: 0;
-}
-
 .acga-dialog-error-details {
     margin-block: 8px 0;
     padding-inline-start: 20px;
@@ -52,10 +48,27 @@
     inset-inline-end: 4px;
 }
 
-.acga-nomination-tabs-scroll,
-.acga-nomination-tab {
+.acga-nomination-tabs-scroll {
     display: flex;
     align-items: flex-end;
+}
+
+.acga-nomination-tab {
+    display: flex;
+    align-items: center;
+}
+
+.acga-nomination-tab-label.cdx-tabs__list__item {
+    padding-inline: 12px;
+}
+
+.acga-nomination-tab-remove.cdx-button {
+    margin-inline-end: 8px;
+    padding-inline: 4px;
+}
+
+.acga-existing-nomination {
+    margin-block: 12px;
 }
 
 .acga-nomination-tabs-scroll {
@@ -137,7 +150,9 @@
 .acga-codex-dialog .acga-rule-category-fieldset .cdx-label__description,
 .acga-codex-dialog .acga-article-core-line .cdx-label__description,
 .acga-codex-dialog .acga-review-stage .cdx-label__description,
-.acga-codex-dialog .acga-media-target-fields .cdx-label__description {
+.acga-codex-dialog .acga-media-target-fields .cdx-label__description,
+.acga-codex-dialog .acga-other-target-fields .cdx-label__description,
+.acga-codex-dialog .acga-rule-group .cdx-label__description {
     color: var(--color-subtle, #54595d);
     font-size: 86%;
     font-weight: normal;
@@ -504,7 +519,8 @@
     color: inherit;
 }
 
-.acga-nomination-summary-table .cdx-table__footer .acga-additional-message {
+.acga-nomination-summary-table .cdx-table__footer .acga-additional-message,
+.acga-check-table .cdx-table__footer .acga-additional-message {
     width: 100%;
     margin: 0;
 }
@@ -540,6 +556,15 @@
     border: 0;
 }
 
+.acga-check-table-tabs > .cdx-tabs__content,
+.acga-check-item-tabs > .cdx-tabs__content {
+    padding: 0;
+}
+
+.acga-check-item-tabs .acga-check-form {
+    padding: 16px;
+}
+
 .acga-codex-dialog .acga-check-description {
     min-width: 10em;
     width: 100%;
@@ -561,7 +586,8 @@
     min-width: 0;
 }
 
-.acga-check-actions {
+.acga-check-actions,
+.acga-check-header-actions {
     display: inline-flex;
     gap: 4px;
 }
@@ -697,4 +723,15 @@
     align-items: center;
     gap: 8px 12px;
     margin-block: 0 4px;
+}
+
+.acga-dyk-nomination {
+    display: inline-block;
+    margin-inline: 0.25rem;
+    padding: 0.125rem 0.375rem;
+    border: 1px solid var(--border-color-progressive, #36c);
+    border-radius: 2px;
+    background: var(--background-color-progressive-subtle, #eaf3ff);
+    color: var(--color-progressive, #36c);
+    font-size: 0.875rem;
 }

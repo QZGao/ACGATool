@@ -1,10 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
-    formatNominationTabLabel,
-    getSelectedScoreTotal,
-} from "../../src/features/nomination/model.ts";
+import { getSelectedScoreTotal } from "../../src/features/nomination/model.ts";
 
 test("selected-score total includes only selected nonnegative scores", () => {
     assert.equal(
@@ -71,12 +68,4 @@ test("selected-score total rejects invalid selected scores", async (t) => {
             );
         });
     }
-});
-
-test("tab labels only identify the nomination position", () => {
-    assert.equal(formatNominationTabLabel(2), "提名 2");
-});
-
-test("tab labels provide a stable invalid-position fallback", () => {
-    assert.equal(formatNominationTabLabel(0), "提名 1");
 });

@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
     getCheckedScore,
+    getRegistryEntries,
+    parseNominationCheckWikitext,
     queryEntry,
     updateEntriesParameters,
 } from "../../src/domain/wikitext.ts";
@@ -47,6 +49,39 @@ test("batched parameters use the original snapshot even when earlier replacement
         "{{ACG提名2/check|ver=1|2-b}}signature",
     );
     assert.ok(updated.includes("|提名理由1 = {{ACG提名2/request|ver=1|1a}}"));
+});
+
+test("registry entries share physical table groups while repeated date sections remain independent", () => {
+    const legacy = `\n{{ACG提名
+|條目名稱 = Main
+|用戶名稱 = Example
+|提名理由 = 1a
+|核對用 =
+|額外提名 = {{ACG提名/extra
+|條目名稱 = Extra
+|用戶名稱 = Example
+|提名理由 = 1b
+|核對用 =
+}}
+}}`;
+    const source = registry + legacy + "\n" + registry;
+    assert.deepEqual(
+        getRegistryEntries(source).map((entry) => [
+            entry.sectionOccurrence,
+            entry.index,
+            entry.tableIndex,
+        ]),
+        [
+            [0, 1, 0],
+            [0, 2, 0],
+            [0, 3, 1],
+            [0, 4, 1],
+            [1, 1, 0],
+            [1, 2, 0],
+        ],
+    );
+    assert.equal(queryEntry(source, "9月27日", 4).tableIndex, 1);
+    assert.equal(queryEntry(source, "9月27日", 2, 1).tableIndex, 0);
 });
 
 test("batch validation rejects stale entries, duplicate targets and missing parameters", () => {
@@ -134,6 +169,57 @@ test("previous check totals recognize empty and invalid checks while excluding r
     ]) {
         assert.equal(getCheckedScore(source).ok, false, source);
     }
+});
+
+test("saved checks retain canonical rows, rejected selections, scores and comments without the signature", () => {
+    const parsed = parseNominationCheckWikitext(
+        "<!-- example -->{{ACG提名2/check|ver=1|DYK([[Article|a b]])[0.5] 4(活動)[1.5]|no=4-dyk(末項)[0.5]}}原有說明--~~~~",
+    );
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    assert.equal(parsed.message, "原有說明");
+    assert.deepEqual(
+        parsed.tokens.map((token) => [
+            token.code,
+            token.selected,
+            token.comment,
+            token.scoreOverride,
+            token.sourceIndex,
+        ]),
+        [
+            ["4-dyk", true, "[[Article|a b]]", 0.5, 0],
+            ["4", true, "活動", 1.5, 1],
+            ["4-dyk", false, "末項", 0.5, 2],
+        ],
+    );
+});
+
+test("saved check parsing preserves comment dashes and strips a recognizable expanded UTC signature", () => {
+    const parsed = parseNominationCheckWikitext(
+        "{{ACG提名2/check|ver=1|1a}}說明--[[引用]]\n第二行--[[User:Reviewer|Reviewer]] 2026年9月30日 (三) 12:34 (UTC)",
+    );
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) assert.equal(parsed.message, "說明--[[引用]]\n第二行");
+});
+
+test("saved checks reject unsupported parameters, accepted pending codes and unrecognized rejected rules", () => {
+    for (const source of [
+        "Manually checked: three points",
+        "{{ACG提名2/check|ver=2|1a}}--~~~~",
+        "{{ACG提名2/check|ver=1|1a?|no=1b}}--~~~~",
+        "{{ACG提名2/check|ver=1|1a|no=unknown}}--~~~~",
+        "{{ACG提名2/check|ver=1|1a|status=rescinded}}--~~~~",
+        "{{ACG提名2/check|ver=1|1a|no=1b|no=1c}}--~~~~",
+    ])
+        assert.equal(parseNominationCheckWikitext(source).ok, false, source);
+    // Score reconciliation reads accepted rules even when legacy rejected source is unreadable.
+    assert.deepEqual(
+        getCheckedScore("{{ACG提名2/check|ver=1|1a|no=unknown}}"),
+        {
+            ok: true,
+            score: 1,
+        },
+    );
 });
 
 test("score deltas combine users once and preserve comments, ordering, quoting and whitespace", () => {

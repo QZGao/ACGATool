@@ -35,10 +35,7 @@ test("author rule metadata is divided into article, review, and other sections",
     );
     assert.equal(groups[3].explanation, "");
     assert.equal(groups[4].explanation, "");
-    assert.equal(
-        groups[5].explanation,
-        "上載至Wikimedia Commons的自由版權項目。頁面名填寫檔案名（含File:前綴）或使用檔案的條目名，足以核對即可。",
-    );
+    assert.equal(groups[5].explanation, "");
     assert.equal(
         groups[6].explanation,
         "每有效提名他人 1 次得 0.5 分，每人每月最多得 5 分。若多次得分，請自行定義分數。",
@@ -75,10 +72,7 @@ test("simplified rule metadata uses the matching labels", () => {
     );
     assert.equal(groups[3].explanation, "");
     assert.equal(groups[4].explanation, "");
-    assert.equal(
-        groups[5].explanation,
-        "上传至Wikimedia Commons的自由版权项目。页面名填写档案名（含File:前缀）或使用档案的条目名，足以核对即可。",
-    );
+    assert.equal(groups[5].explanation, "");
     assert.equal(
         groups[6].explanation,
         "每有效提名他人 1 次得 0.5 分，每人每月最多得 5 分。若多次得分，请自行定义分数。",

@@ -3,17 +3,24 @@ import type { BatchStatus, CheckOutcome } from "./check-batch.ts";
 
 import type { Translator } from "../../i18n/index.ts";
 import type { ExistingNomination } from "../../domain/existing-nominations.ts";
+import type { DykStatus } from "../../domain/dyk-status.ts";
 
 export interface DialogModelServices {
     msg: Translator;
     getUserName(): string | null;
     getPageName?(): string;
+    getInitialRuleCategory?(): "article" | "media";
+    getRecipientSuggestionScope?(): "article" | "media" | "revision";
+    getSuggestedRecipient?(pageName: string): Promise<string | null>;
 }
 
 export interface DialogServices extends DialogModelServices {
     document: Document;
-    getSuggestedRecipient?(pageName: string): Promise<string | null>;
-    getExistingNominations?(pageName: string): Promise<Array<ExistingNomination & { url: string }>>;
+    getDykStatus?(pageName: string): Promise<DykStatus>;
+    getExistingNominations?(
+        pageName: string,
+        expectedRevisionId?: string | number | null,
+    ): Promise<Array<ExistingNomination & { url: string }>>;
     queryRoot?: ParentNode;
     getUrl(
         title: string,
@@ -58,6 +65,13 @@ export interface NominationTarget {
     [key: string]: unknown;
 }
 
+export interface CheckBatchEntry {
+    nomination: NominationData;
+    target: NominationTarget;
+    tableKey: string;
+    tableIndex: number;
+}
+
 export type RawNominationFields = Record<
     "條目名稱" | "用戶名稱" | "提名理由" | "核對用",
     string
@@ -86,6 +100,8 @@ export interface DialogOperations {
         nomination: NominationData,
         target: NominationTarget,
     ): Promise<boolean>;
+    discardNominationCheck?(target: NominationTarget): void;
+    completeNominationCheckBatch?(): Promise<boolean>;
     saveRawNominationSource(
         fields: RawNominationFields,
         target: NominationTarget,
@@ -104,6 +120,7 @@ export interface NominationDialogs {
         target: NominationTarget,
         batchStatus?: BatchStatus | null,
     ): Promise<CheckOutcome>;
+    showCheckBatchDialog?(entries: CheckBatchEntry[]): Promise<CheckOutcome>;
     showConfirmDialog(options: ConfirmationOptions): Promise<boolean>;
     dispose(): void;
 }

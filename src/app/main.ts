@@ -14,12 +14,14 @@ import type {
 } from "../features/nomination/contracts.ts";
 import type { ApiClient } from "../platform/mediawiki/api.ts";
 import type { Feedback } from "../shared/ports.ts";
+import type { NominationPageContext } from "../platform/mediawiki/page-context.ts";
 
 export interface StartupHost extends Feedback {
     document: Document;
     pageName: string;
     namespaceNumber?: number;
     articleTitle?: string;
+    getNominationContext?(): NominationPageContext;
     action: string;
     revisionId: string | number | null;
     language: string;
@@ -39,7 +41,7 @@ const TARGET_PAGES = new Set(["WikiProject:ACG/維基ACG專題獎", REGISTRY_PAG
 export function start(host: StartupHost): Promise<() => void> {
     if (
         (!TARGET_PAGES.has(host.pageName.replaceAll("_", " ")) &&
-            ![0, 1].includes(host.namespaceNumber ?? -1)) ||
+            ![0, 1, 6].includes(host.namespaceNumber ?? -1)) ||
         host.action !== "view"
     )
         return Promise.resolve(() => {});
@@ -70,6 +72,13 @@ async function initialize(host: StartupHost): Promise<() => void> {
         );
     }
     const { msg } = createTranslator(host.language);
+    const readNominationContext = (): NominationPageContext =>
+        host.getNominationContext?.() ?? {
+            pageName: host.articleTitle ?? "",
+            initialCategory: host.namespaceNumber === 6 ? "media" : "article",
+            recipientScope: host.namespaceNumber === 6 ? "media" : "article",
+        };
+    let nominationContext = readNominationContext();
     const api = createMediaWikiApi({
         createApi: host.createApi,
         msg,
@@ -79,6 +88,7 @@ async function initialize(host: StartupHost): Promise<() => void> {
         api,
         msg,
         now: () => new Date(),
+        getUserName: host.getUserName,
         reload: host.reload,
         notify: host.notify,
         reportError: host.reportError,
@@ -88,6 +98,8 @@ async function initialize(host: StartupHost): Promise<() => void> {
                 dialogs.showEditNominationDialog(...args),
             showCheckNominationDialog: (...args) =>
                 dialogs.showCheckNominationDialog(...args),
+            showCheckBatchDialog: (entries) =>
+                dialogs.showCheckBatchDialog!(entries),
             showConfirmDialog: (options) => dialogs.showConfirmDialog(options),
             dispose: () => dialogs.dispose(),
         },
@@ -99,18 +111,36 @@ async function initialize(host: StartupHost): Promise<() => void> {
             document: host.document,
             msg,
             getUserName: host.getUserName,
-            getPageName: () => host.articleTitle ?? "",
-            getSuggestedRecipient:
-                [0, 1].includes(host.namespaceNumber ?? -1) && host.articleTitle
-                    ? api.getLargestContributorLastYear
-                    : undefined,
-            getExistingNominations:
-                [0, 1].includes(host.namespaceNumber ?? -1) && host.articleTitle
-                    ? async (pageName) => (await service.getExistingNominations(pageName)).map((item) => ({
-                        ...item,
-                        url: host.getUrl(REGISTRY_PAGE) + "#" + encodeURIComponent(item.dateAnchor),
-                    }))
-                    : undefined,
+            getPageName: () => nominationContext.pageName,
+            getInitialRuleCategory: () => nominationContext.initialCategory,
+            getRecipientSuggestionScope: () => nominationContext.recipientScope,
+            getSuggestedRecipient: [0, 1, 6].includes(
+                host.namespaceNumber ?? -1,
+            )
+                ? (pageName) => {
+                      if (nominationContext.recipientScope === "revision")
+                          return api.getRevisionEditor(
+                              nominationContext.revisionId!,
+                          );
+                      if (nominationContext.recipientScope === "media")
+                          return api.getLatestFileUploader(pageName);
+                      return api.getLargestContributorLastYear(pageName);
+                  }
+                : undefined,
+            getDykStatus: api.getDykStatus,
+            getExistingNominations: async (pageName, expectedRevisionId) =>
+                (
+                    await service.getExistingNominations(
+                        pageName,
+                        expectedRevisionId,
+                    )
+                ).map((item) => ({
+                    ...item,
+                    url:
+                        host.getUrl(REGISTRY_PAGE) +
+                        "#" +
+                        encodeURIComponent(item.dateAnchor),
+                })),
             getUrl: host.getUrl,
             notify: host.notify,
             addStyles: host.addStyles,
@@ -119,6 +149,7 @@ async function initialize(host: StartupHost): Promise<() => void> {
     );
     const removeLink =
         host.addNominationLink?.(msg("nominate_for_acga"), () => {
+            nominationContext = readNominationContext();
             void service
                 .newNomination()
                 .catch((cause) =>
@@ -136,6 +167,7 @@ async function initialize(host: StartupHost): Promise<() => void> {
         if (root)
             disposeRegistry = mountRegistry(root, service, {
                 msg,
+                getUserName: host.getUserName,
                 revisionId: host.revisionId,
                 addStyles: host.addStyles,
                 notify: host.notify,

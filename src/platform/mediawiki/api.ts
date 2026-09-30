@@ -1,5 +1,10 @@
 import { applyScoreDeltas, type ScoreDelta } from "../../domain/score-list.ts";
 import { getLargestContributorLastYear } from "./contributor-history.ts";
+import { getDykStatus } from "./dyk-status.ts";
+import {
+    getLatestFileUploader,
+    getRevisionEditor,
+} from "./context-recipient.ts";
 import {
     formatScoreListEditSummary,
     withToolAttribution,
@@ -191,6 +196,7 @@ export function createMediaWikiApi(host: MediaWikiApiHost) {
         deltas: readonly ScoreDelta[],
         registryRevisionId: number | string | null,
         commentId: string | null = null,
+        recheck = false,
     ): Promise<boolean> {
         if (deltas.length === 0 || deltas.every((delta) => delta.score === 0))
             return false;
@@ -226,9 +232,10 @@ export function createMediaWikiApi(host: MediaWikiApiHost) {
                               updated.changes[0].newScore,
                               registryRevisionId,
                               commentId,
+                              recheck,
                           )
                         : withToolAttribution(
-                              "批次核分 [[" +
+                              (recheck ? "批次復核積分 [[" : "批次核分 [[") +
                                   "Special:Diff/" +
                                   registryRevisionId +
                                   "]]：" +
@@ -287,6 +294,11 @@ export function createMediaWikiApi(host: MediaWikiApiHost) {
 
     return {
         parseWikitext,
+        getDykStatus: (pageName: string) => getDykStatus(api(), pageName),
+        getLatestFileUploader: (pageName: string) =>
+            getLatestFileUploader(api(), pageName),
+        getRevisionEditor: (revisionId: number) =>
+            getRevisionEditor(api(), revisionId),
         getLargestContributorLastYear: (pageName: string) =>
             getLargestContributorLastYear(
                 api(),

@@ -1,4 +1,3 @@
-import { createTranslator, type Translator } from "../../i18n/index.ts";
 import {
     nominationRuleGroup,
     validateNominationGroup,
@@ -31,7 +30,10 @@ import {
     serializeNominationDraftReason,
     validateActivityDraft,
 } from "../../domain/rules.ts";
-import { formatEditableItemSource } from "../../domain/wikitext.ts";
+import {
+    formatEditableItemSource,
+    parseNominationCheckWikitext,
+} from "../../domain/wikitext.ts";
 import type { DialogModelServices } from "./contracts.ts";
 const SCORE_PRECISION = 15;
 function normalizeScore(score: number) {
@@ -68,20 +70,6 @@ export function getSelectedScoreTotal(ruleStatus: any = {}): number | null {
         if (!Number.isFinite(total)) return null;
     }
     return normalizeScore(total);
-}
-/**
- * 格式化新提名分頁所顯示的標籤。
- *
- * @param position 從 1 開始的提名位置。
- * @returns 只包含提名位置的穩定分頁標籤。
- */
-export function formatNominationTabLabel(
-    position: number,
-    msg: Translator = createTranslator("zh-Hant").msg,
-): string {
-    const fallbackPosition =
-        Number.isInteger(position) && position > 0 ? position : 1;
-    return `${msg("nomination")} ${fallbackPosition}`;
 }
 /** Creates independent drafts and validation rules for a dialog session. */
 export function createNominationModel(services: DialogModelServices) {
@@ -552,27 +540,43 @@ export function createNominationModel(services: DialogModelServices) {
             relatedPageNamePlaceholder(nomination)
         );
     }
-    function recipientPlaceholder(nomination: any): string {
-        if (!nomination?.usesRecipientDefault) return "";
-        const currentUser = String(nomination.recipientDefault ?? "").trim();
+    function usesSuggestedRecipient(nomination: any): boolean {
+        if (!nomination?.usesRecipientDefault) return false;
+        if (nomination.recipientSuggestionScope === "revision")
+            return nomination.activeRuleCategory !== "recommendation";
         const articleTitle = String(
             nomination.originalArticleTitle ?? "",
         ).trim();
-        if (
+        if (!articleTitle) return false;
+        if (nomination.recipientSuggestionScope === "media")
+            return (
+                nomination.activeRuleCategory === "media" &&
+                effectiveMediaPageName(nomination) === articleTitle
+            );
+        return (
             nomination.activeRuleCategory === "article" &&
-            articleTitle &&
             effectiveArticlePageName(nomination) === articleTitle
-        )
+        );
+    }
+    function recipientPlaceholder(nomination: any): string {
+        if (!nomination?.usesRecipientDefault) return "";
+        const currentUser = String(nomination.recipientDefault ?? "").trim();
+        if (usesSuggestedRecipient(nomination)) {
+            if (nomination.recipientSuggestionPending) return "...";
             return (
                 String(nomination.articleRecipientDefault ?? "").trim() ||
                 currentUser
             );
+        }
         return currentUser;
     }
     function effectiveRecipient(nomination: any): string {
         return (
             String(nomination?.awarder ?? "").trim() ||
-            recipientPlaceholder(nomination)
+            (usesSuggestedRecipient(nomination) &&
+            nomination.recipientSuggestionPending
+                ? ""
+                : recipientPlaceholder(nomination))
         );
     }
     /**
@@ -714,7 +718,9 @@ export function createNominationModel(services: DialogModelServices) {
         const storedPageName = String(
             nomData?.pageName ?? services.getPageName?.() ?? "",
         );
-        const activeRuleCategory = initialRuleCategory(ruleStatus);
+        const activeRuleCategory = isNew
+            ? (services.getInitialRuleCategory?.() ?? "article")
+            : initialRuleCategory(ruleStatus);
         if (isNew) {
             for (const rule of ["6", "7", "8"])
                 ruleStatus[rule].selected = true;
@@ -732,6 +738,11 @@ export function createNominationModel(services: DialogModelServices) {
             usesRecipientDefault: isNew,
             recipientDefault,
             articleRecipientDefault: recipientDefault,
+            recipientSuggestionScope:
+                services.getRecipientSuggestionScope?.() ?? "article",
+            recipientSuggestionPending:
+                isNew &&
+                Boolean(storedPageName && services.getSuggestedRecipient),
             originalArticleTitle: isNew ? storedPageName : "",
             pageName: isNew ? "" : storedPageName,
             media: {
@@ -767,6 +778,8 @@ export function createNominationModel(services: DialogModelServices) {
         let ruleStatus = {};
         let ruleTokens = null;
         let submittedReason = "";
+        let message = "";
+        let checkSourceOnly = false;
         if (own(nomData, "reasonParse")) {
             if (!nomData.reasonParse?.ok) {
                 sourceState.sourceOnly = true;
@@ -818,11 +831,65 @@ export function createNominationModel(services: DialogModelServices) {
             for (const { status } of allRuleOccurrences(ruleStatus))
                 status.selected = true;
         }
+        if (
+            !sourceState.sourceOnly &&
+            String(nomData.checkWikitext ?? "").trim()
+        ) {
+            const previous = parseNominationCheckWikitext(
+                nomData.checkWikitext,
+            );
+            if (!previous.ok) {
+                sourceState.sourceOnly = true;
+                sourceState.sourceError = parseErrorLabel(previous.error);
+                checkSourceOnly = true;
+            } else {
+                message = previous.message;
+                const hydrated: any[] = [];
+                for (const token of previous.tokens) {
+                    const mapped = own(ruleDict, token.code)
+                        ? { ok: true, tokens: [token] }
+                        : decomposeRule5Tokens([token], ruleDict);
+                    if (!mapped.ok || !mapped.tokens.length) {
+                        sourceState.sourceOnly = true;
+                        sourceState.sourceError = parseErrorLabel(
+                            mapped.error ?? {
+                                code: "unknown-rule",
+                                rule: token.code,
+                            },
+                        );
+                        checkSourceOnly = true;
+                        break;
+                    }
+                    for (const mappedToken of mapped.tokens)
+                        hydrated.push({
+                            ...checkTokenRow(mappedToken, ruleDict),
+                            selected: token.selected,
+                        });
+                }
+                if (!sourceState.sourceOnly) {
+                    if (previous.tokens.length) {
+                        ruleTokens = hydrated;
+                        ruleStatus = {};
+                    } else {
+                        for (const status of ruleTokens ??
+                            allRuleOccurrences(ruleStatus).map(
+                                ({ status }) => status,
+                            ))
+                            status.selected = false;
+                    }
+                }
+            }
+        }
         const grouping = validateNominationGroup({ ruleStatus, ruleTokens });
         if (!grouping.ok) {
             sourceState.sourceOnly = true;
             sourceState.sourceError = grouping.error.code;
         }
+        if (
+            sourceState.sourceOnly &&
+            String(nomData.checkWikitext ?? "").trim()
+        )
+            checkSourceOnly = true;
         return {
             activeRuleCategory: grouping.ok
                 ? (grouping.category ?? "article")
@@ -834,7 +901,8 @@ export function createNominationModel(services: DialogModelServices) {
             ruleTokens,
             requestReasonText: nomData.requestReasonText ?? submittedReason,
             replaceRequestReason: false,
-            message: "",
+            message,
+            checkSourceOnly,
             ...sourceState,
         };
     }

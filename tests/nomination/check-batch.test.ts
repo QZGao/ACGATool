@@ -15,6 +15,7 @@ test("check outcomes are immutable and unknown results fail safe to cancel", () 
         normalizeCheckOutcome(CHECK_OUTCOME.CANCEL),
         CHECK_OUTCOME.CANCEL,
     );
+    assert.equal(normalizeCheckOutcome(CHECK_OUTCOME.QUIT), CHECK_OUTCOME.QUIT);
     assert.equal(normalizeCheckOutcome(undefined), CHECK_OUTCOME.CANCEL);
     assert.equal(normalizeCheckOutcome("unexpected"), CHECK_OUTCOME.CANCEL);
 });
@@ -58,6 +59,16 @@ test("cancel stops the batch before later items are opened", async () => {
 
     assert.equal(completed, false);
     assert.deepEqual(calls, ["first", "second"]);
+});
+
+test("quitting stops navigation before later items are opened", async () => {
+    const calls: string[] = [];
+    const completed = await runCheckBatch(["first", "second"], async (item) => {
+        calls.push(item);
+        return CHECK_OUTCOME.QUIT;
+    });
+    assert.equal(completed, false);
+    assert.deepEqual(calls, ["first"]);
 });
 
 test("missing and unknown callback results stop the batch", async (t) => {

@@ -2,6 +2,7 @@ export const CHECK_OUTCOME = Object.freeze({
     SAVE: "save" as const,
     SKIP: "skip" as const,
     CANCEL: "cancel" as const,
+    QUIT: "quit" as const,
 });
 
 const VALID_CHECK_OUTCOMES: ReadonlySet<unknown> = new Set(
@@ -13,9 +14,7 @@ const VALID_CHECK_OUTCOMES: ReadonlySet<unknown> = new Set(
  * @param outcome 對話框回傳的結果。
  * @returns 正規化後的核對結果。
  */
-export function normalizeCheckOutcome(
-    outcome: unknown,
-): "save" | "skip" | "cancel" {
+export function normalizeCheckOutcome(outcome: unknown): CheckOutcome {
     return VALID_CHECK_OUTCOMES.has(outcome)
         ? (outcome as CheckOutcome)
         : CHECK_OUTCOME.CANCEL;
@@ -47,7 +46,7 @@ export async function runCheckBatch<Item>(
                 total,
             }),
         );
-        if (outcome === CHECK_OUTCOME.CANCEL) {
+        if (outcome !== CHECK_OUTCOME.SAVE && outcome !== CHECK_OUTCOME.SKIP) {
             return false;
         }
     }

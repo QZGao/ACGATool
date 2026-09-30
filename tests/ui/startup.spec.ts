@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { capture, expect, test } from "./fixtures.ts";
+import { mountStartup } from "./startup-fixture.ts";
 
 let runtime: string;
 let bundle: string;
@@ -48,127 +49,11 @@ for (const namespace of [0, 1]) {
     test(`production bundle opens Tools nomination with article context in namespace ${namespace}`, async ({
         page,
     }) => {
-        const errors: string[] = [];
-        page.on("pageerror", (error) => errors.push(error.message));
-        await page.setContent(
-            '<!doctype html><html lang="en"><body><nav id="p-tb" aria-label="Tools"><ul></ul></nav><main id="mw-content-text"><div class="mw-parser-output"><h1>Example article</h1><p>Offline article fixture.</p></div></main></body></html>',
+        const errors = await mountStartup(
+            page,
+            { runtime, bundle, styles },
+            { namespaceNumber: namespace },
         );
-        await page.addStyleTag({
-            content: `body { font-family: sans-serif; } ${styles}`,
-        });
-        await page.addScriptTag({ content: runtime });
-        await page.evaluate((namespaceNumber) => {
-            const global = window as any;
-            global.startupEffects = {
-                portlets: [],
-                modules: [],
-                apiCalls: [],
-                apiWrites: [],
-                notices: [],
-            };
-            const configuration: Record<string, unknown> = {
-                wgPageName:
-                    namespaceNumber === 0
-                        ? "Example_article"
-                        : "Talk:Example_article",
-                wgNamespaceNumber: namespaceNumber,
-                wgTitle: "Example article",
-                wgAction: "view",
-                wgRevisionId: 42,
-                wgUserLanguage: "en",
-                wgUserVariant: "",
-                wgUserName: "Example",
-            };
-            global.mw = {
-                config: { get: (key: string) => configuration[key] },
-                loader: {
-                    async using(modules: string[]) {
-                        global.startupEffects.modules.push(...modules);
-                        return (name: string) =>
-                            name === "vue"
-                                ? global.AcgaHostRuntime.vue
-                                : global.AcgaHostRuntime.codex;
-                    },
-                },
-                util: {
-                    getUrl: (title: string) =>
-                        "/wiki/" + encodeURIComponent(title),
-                    addPortletLink(
-                        portlet: string,
-                        href: string,
-                        text: string,
-                        id: string,
-                    ) {
-                        global.startupEffects.portlets.push(portlet);
-                        const item = document.createElement("li");
-                        item.id = id;
-                        const anchor = document.createElement("a");
-                        anchor.href = href;
-                        anchor.textContent = text;
-                        item.append(anchor);
-                        document.querySelector(`#${portlet} ul`)!.append(item);
-                        return item;
-                    },
-                },
-                Api: class {
-                    get(parameters: Record<string, unknown>) {
-                        global.startupEffects.apiCalls.push(parameters);
-                        if (
-                            parameters.action !== "query" ||
-                            parameters.prop !== "revisions" ||
-                            parameters.titles !== "Example article"
-                        ) {
-                            throw new Error("Unexpected fixture API query");
-                        }
-                        const timestamp = new Date(
-                            Date.now() - 24 * 60 * 60 * 1000,
-                        ).toISOString();
-                        return Promise.resolve({
-                            query: {
-                                pages: [
-                                    {
-                                        pageid: 1,
-                                        revisions: [
-                                            {
-                                                revid: 1,
-                                                parentid: 0,
-                                                timestamp,
-                                                user: "Frequent editor",
-                                                size: 500,
-                                            },
-                                            {
-                                                revid: 2,
-                                                parentid: 1,
-                                                timestamp,
-                                                user: "Frequent editor",
-                                                size: 600,
-                                            },
-                                            {
-                                                revid: 3,
-                                                parentid: 2,
-                                                timestamp,
-                                                user: "Leading editor",
-                                                size: 2600,
-                                            },
-                                        ],
-                                    },
-                                ],
-                            },
-                        });
-                    }
-                    postWithToken(_token: string, parameters: unknown) {
-                        global.startupEffects.apiWrites.push(parameters);
-                        throw new Error(
-                            "Opening a nomination must not edit API pages",
-                        );
-                    }
-                },
-                notify: (message: string) =>
-                    global.startupEffects.notices.push(message),
-                hook: () => ({ add() {}, remove() {} }),
-            };
-        }, namespace);
-        await page.addScriptTag({ content: bundle });
         const link = page
             .getByRole("navigation", { name: "Tools" })
             .getByRole("link", { name: "Nominate to ACGA", exact: true });
@@ -199,7 +84,12 @@ for (const namespace of [0, 1]) {
             "vue",
             "@wikimedia/codex",
         ]);
-        expect(effects.apiCalls).toEqual([
+        expect(
+            effects.apiCalls.filter(
+                (parameters: { rvprop: string }) =>
+                    parameters.rvprop === "ids|timestamp|user|size",
+            ),
+        ).toEqual([
             expect.objectContaining({
                 action: "query",
                 prop: "revisions",
@@ -295,3 +185,158 @@ for (const namespace of [0, 1]) {
         }
     });
 }
+
+for (const fixture of [
+    {
+        name: "local file",
+        options: {
+            namespaceNumber: 6,
+            pageName: "File:Example_image.svg",
+            title: "Example image.svg",
+        },
+        target: "File:Example image.svg",
+        recipient: "Latest uploader",
+        revision: undefined,
+    },
+    {
+        name: "shared Commons file",
+        options: {
+            namespaceNumber: 6,
+            pageName: "File:Example_image.svg",
+            title: "Example image.svg",
+            sharedFile: true,
+        },
+        target: "File:Example image.svg",
+        recipient: "Latest uploader",
+        revision: undefined,
+    },
+    {
+        name: "Commons MediaViewer preview",
+        options: {
+            mediaHash: "#/media/File:Commons%20preview.svg",
+            sharedFile: true,
+        },
+        target: "File:Commons preview.svg",
+        recipient: "Latest uploader",
+        revision: undefined,
+    },
+    {
+        name: "article permalink",
+        options: { revisionId: 40, currentRevisionId: 42 },
+        target: "Example article",
+        recipient: "Viewed revision editor",
+        revision: 40,
+    },
+    {
+        name: "diff-only view",
+        options: { revisionId: 0, currentRevisionId: 50, diffNewId: 48 },
+        target: "Example article",
+        recipient: "Viewed revision editor",
+        revision: 48,
+    },
+]) {
+    test(`production bundle applies ${fixture.name} category and recipient context`, async ({
+        page,
+    }) => {
+        const errors = await mountStartup(
+            page,
+            { runtime, bundle, styles },
+            fixture.options,
+        );
+        await page
+            .getByRole("link", { name: "Nominate to ACGA", exact: true })
+            .click();
+        const dialog = page.getByRole("dialog");
+        const recipient = () =>
+            dialog.getByRole("textbox", { name: /^(?:Recipient|Nominee)$/u });
+        await expect(recipient()).toHaveValue("");
+        await expect(recipient()).toHaveAttribute(
+            "placeholder",
+            fixture.recipient,
+        );
+        const initialCategory = fixture.revision ? /^\(1–4\)/u : /^\(6\)/u;
+        await expect(
+            dialog.getByRole("button", { name: initialCategory }),
+        ).toHaveAttribute("aria-pressed", "true");
+        await expect(
+            dialog.getByRole("textbox", {
+                name: fixture.revision ? "Article title" : "Page name",
+                exact: true,
+            }),
+        ).toHaveAttribute("placeholder", fixture.target);
+        if (fixture.revision) {
+            for (const category of [
+                /^\(5\)/u,
+                /^\(6\)/u,
+                /^\(8\)/u,
+                /^\(1–4\)/u,
+            ]) {
+                await dialog.getByRole("button", { name: category }).click();
+                await expect(recipient()).toHaveValue("");
+                await expect(recipient()).toHaveAttribute(
+                    "placeholder",
+                    fixture.recipient,
+                );
+            }
+        }
+        await dialog.getByRole("button", { name: /^\(7\)/u }).click();
+        await expect(recipient()).toHaveAttribute("placeholder", "Example");
+        const effects = await page.evaluate(
+            () => (window as any).startupEffects,
+        );
+        expect(effects.apiCalls).toContainEqual(
+            expect.objectContaining(
+                fixture.revision
+                    ? { revids: fixture.revision, rvprop: "ids|user" }
+                    : {
+                          titles: fixture.target,
+                          prop: "imageinfo",
+                          iiprop: "user",
+                          iilimit: 1,
+                      },
+            ),
+        );
+        expect(effects.apiWrites).toEqual([]);
+        expect(effects.notices).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+}
+
+test("production bundle shows a stable loading recipient until article history resolves", async ({
+    page,
+}) => {
+    const errors = await mountStartup(
+        page,
+        { runtime, bundle, styles },
+        { deferredRecipient: true },
+    );
+    await page
+        .getByRole("link", { name: "Nominate to ACGA", exact: true })
+        .click();
+    const dialog = page.getByRole("dialog");
+    const recipient = dialog.getByRole("textbox", {
+        name: "Recipient",
+        exact: true,
+    });
+    await expect(recipient).toHaveValue("");
+    await expect(recipient).toHaveAttribute("placeholder", "...");
+    await dialog
+        .getByRole("checkbox", { name: "Scoring item 1 — Length", exact: true })
+        .check();
+    await dialog.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(dialog.getByRole("table")).toHaveCount(0);
+    await expect(recipient).toHaveAttribute("placeholder", "...");
+    await page.evaluate(() => (window as any).resolveStartupRecipient());
+    await expect(recipient).toHaveAttribute("placeholder", "Leading editor");
+    await dialog.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(
+        dialog.getByRole("table", { name: "Nomination table 1", exact: true }),
+    ).toBeVisible();
+    await expect(
+        dialog.getByRole("cell", { name: "Leading editor", exact: true }),
+    ).toBeVisible();
+    expect(
+        await page.evaluate(() => (window as any).startupEffects.apiWrites),
+    ).toEqual([]);
+    expect(errors).toEqual([]);
+});

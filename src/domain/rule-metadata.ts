@@ -69,8 +69,6 @@ const CANONICAL_RULE_MESSAGES = {
     featured_article_source_formatting_quick_review: "典特來源格式快評",
     complete_featured_article_review: "完整典特評審",
     "6_media": "(6) 檔案",
-    freely_licensed_media_uploaded_to_wikimedia_commons_enter_the_filename:
-        "上載至Wikimedia Commons的自由版權項目。頁面名填寫檔案名（含File:前綴）或使用檔案的條目名，足以核對即可。",
     media: "媒體",
     featured_picture: "特色圖片",
     "7_nominating_others": "(7) 他薦",
@@ -425,8 +423,7 @@ export const RULE_GROUPS = [
         section: "other",
         type: "media",
         groupKey: "6_media",
-        explanationKey:
-            "freely_licensed_media_uploaded_to_wikimedia_commons_enter_the_filename",
+        explanationKey: null,
         rules: [
             {
                 rule: "6",

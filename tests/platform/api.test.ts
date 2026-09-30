@@ -36,8 +36,13 @@ const hostMw = {
     notify() {},
 };
 
-const { editACGAScoreList, editPage, getFullText, getPageSnapshot } =
-    createMediaWikiApi({ createApi: () => new hostMw.Api() });
+const {
+    editACGAScoreList,
+    editACGAScoreListBatch,
+    editPage,
+    getFullText,
+    getPageSnapshot,
+} = createMediaWikiApi({ createApi: () => new hostMw.Api() });
 
 function scoreListResponse(score = 112) {
     return {
@@ -212,6 +217,58 @@ test("score-list edit summary is exact and supports fractional scores", () => {
         "[[User:Example|Example]]: 112 + [[Special:Diff/123456|0.5]] = 112.5 " +
             "([[User:SuperGrey/gadgets/ACGATool|ACGATool]] modified)",
     );
+});
+
+test("recheck score-list edits identify the review and subtract only the reduction", async () => {
+    editRequests = [];
+    getRequests = [];
+    nextGetResponse = scoreListResponse();
+    nextEditError = null;
+    nextEditResponse = { edit: { result: "Success", newrevid: 987654 } };
+
+    assert.equal(
+        await editACGAScoreListBatch(
+            [{ userName: "Example", score: -2 }],
+            123456,
+            null,
+            true,
+        ),
+        false,
+    );
+    assert.equal(editRequests.length, 1);
+    assert.match(editRequests[0].params.text, /\["Example"\] = 110/u);
+    assert.equal(
+        editRequests[0].params.summary,
+        "復核積分：[[User:Example|Example]]: 112 − [[Special:Diff/123456|2]] = 110 " +
+            "([[User:SuperGrey/gadgets/ACGATool|ACGATool]] modified)",
+    );
+});
+
+test("batch score-list rechecks distinguish the summary and keep negative and positive deltas", async () => {
+    editRequests = [];
+    getRequests = [];
+    nextGetResponse = scoreListResponse();
+    nextEditError = null;
+    nextEditResponse = { edit: { result: "Success", newrevid: 987654 } };
+
+    assert.equal(
+        await editACGAScoreListBatch(
+            [
+                { userName: "Example", score: -2 },
+                { userName: "Other", score: 1 },
+            ],
+            123456,
+            null,
+            true,
+        ),
+        false,
+    );
+    assert.equal(editRequests.length, 1);
+    assert.match(editRequests[0].params.text, /\["Example"\] = 110/u);
+    assert.match(editRequests[0].params.text, /\["Other"\] = 1/u);
+    assert.match(editRequests[0].params.summary, /^批次復核積分 /u);
+    assert.match(editRequests[0].params.summary, /112 − 2 = 110/u);
+    assert.match(editRequests[0].params.summary, /0 \+ 1 = 1/u);
 });
 
 test("score-list edit summary links to a safe DiscussionTools comment fragment", () => {

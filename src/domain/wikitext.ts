@@ -2,9 +2,8 @@ import {
     NominationRuleAliases,
     NominationRuleSet,
     parseReasonTokens,
-    serializeNominationReason,
-    allRuleOccurrences,
 } from "./rules.ts";
+import { boundedToolSummary } from "./edit-summary.ts";
 
 type SourceLocation = { start: number; end: number };
 type TemplateParameter = {
@@ -335,6 +334,18 @@ export function getDateSections(text: string): Array<any> {
     return sections;
 }
 
+/** Only the explicitly labelled signature immediately after a table identifies its nominator. */
+function tableNominator(sourceAfterTable: string): string | undefined {
+    const signature = sourceAfterTable.match(
+        /^\s*'''提名人[：:][\t ]*'''[\t ]*([^\r\n]*)/u,
+    )?.[1];
+    return signature
+        ?.match(
+            /\[\[\s*(?:User(?:[ _]talk)?|用[户戶](?:讨论|討論)?|使用者(?:討論)?)\s*:\s*([^|#[\]\r\n]+)(?:#[^|\]\r\n]*)?(?:\|[^\]\r\n]*)?\]\]/iu,
+        )?.[1]
+        .trim();
+}
+
 /**
  * 收集指定日期章節（從 h3 標題到下一個 h3 之前）的所有提名項目。
  * 每個項目可能是主模板（{{ACG提名}}）、巢狀的額外提名模板，或 {{ACG提名2}} 中的一筆資料。
@@ -344,15 +355,19 @@ export function getDateSections(text: string): Array<any> {
  */
 function collectEntriesInSection(text: string, section: any): Array<any> {
     const entries = [];
-    const sectionText = structuralWikitext(text).slice(
-        section.start,
-        section.end,
-    );
-    const regex = /{{(?:ACG提名2|ACG提名)(?=[\s|}])/g;
+    const structure = structuralWikitext(text);
+    const sectionText = structure.slice(section.start, section.end);
+    const regex = /{{ACG提名2?(?=[\s|}])/g;
+    let unsignedEntries: Array<any> = [];
+    let previousTableEnd = section.start;
+    let tableIndex = 0;
     let match;
     while ((match = regex.exec(sectionText)) !== null) {
         const absolutePos = section.start + match.index;
         const { template, endIndex } = parseTemplate(text, absolutePos);
+        if (structure.slice(previousTableEnd, absolutePos).trim())
+            unsignedEntries = [];
+        const firstNewEntry = entries.length;
         if (template.name.startsWith("ACG提名2")) {
             if (template.entries) {
                 for (const entry of template.entries) {
@@ -361,6 +376,7 @@ function collectEntriesInSection(text: string, section: any): Array<any> {
                         start: entry.fullLocation.start,
                         end: entry.fullLocation.end,
                         type: "acg2",
+                        tableIndex,
                     });
                 }
             }
@@ -370,6 +386,7 @@ function collectEntriesInSection(text: string, section: any): Array<any> {
                 start: template.location.start,
                 end: template.location.end,
                 type: "main",
+                tableIndex,
             });
             if (
                 template.params["額外提名"] &&
@@ -382,14 +399,51 @@ function collectEntriesInSection(text: string, section: any): Array<any> {
                         start: nested.location.start,
                         end: nested.location.end,
                         type: "extra",
+                        tableIndex,
                     });
                 }
             }
         }
+        tableIndex++;
+        unsignedEntries.push(...entries.slice(firstNewEntry));
+        const nominator = tableNominator(
+            structure.slice(endIndex, section.end),
+        );
+        if (nominator) {
+            for (const entry of unsignedEntries) entry.nominator = nominator;
+            unsignedEntries = [];
+        }
+        previousTableEnd = endIndex;
         regex.lastIndex = endIndex - section.start;
     }
     entries.sort((a: any, b: any) => a.start - b.start);
     return entries;
+}
+
+/** Enumerate registry entries with the same physical identity used for editing. */
+export function getRegistryEntries(text: string): Array<any> {
+    const occurrences = new Map<string, number>();
+    const structure = structuralWikitext(text);
+    return getDateSections(text).flatMap((section) => {
+        const sectionOccurrence = occurrences.get(section.date) ?? 0;
+        occurrences.set(section.date, sectionOccurrence + 1);
+        if (!/^\d{1,2}月\d{1,2}日$/u.test(section.date)) return [];
+        const nextChapter = structure
+            .slice(section.start, section.end)
+            .search(/^==(?!=).+?(?<!=)==(?!=)[\t \r]*$/mu);
+        const boundedSection =
+            nextChapter < 0
+                ? section
+                : { ...section, end: section.start + nextChapter };
+        return collectEntriesInSection(text, boundedSection).map(
+            (entry, index) => ({
+                ...entry,
+                date: section.date,
+                index: index + 1,
+                sectionOccurrence,
+            }),
+        );
+    });
 }
 
 /**
@@ -607,6 +661,7 @@ export function queried2NomData(queried: any): any {
     return {
         pageName: cleanIdentity(rawFields["條目名稱"]),
         awarder: cleanIdentity(rawFields["用戶名稱"]),
+        ...(queried.nominator ? { nominator: queried.nominator } : {}),
         requestReasonText: requestReasonText(reasonWikitext),
         requestReasonWikitext: reasonWikitext,
         checkWikitext: rawFields["核對用"],
@@ -615,14 +670,11 @@ export function queried2NomData(queried: any): any {
     };
 }
 
-const TOOL_ATTRIBUTION =
-    "([[User:SuperGrey/gadgets/ACGATool|ACGATool]] modified)";
-
 /**
  * 在可讀的編輯摘要末尾加上標準的小工具署名。
  */
 export function withToolAttribution(summary: string): string {
-    return `${summary.trim()} ${TOOL_ATTRIBUTION}`;
+    return boundedToolSummary(summary);
 }
 
 /**
@@ -638,28 +690,6 @@ export function formatSummaryPageLinks(pageNames: Array<unknown>): string {
                 : `[[${pageName}]]`,
         )
         .join("、");
-}
-
-/** Describe each nomination's recipient, contribution and proposed score in page history. */
-export function formatNominationEditSummaryItems(
-    nominations: Array<{ pageName?: unknown; awarder?: unknown; ruleStatus?: any }>,
-): string {
-    const { ruleNames } = NominationRuleSet();
-    const plainText = (value: unknown) => String(value ?? "")
-        .replace(/[\[\]{}|\r\n\t]/gu, " ").replace(/\s+/gu, " ").trim();
-    return nominations.map((nomination) => {
-        const recipient = plainText(nomination.awarder).replace(/^(?:User|使用者|用户|用戶)\s*:\s*/iu, "");
-        const pageName = plainText(nomination.pageName);
-        const reason = serializeNominationReason(nomination.ruleStatus, ruleNames);
-        const score = reason.ok ? reason.reasonScore : "?";
-        const placeholder = ["他薦", "他荐", "其他"].includes(pageName);
-        const descriptions = placeholder ? [...new Set(allRuleOccurrences(nomination.ruleStatus)
-            .filter(({ status }) => status?.selected)
-            .map(({ status }) => plainText(status.desc))
-            .filter(Boolean))].join("、") : "";
-        const target = placeholder ? descriptions || pageName : `[[${pageName}]]`;
-        return `[[User:${recipient}|${recipient}]]：${target}（${score}分）`;
-    }).join("；");
 }
 
 function safeCommentFragment(commentId: any): string | null {
@@ -686,21 +716,24 @@ export function formatScoreListEditSummary(
     newScore: any,
     registryRevisionId: any,
     commentId: string | null = null,
+    recheck = false,
 ) {
     const fragment = safeCommentFragment(commentId);
     const diffTarget =
         "Special:Diff/" + registryRevisionId + (fragment ? "#" + fragment : "");
+    const negative = Number(score) < 0;
     return withToolAttribution(
-        "[[User:" +
+        (recheck ? "復核積分：" : "") +
+            "[[User:" +
             awarder +
             "|" +
             awarder +
             "]]: " +
             originalScore +
-            " + [[" +
+            (negative ? " − [[" : " + [[") +
             diffTarget +
             "|" +
-            score +
+            (negative ? Math.abs(Number(score)) : score) +
             "]] = " +
             newScore,
     );
@@ -863,12 +896,16 @@ export function parseEditableItemSource(source: string): any {
 export type CheckedScoreResult =
     { ok: true; score: number } | { ok: false; error: { code: string } };
 
-/** Read only the supported check expression; unknown legacy expressions need manual reconciliation. */
-export function getCheckedScore(checkWikitext: string): CheckedScoreResult {
+type CheckSourceResult =
+    | { ok: true; accepted: string; rejected: string; suffix: string }
+    | { ok: false; error: { code: string } };
+
+function readCheckSource(checkWikitext: string): CheckSourceResult {
     const source = String(checkWikitext ?? "")
         .replace(/<!--[\s\S]*?-->/gu, "")
         .trim();
-    if (source === "") return { ok: true, score: 0 };
+    if (source === "")
+        return { ok: true, accepted: "", rejected: "", suffix: "" };
     if (!source.startsWith("{{"))
         return { ok: false, error: { code: "unsupported-check" } };
     const parts: string[] = [];
@@ -913,6 +950,7 @@ export function getCheckedScore(checkWikitext: string): CheckedScoreResult {
         return { ok: false, error: { code: "unsupported-check" } };
     }
     let expression: string | undefined;
+    let rejected = "";
     let versionSeen = false;
     let rejectedSeen = false;
     for (const part of parts) {
@@ -922,6 +960,7 @@ export function getCheckedScore(checkWikitext: string): CheckedScoreResult {
         }
         if (/^no\s*=/u.test(part) && !rejectedSeen) {
             rejectedSeen = true;
+            rejected = part.replace(/^no\s*=\s*/u, "");
             continue;
         }
         if (expression === undefined) {
@@ -932,6 +971,73 @@ export function getCheckedScore(checkWikitext: string): CheckedScoreResult {
     }
     if (!versionSeen || expression === undefined)
         return { ok: false, error: { code: "unsupported-check-version" } };
+    return {
+        ok: true,
+        accepted: expression,
+        rejected,
+        suffix: source.slice(end),
+    };
+}
+
+interface CheckedRuleToken {
+    code: string;
+    pending: boolean;
+    comment: string | null;
+    scoreOverride: number | null;
+    sourceIndex: number;
+    selected: boolean;
+}
+
+export type NominationCheckParseResult =
+    | { ok: true; tokens: CheckedRuleToken[]; message: string }
+    | { ok: false; error: { code: string } };
+
+/** Restore supported saved checks without treating their signatures as editable comments. */
+export function parseNominationCheckWikitext(
+    checkWikitext: string,
+): NominationCheckParseResult {
+    const source = readCheckSource(checkWikitext);
+    if (!source.ok) return source;
+    const { ruleDict } = NominationRuleSet();
+    const tokens: CheckedRuleToken[] = [];
+    for (const [expression, selected] of [
+        [source.accepted, true],
+        [source.rejected, false],
+    ] as const) {
+        if (expression === "" || expression === "0") continue;
+        const parsed = parseReasonTokens(
+            expression,
+            ruleDict,
+            NominationRuleAliases(),
+        );
+        if (!parsed.ok)
+            return { ok: false, error: { code: "unrecognized-check-rules" } };
+        for (const token of parsed.tokens) {
+            if (selected && token.pending)
+                return { ok: false, error: { code: "pending-check-rule" } };
+            tokens.push({ ...token, selected, sourceIndex: tokens.length });
+        }
+    }
+    let message = source.suffix;
+    const signature = [
+        ...message.matchAll(/--(?=~{3,5}\s*$|\[\[|<|\{\{)/gu),
+    ].at(-1);
+    if (
+        signature &&
+        (/^--~{3,5}\s*$/u.test(message.slice(signature.index)) ||
+            (/\d{1,2}:\d{2}/u.test(message.slice(signature.index)) &&
+                /\d{4}/u.test(message.slice(signature.index)) &&
+                /\(UTC\)\s*$/u.test(message)))
+    )
+        message = message.slice(0, signature.index);
+    return { ok: true, tokens, message };
+}
+
+/** Read only the supported check expression; unknown legacy expressions need manual reconciliation. */
+export function getCheckedScore(checkWikitext: string): CheckedScoreResult {
+    const source = readCheckSource(checkWikitext);
+    if (!source.ok) return source;
+    const expression = source.accepted;
     if (expression === "" || expression === "0") return { ok: true, score: 0 };
     const { ruleDict } = NominationRuleSet();
     const parsed = parseReasonTokens(

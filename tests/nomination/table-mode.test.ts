@@ -8,6 +8,7 @@ import { dialogRuntime, dialogServices, instantiateHost } from "./fixture.ts";
 function harness() {
     const previews: NewNominationBatch[] = [];
     const saves: NewNominationBatch[] = [];
+    const notices: Array<Parameters<typeof dialogServices.notify>> = [];
     const vm = instantiateHost(
         createDialogHost(
             dialogRuntime,
@@ -30,11 +31,16 @@ function harness() {
                     assert.fail("unexpected source save");
                 },
             },
-            dialogServices,
+            {
+                ...dialogServices,
+                notify(message, options) {
+                    notices.push([message, options]);
+                },
+            },
         ),
     );
     void vm.openNew();
-    return { vm, previews, saves };
+    return { vm, previews, saves, notices };
 }
 
 function validArticle(draft: any, title: string) {
@@ -53,7 +59,6 @@ test("preview reports every invalid nomination in visible table order and skips 
     vm.addNomination();
     const second = vm.activeNomination;
     validArticle(second, "Second article");
-    vm.splitNominationTable();
     vm.addNominationTable();
     const third = vm.activeNomination;
     first.pageName = "";
@@ -74,20 +79,13 @@ test("preview reports every invalid nomination in visible table order and skips 
     third.frozen = true;
     vm.reviewNominations();
     assert.doesNotMatch(vm.error, /表格2/u);
-    vm.splitNominationTable();
-    vm.reviewNominations();
-    assert.match(vm.error, /提名1、提名2/u);
-    assert.doesNotMatch(vm.error, /表格/u);
     vm.clearError();
     assert.deepEqual(vm.errorDetails, []);
 });
 
-test("split mode changes presentation without validating or replacing incomplete drafts", () => {
+test("table navigation preserves incomplete drafts, comments, and each active item", () => {
     const { vm } = harness();
     const first = vm.currentNomination;
-    assert.equal(vm.splitTableMode, false);
-    vm.splitNominationTable();
-    assert.equal(vm.splitTableMode, true);
     assert.equal(vm.nominationTables.length, 1);
     assert.equal(vm.currentNomination, first);
     assert.equal(vm.error, "");
@@ -106,14 +104,18 @@ test("split mode changes presentation without validating or replacing incomplete
     vm.nominationTables[0].comment = "First comment";
     vm.nominationTables[1].comment = "Second comment";
 
-    vm.splitNominationTable();
-    assert.equal(vm.splitTableMode, false);
-    assert.deepEqual(vm.nominations, [first, second]);
+    assert.deepEqual(vm.nominations, [second]);
     assert.equal(vm.activeTab, second.id);
-    vm.selectNomination(first.id);
-    vm.splitNominationTable();
+    vm.switchNominationTable(0);
     assert.equal(vm.activeNominationTableIndex, 0);
     assert.equal(vm.currentNomination, first);
+    vm.addNomination();
+    const added = vm.activeNomination;
+    vm.switchNominationTable(1);
+    assert.equal(vm.currentNomination, second);
+    vm.switchNominationTable(0);
+    assert.equal(vm.activeNomination, added);
+    assert.equal(vm.activeTab, added.id);
     assert.deepEqual(
         vm.nominationTables.map((table: any) => table.comment),
         ["First comment", "Second comment"],
@@ -122,30 +124,31 @@ test("split mode changes presentation without validating or replacing incomplete
     assert.equal(second.errors.pageName, "");
 });
 
-test("merged additions and removals update canonical groups and remove an emptied group", () => {
-    const { vm } = harness();
+test("item additions stay in the active table and removing its last item removes the empty group", () => {
+    const { vm, notices } = harness();
     const first = vm.currentNomination;
     validArticle(first, "First article");
-    vm.splitNominationTable();
     vm.addNominationTable();
     const second = vm.currentNomination;
-    vm.nominationTables[0].comment = "Empty group comment";
+    validArticle(second, "Second article");
+    vm.nominationTables[0].comment = "First group comment";
     vm.nominationTables[1].comment = "Remaining group comment";
-    vm.splitNominationTable();
-    vm.selectNomination(first.id);
+    vm.switchNominationTable(0);
     vm.addNomination();
     const added = vm.activeNomination;
-    assert.deepEqual(vm.nominationTables[0].nominations, [first]);
-    assert.deepEqual(vm.nominationTables[1].nominations, [second, added]);
+    assert.deepEqual(vm.nominationTables[0].nominations, [first, added]);
+    assert.deepEqual(vm.nominationTables[1].nominations, [second]);
 
+    vm.removeNomination(added.id);
     vm.removeNomination(first.id);
     assert.equal(vm.nominationTables.length, 1);
-    assert.deepEqual(vm.nominations, [second, added]);
+    assert.deepEqual(vm.nominations, [second]);
     assert.equal(vm.nominationTables[0].comment, "Remaining group comment");
-    vm.splitNominationTable();
-    assert.deepEqual(vm.nominations, [second, added]);
-    assert.equal(vm.nominationTables[0].comment, "Remaining group comment");
-    assert.ok(vm.nominations.some((draft: any) => draft.id === vm.activeTab));
+    assert.deepEqual(notices, []);
+    vm.removeNomination(second.id);
+    assert.deepEqual(vm.nominations, [second]);
+    assert.equal(vm.activeTab, second.id);
+    assert.deepEqual(notices, [["至少需要一個提名！", { type: "warning" }]]);
 });
 
 test("adding an item or table validates only the active nomination before changing groups", () => {
@@ -173,7 +176,6 @@ test("adding an item or table validates only the active nomination before changi
     assert.equal(vm.nominations.length, 2);
     assert.equal(vm.error, "");
     const second = vm.activeNomination;
-    vm.splitNominationTable();
     vm.addNominationTable();
     assert.equal(vm.nominationTables.length, 1);
     assert.equal(vm.activeTab, second.id);
@@ -183,27 +185,25 @@ test("adding an item or table validates only the active nomination before changi
     assert.notEqual(vm.activeTab, second.id);
 });
 
-test("a merged summary edits original group coordinates and refreshes its flat draft view", () => {
+test("summary edits use the original table coordinates and refresh the active draft", () => {
     const { vm } = harness();
     validArticle(vm.currentNomination, "First article");
-    vm.splitNominationTable();
     vm.addNominationTable();
     validArticle(vm.currentNomination, "Second article");
-    vm.splitNominationTable();
     vm.reviewNominations();
     assert.equal(vm.view, "nomination-summary");
-    assert.equal(vm.nominationSummaryTables.length, 1);
-    const rows = vm.nominationSummaryTables[0].rows;
+    assert.equal(vm.nominationSummaryTables.length, 2);
+    const rows = vm.nominationSummaryTables.flatMap((table: any) => table.rows);
     assert.deepEqual(
         rows.map((row: any) => [row.tableIndex, row.index, row.number]),
         [
             [0, 0, 1],
-            [1, 0, 2],
+            [1, 0, 1],
         ],
     );
     const second = rows[1];
     vm.editSummaryNomination(second.tableIndex, second.index, second.number);
-    assert.equal(vm.editingNominationNumber, 2);
+    assert.equal(vm.editingNominationNumber, 1);
     vm.editingNomination.pageName = "Revised second article";
     vm.applyNominationEdit();
     assert.equal(vm.editingNomination, null);
@@ -212,18 +212,13 @@ test("a merged summary edits original group coordinates and refreshes its flat d
         [["First article"], ["Revised second article"]],
     );
     vm.backToNewNominations();
-    assert.deepEqual(titles(vm.nominations), [
-        "First article",
-        "Revised second article",
-    ]);
-    vm.splitNominationTable();
+    assert.deepEqual(titles(vm.nominations), ["Revised second article"]);
     assert.equal(vm.currentNomination.pageName, "Revised second article");
 });
 
-test("review validates every canonical group and preview and save use the selected table layout", async () => {
+test("review validates every table and preview and save preserve each group's comment", async () => {
     const { vm, previews, saves } = harness();
     validArticle(vm.currentNomination, "First article");
-    vm.splitNominationTable();
     vm.addNominationTable();
     const invalid = vm.currentNomination;
     vm.nominationTables[0].comment = " First comment ";
@@ -234,31 +229,33 @@ test("review validates every canonical group and preview and save use the select
     assert.equal(vm.activeTab, invalid.id);
     assert.equal(vm.activeNominationTableIndex, 1);
 
-    vm.splitNominationTable();
-    vm.selectNomination(vm.nominations[0].id);
+    vm.switchNominationTable(0);
     vm.reviewNominations();
     assert.equal(vm.view, "main");
-    assert.equal(vm.splitTableMode, false);
-    assert.equal(vm.nominations.length, 2);
+    assert.equal(vm.nominations.length, 1);
     assert.equal(vm.activeTab, invalid.id);
     validArticle(invalid, "Second article");
-    vm.setNominationTableComment(0, " Merged comment ");
+    vm.setNominationTableComment(0, " Updated first comment ");
     vm.reviewNominations();
     assert.equal(vm.view, "nomination-summary");
     await vm.previewNominations();
     assert.equal(previews.length, 1);
-    assert.equal(previews[0].length, 1);
-    assert.equal(previews[0][0].comment, "Merged comment");
-    assert.deepEqual(titles(previews[0][0].nominations), [
-        "First article",
-        "Second article",
-    ]);
+    assert.equal(previews[0].length, 2);
+    assert.deepEqual(
+        previews[0].map((table: any) => ({
+            titles: titles(table.nominations),
+            comment: table.comment,
+        })),
+        [
+            { titles: ["First article"], comment: "Updated first comment" },
+            { titles: ["Second article"], comment: "Second comment" },
+        ],
+    );
     vm.closeNominationPreview();
     await vm.save();
     assert.deepEqual(saves[0], previews[0]);
 
     vm.backToNewNominations();
-    vm.splitNominationTable();
     vm.reviewNominations();
     assert.equal(vm.nominationSummaryTables.length, 2);
     await vm.previewNominations();
@@ -268,16 +265,15 @@ test("review validates every canonical group and preview and save use the select
             comment: table.comment,
         })),
         [
-            { titles: ["First article"], comment: "First comment" },
+            { titles: ["First article"], comment: "Updated first comment" },
             { titles: ["Second article"], comment: "Second comment" },
         ],
     );
 });
 
-test("frozen rows stay visible without numbers and preserve the comments of submitted split groups", async () => {
+test("frozen rows stay visible without numbers and preserve the comments of submitted groups", async () => {
     const { vm, previews, saves } = harness();
     validArticle(vm.currentNomination, "First group article");
-    vm.splitNominationTable();
     vm.addNominationTable();
     validArticle(vm.currentNomination, "Second group first article");
     vm.addNomination();
@@ -333,26 +329,31 @@ test("frozen rows stay visible without numbers and preserve the comments of subm
     );
 
     vm.backToNewNominations();
-    vm.splitNominationTable();
     vm.reviewNominations();
     assert.deepEqual(
-        vm.nominationSummaryTables[0].rows.map((row: any) => [
-            row.frozen,
-            row.number,
-            row.position,
-        ]),
+        vm.nominationSummaryTables.map((table: any) =>
+            table.rows.map((row: any) => [
+                row.frozen,
+                row.number,
+                row.position,
+            ]),
+        ),
         [
-            [false, 1, 1],
-            [true, "", 2],
-            [true, "", 3],
+            [[false, 1, 1]],
+            [
+                [true, "", 1],
+                [true, "", 2],
+            ],
         ],
     );
     vm.toggleNominationFrozen(1, 1);
-    assert.equal(vm.nominationSummaryTables[0].rows[2].number, 2);
-    assert.deepEqual(titles(vm.nominationSubmissionTables()[0].nominations), [
-        "First group article",
-        "Second group second article",
-    ]);
+    assert.equal(vm.nominationSummaryTables[1].rows[1].number, 1);
+    assert.deepEqual(
+        vm
+            .nominationSubmissionTables()
+            .map((table: any) => titles(table.nominations)),
+        [["First group article"], ["Second group second article"]],
+    );
 });
 
 test("invalid frozen drafts can be reviewed but must be repaired before being included again", () => {

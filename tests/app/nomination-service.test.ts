@@ -41,22 +41,27 @@ function draft(pageName = "A", code = "1a", selected = true): NominationData {
         },
     };
 }
-function fixture(text = registry()) {
+function fixture(text = registry(), userName: string | null = null) {
     const pages = new Map<string, PageSnapshot>([
         [REGISTRY_PAGE, { exists: true, text, revisionId: 10 }],
     ]);
     const edits: Array<{
         title: string;
         text: string;
+        summary: string;
         options: EditPageOptions;
     }> = [];
-    const scores: Array<{ deltas: ScoreDelta[]; revision: string | number }> =
-        [];
+    const scores: Array<{
+        deltas: ScoreDelta[];
+        revision: string | number;
+        recheck?: boolean;
+    }> = [];
     const previews: Array<{ text: string; title: string }> = [];
     const notices: string[] = [];
     const failures: string[] = [];
     let reloads = 0;
     let scoreFails = false;
+    let registryFailures = 0;
     const dialogs: NominationDialogs = {
         showNewNominationDialog: async () => "cancel",
         showEditNominationDialog: async () => "cancel",
@@ -75,6 +80,7 @@ function fixture(text = registry()) {
     const service: NominationService = createNominationService({
         dialogs,
         msg: createTranslator("zh-Hant").msg,
+        getUserName: () => userName,
         now: () => new Date("2026-09-27T23:00:00Z"),
         notify: (message) => {
             notices.push(message);
@@ -99,8 +105,16 @@ function fixture(text = registry()) {
                     }),
                 };
             },
-            async editPage(title, newText, _summary, options = {}) {
-                edits.push({ title, text: newText, options });
+            async editPage(title, newText, summary, options = {}) {
+                edits.push({ title, text: newText, summary, options });
+                if (registryFailures > 0) {
+                    registryFailures--;
+                    return {
+                        success: false,
+                        newRevId: null,
+                        errorCode: "readonly",
+                    };
+                }
                 pages.set(title, {
                     exists: true,
                     text: newText,
@@ -108,8 +122,17 @@ function fixture(text = registry()) {
                 });
                 return { success: true, newRevId: 11, errorCode: null };
             },
-            async editACGAScoreListBatch(deltas, revision) {
-                scores.push({ deltas, revision });
+            async editACGAScoreListBatch(
+                deltas,
+                revision,
+                _commentId,
+                recheck,
+            ) {
+                scores.push({
+                    deltas,
+                    revision,
+                    ...(recheck ? { recheck } : {}),
+                });
                 return scoreFails;
             },
         },
@@ -129,6 +152,9 @@ function fixture(text = registry()) {
         set scoreFails(value: boolean) {
             scoreFails = value;
         },
+        set registryFailures(value: number) {
+            registryFailures = value;
+        },
     };
 }
 const selections = [1, 2].map((index) => ({
@@ -137,6 +163,63 @@ const selections = [1, 2].map((index) => ({
     sectionOccurrence: 0,
     expectedRevisionId: 10,
 }));
+
+test("existing-nomination lookup reads active registry without editing and rejects a stale rendered revision", async () => {
+    const f = fixture(registry("{{ACG提名2/check|ver=1|1a}}--~~~~"));
+    const matches = await f.service.getExistingNominations("a", 10);
+    assert.equal(matches.length, 1);
+    assert.equal(matches[0].checked, true);
+    assert.equal(matches[0].date, DATE);
+    assert.equal((await f.service.getExistingNominations()).length, 2);
+    await assert.rejects(
+        f.service.getExistingNominations(undefined, 9),
+        /登記處/u,
+    );
+    assert.equal(f.edits.length, 0);
+    assert.equal(f.scores.length, 0);
+});
+
+test("new and modified nominations write complete attributed summaries within 255 UTF-8 bytes", async () => {
+    const f = fixture();
+    await f.service.saveNewNomination([draft("簡短條目")]);
+    assert.match(
+        f.edits[0].summary,
+        /\[\[User:Example\|Example\]\]：\[\[簡短條目\]\]（1a，1分）/u,
+    );
+    const modified = {
+        ...draft("長條目".repeat(100)),
+        awarder: "得分者".repeat(100),
+    };
+    await f.service.saveModifiedNomination(
+        modified,
+        queryEntry(registry(), DATE, 1),
+    );
+    assert.match(f.edits[1].summary, /^編輯提名：1人1項：總分1分 /u);
+    for (const edit of f.edits) {
+        assert.ok(Buffer.byteLength(edit.summary, "utf8") <= 255);
+        assert.match(
+            edit.summary,
+            /\(\[\[User:SuperGrey\/gadgets\/ACGATool\|ACGATool\]\] modified\)$/u,
+        );
+    }
+});
+
+test("batch check summaries use only staged rows and their checked scores", async () => {
+    const f = fixture();
+    f.dialogs.showCheckNominationDialog = async (data, target) => {
+        if (data.pageName === "B") return "skip";
+        await f.service.saveNominationCheck(draft("A"), target);
+        return "save";
+    };
+    await f.service.checkBatch(selections);
+    assert.equal(f.edits.length, 1);
+    assert.match(
+        f.edits[0].summary,
+        /^批次核對：\[\[User:Example\|Example\]\]：\[\[A\]\]（1a，1分） /u,
+    );
+    assert.equal(f.edits[0].summary.includes("[[B]]"), false);
+    assert.ok(Buffer.byteLength(f.edits[0].summary, "utf8") <= 255);
+});
 
 test("new nomination preview renders the exact later submission without any edits", async () => {
     const f = fixture();
@@ -293,6 +376,171 @@ test("a complete batch writes the registry once and updates all scores in one ca
         2,
     );
     assert.equal(f.reloads, 1);
+});
+
+test("the grouped batch dialog preserves physical table identity and commits only once", async () => {
+    const extra = registry()
+        .replace(`Lead\n=== ${DATE} ===\n`, "")
+        .replace("條目名稱1=A", "條目名稱1=C")
+        .replace("條目名稱2=B", "條目名稱2=D");
+    const f = fixture(registry() + extra);
+    f.dialogs.showCheckNominationDialog = async () => {
+        assert.fail("grouped checking opened a separate item dialog");
+    };
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        assert.deepEqual(
+            entries.map((entry) => [
+                entry.nomination.pageName,
+                entry.tableIndex,
+            ]),
+            [
+                ["A", 0],
+                ["B", 0],
+                ["C", 1],
+            ],
+        );
+        assert.equal(entries[0].tableKey, entries[1].tableKey);
+        assert.notEqual(entries[1].tableKey, entries[2].tableKey);
+        for (const { nomination, target } of entries) {
+            await f.service.saveNominationCheck(
+                draft(nomination.pageName),
+                structuredClone(target),
+            );
+        }
+        assert.equal(f.edits.length, 0);
+        assert.equal(await f.service.completeNominationCheckBatch(), false);
+        assert.equal(await f.service.completeNominationCheckBatch(), false);
+        return "save";
+    };
+    assert.equal(
+        await f.service.checkBatch(
+            [3, 2, 1].map((index) => ({ ...selections[0], index })),
+        ),
+        true,
+    );
+    assert.equal(f.edits.length, 1);
+    assert.equal(f.scores.length, 1);
+    assert.equal(
+        f.scores[0].deltas.reduce((sum, item) => sum + item.score, 0),
+        3,
+    );
+});
+
+test("revisiting a checked draft replaces its staged result and skipping removes a prior result", async () => {
+    const f = fixture();
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        const first = entries[0];
+        const second = entries[1];
+        await f.service.saveNominationCheck(draft("A"), first.target);
+        await f.service.saveNominationCheck(
+            draft("A", "1b"),
+            structuredClone(first.target),
+        );
+        await f.service.saveNominationCheck(draft("B"), second.target);
+        f.service.discardNominationCheck(structuredClone(second.target));
+        assert.equal(await f.service.completeNominationCheckBatch(), false);
+        return "save";
+    };
+    assert.equal(await f.service.checkBatch(selections), true);
+    assert.equal(f.edits.length, 1);
+    assert.match(
+        f.edits[0].text,
+        /核對用1=\{\{ACG提名2\/check\|ver=1\|1b\}\}/u,
+    );
+    assert.match(f.edits[0].text, /核對用2=\n/u);
+    assert.equal(f.scores.length, 1);
+    assert.deepEqual(f.scores[0].deltas, [{ userName: "Example", score: 2 }]);
+});
+
+test("grouped batch cancellation discards staged decisions", async () => {
+    const f = fixture();
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        await f.service.saveNominationCheck(draft(), entries[0].target);
+        return "cancel";
+    };
+    assert.equal(await f.service.checkBatch(selections), false);
+    assert.equal(f.edits.length, 0);
+    assert.equal(f.scores.length, 0);
+});
+
+test("quitting submits only the staged checks and leaves pending nominations unchanged", async () => {
+    const f = fixture();
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        await f.service.saveNominationCheck(draft(), entries[0].target);
+        assert.equal(f.edits.length, 0);
+        assert.equal(await f.service.completeNominationCheckBatch(), false);
+        return "quit";
+    };
+    assert.equal(await f.service.checkBatch(selections), true);
+    assert.equal(f.edits.length, 1);
+    assert.match(f.edits[0].text, /核對用2=\n/u);
+    assert.deepEqual(f.scores[0].deltas, [{ userName: "Example", score: 1 }]);
+});
+
+test("grouped completion retains staged results after a registry failure and retries safely", async () => {
+    const f = fixture();
+    f.registryFailures = 1;
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        for (const { nomination, target } of entries)
+            await f.service.saveNominationCheck(
+                draft(nomination.pageName),
+                target,
+            );
+        assert.equal(await f.service.completeNominationCheckBatch(), true);
+        assert.equal(f.scores.length, 0);
+        assert.equal(await f.service.completeNominationCheckBatch(), false);
+        return "save";
+    };
+    assert.equal(await f.service.checkBatch(selections), true);
+    assert.equal(f.edits.length, 2);
+    assert.equal(f.scores.length, 1);
+    assert.equal(
+        f.scores[0].deltas.reduce((sum, item) => sum + item.score, 0),
+        2,
+    );
+});
+
+test("grouped partial score failure does not replay the committed registry or scores", async () => {
+    const f = fixture();
+    f.scoreFails = true;
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        await f.service.saveNominationCheck(draft(), entries[0].target);
+        assert.equal(await f.service.completeNominationCheckBatch(), false);
+        assert.equal(await f.service.completeNominationCheckBatch(), false);
+        return "save";
+    };
+    assert.equal(await f.service.checkBatch(selections), true);
+    assert.equal(f.edits.length, 1);
+    assert.equal(f.scores.length, 1);
+    assert.equal(f.reloads, 0);
+    assert.ok(f.notices.some((message) => message.includes("勿重複提交")));
+});
+
+test("rechecking a saved score applies only its negative difference and identifies the recheck", async () => {
+    const f = fixture(registry("{{ACG提名2/check|ver=1|1b}}--signature"));
+    assert.equal(
+        await f.service.saveNominationCheck(
+            draft(),
+            queryEntry(f.pages.get(REGISTRY_PAGE)!.text, DATE, 1),
+        ),
+        false,
+    );
+    assert.deepEqual(f.scores[0].deltas, [{ userName: "Example", score: -1 }]);
+    assert.equal(f.scores[0].recheck, true);
+    assert.match(f.edits[0].summary, /^復核分數：/u);
+});
+
+test("mixed initial checks and rechecks use one combined score update and summary", async () => {
+    const f = fixture(registry("{{ACG提名2/check|ver=1|1b}}--signature"));
+    assert.equal(await f.service.checkBatch(selections), true);
+    assert.equal(f.edits.length, 1);
+    assert.equal(f.scores.length, 1);
+    assert.deepEqual(f.scores[0].deltas, [
+        { userName: "Example", score: -1 },
+        { userName: "Example", score: 1 },
+    ]);
+    assert.match(f.edits[0].summary, /^批次核對與復核：/u);
+    assert.equal(f.scores[0].recheck, true);
 });
 
 test("cancelling the second item discards the entire cached batch", async () => {
@@ -495,3 +743,180 @@ for (const check of [true, false])
         assert.equal(f.reloads, 0);
         assert.ok(f.notices.some((message) => message.includes("手動")));
     });
+
+function signedRegistry(
+    entries: Array<{ pageName: string; awarder: string; nominator: string }>,
+) {
+    return `=== ${DATE} ===\n${entries
+        .map(
+            ({ pageName, awarder, nominator }) =>
+                `{{ACG提名2\n|條目名稱1=${pageName}\n|用戶名稱1=${awarder}\n|提名理由1={{ACG提名2/request|ver=1|1a}}\n|核對用1=\n}}\n'''提名人：''' [[User:${nominator}|${nominator}]] 2026年9月27日 (UTC)\n`,
+        )
+        .join("\n")}`;
+}
+
+for (const ownership of ["nomination", "score", "both"] as const)
+    test(`own ${ownership} prevents opening or directly saving a check`, async () => {
+        const text = signedRegistry([
+            {
+                pageName: "A",
+                awarder: ownership === "nomination" ? "Example" : "Reviewer",
+                nominator: ownership === "score" ? "Other" : "Reviewer",
+            },
+        ]);
+        const f = fixture(text, "Reviewer");
+        f.dialogs.showCheckNominationDialog = async () => {
+            assert.fail("a restricted nomination opened a check dialog");
+        };
+        assert.equal(await f.service.checkNomination(selections[0]), "cancel");
+        assert.equal(
+            await f.service.saveNominationCheck(
+                draft(),
+                queryEntry(text, DATE, 1),
+            ),
+            true,
+        );
+        assert.equal(f.edits.length, 0);
+        assert.equal(f.scores.length, 0);
+        assert.equal(f.notices.length, 2);
+    });
+
+test("mixed batches skip self nominations and self scores while numbering only eligible checks", async () => {
+    const text = signedRegistry([
+        {
+            pageName: "Own nomination",
+            awarder: "Example",
+            nominator: "Reviewer",
+        },
+        { pageName: "Own score", awarder: "Reviewer", nominator: "Other" },
+        { pageName: "Eligible", awarder: "Example", nominator: "Other" },
+    ]);
+    const f = fixture(text, "Reviewer");
+    const opened: Array<unknown> = [];
+    f.dialogs.showCheckNominationDialog = async (data, target, progress) => {
+        opened.push([data.pageName, progress]);
+        assert.equal(
+            await f.service.saveNominationCheck(draft(data.pageName), target),
+            false,
+        );
+        return "save";
+    };
+    assert.equal(
+        await f.service.checkBatch(
+            [1, 2, 3].map((index) => ({ ...selections[0], index })),
+        ),
+        true,
+    );
+    assert.deepEqual(opened, [["Eligible", { current: 1, total: 1 }]]);
+    assert.equal(f.edits.length, 1);
+    assert.equal((f.edits[0].text.match(/ACG提名2\/check/gu) ?? []).length, 1);
+    assert.deepEqual(f.scores[0].deltas, [{ userName: "Example", score: 1 }]);
+});
+
+test("a batch containing only restricted nominations opens no dialogs and writes nothing", async () => {
+    const text = signedRegistry([
+        { pageName: "A", awarder: "Reviewer", nominator: "Other" },
+    ]);
+    const f = fixture(text, "Reviewer");
+    f.dialogs.showCheckNominationDialog = async () => {
+        assert.fail("a restricted nomination opened a batch check dialog");
+    };
+    assert.equal(await f.service.checkBatch([selections[0]]), false);
+    assert.equal(f.edits.length, 0);
+    assert.equal(f.scores.length, 0);
+});
+
+test("correcting the score recipient to the reviewer cannot bypass the check restriction", async () => {
+    const text = signedRegistry([
+        { pageName: "A", awarder: "Example", nominator: "Other" },
+    ]);
+    const f = fixture(text, "Reviewer");
+    assert.equal(
+        await f.service.saveNominationCheck(
+            {
+                ...draft(),
+                awarder: "Reviewer",
+                replaceRequestReason: true,
+                requestReasonText: "1a",
+            },
+            queryEntry(text, DATE, 1),
+        ),
+        true,
+    );
+    assert.equal(f.edits.length, 0);
+    assert.equal(f.scores.length, 0);
+});
+
+test("the latest registry signature is revalidated before a check is committed", async () => {
+    const text = signedRegistry([
+        { pageName: "A", awarder: "Example", nominator: "Other" },
+    ]);
+    const f = fixture(text, "Reviewer");
+    const target = queryEntry(text, DATE, 1);
+    f.pages.set(REGISTRY_PAGE, {
+        exists: true,
+        text: text.replace(
+            "[[User:Other|Other]]",
+            "[[User:Reviewer|Reviewer]]",
+        ),
+        revisionId: 12,
+    });
+    assert.equal(await f.service.saveNominationCheck(draft(), target), true);
+    assert.equal(f.edits.length, 0);
+    assert.equal(f.scores.length, 0);
+});
+
+for (const check of [true, false])
+    test(`raw check changes cannot bypass ownership restrictions in ${check ? "check" : "edit"} mode`, async () => {
+        const text = signedRegistry([
+            { pageName: "A", awarder: "Example", nominator: "Reviewer" },
+        ]);
+        const f = fixture(text, "Reviewer");
+        assert.equal(
+            await f.service.saveRawNominationSource(
+                {
+                    條目名稱: "A",
+                    用戶名稱: "Example",
+                    提名理由: "{{ACG提名2/request|ver=1|1a}}",
+                    核對用: "Manual check",
+                },
+                queryEntry(text, DATE, 1),
+                { check },
+            ),
+            true,
+        );
+        assert.equal(f.edits.length, 0);
+        assert.equal(f.scores.length, 0);
+    });
+
+test("ownership restrictions preserve ordinary structured and raw nomination editing", async () => {
+    const text = signedRegistry([
+        { pageName: "A", awarder: "Reviewer", nominator: "Reviewer" },
+    ]);
+    const structured = fixture(text, "Reviewer");
+    assert.equal(
+        await structured.service.saveModifiedNomination(
+            { ...draft("Edited"), awarder: "Reviewer" },
+            queryEntry(text, DATE, 1),
+        ),
+        false,
+    );
+    assert.equal(structured.edits.length, 1);
+    assert.equal(structured.scores.length, 0);
+    const raw = fixture(text, "Reviewer");
+    assert.equal(
+        await raw.service.saveRawNominationSource(
+            {
+                條目名稱: "Edited",
+                用戶名稱: "Reviewer",
+                提名理由: "{{ACG提名2/request|ver=1|1a}}",
+                核對用: "",
+            },
+            queryEntry(text, DATE, 1),
+            { check: false },
+        ),
+        false,
+    );
+    assert.equal(raw.edits.length, 1);
+    assert.equal(raw.scores.length, 0);
+});

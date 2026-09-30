@@ -9,9 +9,12 @@ import {
     getCheckedScore,
     parseUserReason,
     formatSummaryPageLinks,
-    formatNominationEditSummaryItems,
     withToolAttribution,
 } from "../domain/wikitext.ts";
+import {
+    formatNominationEditSummary,
+    type NominationSummaryItem,
+} from "../domain/edit-summary.ts";
 import {
     formatNewNominationTablesWikitext,
     formatNominationCheckWikitext,
@@ -29,6 +32,7 @@ import type {
     EditPageResult,
 } from "../platform/mediawiki/api.ts";
 import type {
+    CheckBatchEntry,
     NominationDialogs,
     NominationData,
     NewNominationBatch,
@@ -36,8 +40,16 @@ import type {
     NominationTarget,
     RawNominationFields,
 } from "../features/nomination/contracts.ts";
+import {
+    CHECK_OUTCOME,
+    normalizeCheckOutcome,
+} from "../features/nomination/check-batch.ts";
 import { normalizeDiscussionCommentId } from "../features/registry/identity.ts";
 import type { Feedback } from "../shared/ports.ts";
+import {
+    getExistingNominations,
+    getNominationCheckRestriction,
+} from "../domain/existing-nominations.ts";
 
 export const REGISTRY_PAGE = "WikiProject:ACG/維基ACG專題獎/登記處";
 
@@ -58,6 +70,7 @@ interface NominationApi {
         deltas: ScoreDelta[],
         revision: string | number,
         commentId?: string,
+        recheck?: boolean,
     ): Promise<boolean>;
 }
 export interface EntrySelection {
@@ -71,6 +84,7 @@ export interface NominationServices extends Feedback {
     api: NominationApi;
     dialogs: NominationDialogs;
     msg: Translator;
+    getUserName?(): string | null;
     reload(): void;
     now(): Date;
 }
@@ -78,8 +92,10 @@ interface PendingChange {
     target: NominationTarget;
     fields: Record<string, string>;
     pageName: string;
+    summaryItem: NominationSummaryItem;
     score?: number;
     manualScore?: boolean;
+    check?: boolean;
 }
 
 function editOptions(snapshot: PageSnapshot): EditPageOptions {
@@ -106,6 +122,7 @@ function matchesRevision(
 export function createNominationService(services: NominationServices) {
     const { api, dialogs, msg, notify, reportError, reload, now } = services;
     let batch: PendingChange[] | null = null;
+    let batchCommitted = false;
     let writing = false;
 
     function error(key: MessageKey) {
@@ -113,6 +130,27 @@ export function createNominationService(services: NominationServices) {
     }
     function stale() {
         error("this_nomination_or_the_registry_has_changed_refresh_the_page");
+    }
+    function checkAllowed(
+        nomination: { awarder: unknown; nominator?: unknown },
+        proposedRecipient?: unknown,
+    ): boolean {
+        const reviewer = services.getUserName?.() ?? null;
+        const original = getNominationCheckRestriction(nomination, reviewer);
+        const proposed =
+            proposedRecipient === undefined
+                ? null
+                : getNominationCheckRestriction(
+                      { ...nomination, awarder: proposedRecipient },
+                      reviewer,
+                  );
+        const restriction =
+            proposed === "check_disabled_own_nomination_and_score"
+                ? proposed
+                : (original ?? proposed);
+        if (!restriction) return true;
+        error(restriction);
+        return false;
     }
     function validGroup(nomination: NominationData): boolean {
         if (
@@ -165,6 +203,7 @@ export function createNominationService(services: NominationServices) {
         }
         const commentId = normalizeDiscussionCommentId(selection.commentId);
         if (commentId) target.commentId = commentId;
+        target.registryRevisionId = snapshot.revisionId;
         return target;
     }
 
@@ -190,6 +229,11 @@ export function createNominationService(services: NominationServices) {
             deltas = [];
             for (const { change, entry } of resolved) {
                 const original = queried2NomData(entry);
+                if (
+                    change.check &&
+                    !checkAllowed(original, change.fields.用戶名稱)
+                )
+                    return true;
                 if (change.score === undefined) {
                     if (
                         change.fields.核對用 !== undefined &&
@@ -244,7 +288,7 @@ export function createNominationService(services: NominationServices) {
             result = await api.editPage(
                 REGISTRY_PAGE,
                 updated,
-                withToolAttribution(summary),
+                summary,
                 editOptions(snapshot),
             );
             if (result.success || !retryable(result)) break;
@@ -259,7 +303,7 @@ export function createNominationService(services: NominationServices) {
             if (result.newRevId == null) scoreFailed = true;
             else {
                 try {
-                    scoreFailed = await api.editACGAScoreListBatch(
+                    const scoreArguments = [
                         deltas,
                         result.newRevId,
                         changes.length === 1
@@ -267,7 +311,16 @@ export function createNominationService(services: NominationServices) {
                                   changes[0].target.commentId,
                               )
                             : undefined,
+                    ] as const;
+                    const recheck = changes.some(
+                        (change) => change.check && wasChecked(change.target),
                     );
+                    scoreFailed = recheck
+                        ? await api.editACGAScoreListBatch(
+                              ...scoreArguments,
+                              true,
+                          )
+                        : await api.editACGAScoreListBatch(...scoreArguments);
                 } catch (cause) {
                     reportError(cause, "Updating score list");
                     scoreFailed = true;
@@ -287,17 +340,62 @@ export function createNominationService(services: NominationServices) {
         return false;
     }
 
+    function sameTarget(left: NominationTarget, right: NominationTarget) {
+        return (
+            left.type === right.type &&
+            left.date === right.date &&
+            left.sectionOccurrence === right.sectionOccurrence &&
+            left.index === right.index &&
+            left.sourceFingerprint === right.sourceFingerprint
+        );
+    }
+
     function queueOrCommit(change: PendingChange, summary: string) {
         if (batch) {
+            if (writing || batchCommitted) return Promise.resolve(true);
             // A selection can only contribute one decision, even if a callback is repeated.
-            const index = batch.findIndex(
-                (item) => item.target === change.target,
+            const index = batch.findIndex((item) =>
+                sameTarget(item.target, change.target),
             );
             if (index >= 0) batch[index] = change;
             else batch.push(change);
             return Promise.resolve(false);
         }
         return guarded(() => commitChanges([change], summary));
+    }
+
+    function discardNominationCheck(target: NominationTarget) {
+        if (!batch || writing || batchCommitted) return;
+        batch = batch.filter((item) => !sameTarget(item.target, target));
+    }
+
+    function wasChecked(target: NominationTarget) {
+        return Boolean(
+            String(queried2NomData(target)?.checkWikitext ?? "").trim(),
+        );
+    }
+
+    async function completeNominationCheckBatch(): Promise<boolean> {
+        if (!batch) return true;
+        if (batchCommitted) return false;
+        const changes = [...batch];
+        const rechecks = changes.filter((change) => wasChecked(change.target));
+        const action = rechecks.length
+            ? rechecks.length === changes.length
+                ? "批次復核"
+                : "批次核對與復核"
+            : "批次核對";
+        const keepOpen = await guarded(() =>
+            commitChanges(
+                changes,
+                formatNominationEditSummary(
+                    changes.map((item) => item.summaryItem),
+                    action,
+                ),
+            ),
+        );
+        if (!keepOpen) batchCommitted = true;
+        return keepOpen;
     }
 
     function newNominationTables(
@@ -338,9 +436,8 @@ export function createNominationService(services: NominationServices) {
                 const result = await api.editPage(
                     REGISTRY_PAGE,
                     insertNominationIntoRegistry(snapshot.text, date, text),
-                    withToolAttribution(
-                        "新提名：" +
-                            formatNominationEditSummaryItems(tables.flatMap((table) => table.nominations)),
+                    formatNominationEditSummary(
+                        tables.flatMap((table) => table.nominations),
                     ),
                     editOptions(snapshot),
                 );
@@ -417,13 +514,14 @@ export function createNominationService(services: NominationServices) {
             {
                 target,
                 pageName: nomination.pageName,
+                summaryItem: nomination,
                 fields: {
                     條目名稱: nomination.pageName.trim(),
                     用戶名稱: nomination.awarder.trim(),
                     提名理由: `{{ACG提名2/request|ver=1|${reason.reasonText}}}`,
                 },
             },
-            "編輯提名：" + formatNominationEditSummaryItems([nomination]),
+            formatNominationEditSummary([nomination], "編輯提名"),
         );
     }
 
@@ -431,6 +529,8 @@ export function createNominationService(services: NominationServices) {
         nomination: NominationData,
         target: NominationTarget,
     ): Promise<boolean> {
+        if (!checkAllowed(queried2NomData(target), nomination.awarder))
+            return true;
         if (!validGroup(nomination)) return true;
         const { ruleNames, ruleDict } = NominationRuleSet();
         const formatted = formatNominationCheckWikitext(
@@ -469,8 +569,13 @@ export function createNominationService(services: NominationServices) {
                 fields,
                 pageName: nomination.pageName,
                 score: formatted.reasonScore,
+                check: true,
+                summaryItem: { ...nomination, score: formatted.reasonScore },
             },
-            "核對分數：" + formatSummaryPageLinks([nomination.pageName]),
+            formatNominationEditSummary(
+                [{ ...nomination, score: formatted.reasonScore }],
+                wasChecked(target) ? "復核分數" : "核對分數",
+            ),
         );
     }
 
@@ -482,6 +587,12 @@ export function createNominationService(services: NominationServices) {
         const names = ["條目名稱", "用戶名稱", "提名理由", "核對用"] as const;
         if (names.some((name) => typeof fields[name] !== "string"))
             throw new TypeError("Four source fields are required.");
+        const original = queried2NomData(target);
+        const checking =
+            check ||
+            fields.核對用.trim() !==
+                String(original.checkWikitext ?? "").trim();
+        if (checking && !checkAllowed(original, fields.用戶名稱)) return true;
         const parsed = parseUserReason(fields.提名理由);
         if (
             parsed.ok &&
@@ -493,8 +604,23 @@ export function createNominationService(services: NominationServices) {
         )
             return true;
         return queueOrCommit(
-            { target, fields, pageName: fields.條目名稱, manualScore: check },
-            "以原始碼編輯提名：" + formatSummaryPageLinks([fields.條目名稱]),
+            {
+                target,
+                fields,
+                pageName: fields.條目名稱,
+                summaryItem: {
+                    pageName: fields.條目名稱,
+                    awarder: fields.用戶名稱,
+                },
+                manualScore: check,
+                check: checking,
+            },
+            withToolAttribution(
+                (check && wasChecked(target)
+                    ? "以原始碼復核提名："
+                    : "以原始碼編輯提名：") +
+                    formatSummaryPageLinks([fields.條目名稱]),
+            ),
         );
     }
 
@@ -502,6 +628,7 @@ export function createNominationService(services: NominationServices) {
     async function checkBatch(selections: EntrySelection[]): Promise<boolean> {
         if (batch || writing || !selections.length) return false;
         batch = [];
+        batchCommitted = false;
         try {
             const snapshot = await api.getPageSnapshot(REGISTRY_PAGE);
             if (
@@ -525,16 +652,66 @@ export function createNominationService(services: NominationServices) {
                 targetInSnapshot(snapshot, item),
             );
             if (targets.some((target) => !target)) return false;
-            for (const [index, target] of targets.entries()) {
+            const eligible: Array<{
+                target: NominationTarget;
+                data: NominationData;
+            }> = [];
+            for (const target of targets) {
                 const data = queried2NomData(target);
                 if (!data) {
                     stale();
                     return false;
                 }
+                if (
+                    !getNominationCheckRestriction(
+                        data,
+                        services.getUserName?.() ?? null,
+                    )
+                )
+                    eligible.push({ target: target!, data });
+            }
+            if (!eligible.length) return false;
+            eligible.sort(
+                (left, right) =>
+                    Number(left.target.start) - Number(right.target.start),
+            );
+            if (dialogs.showCheckBatchDialog) {
+                const tableKeys = new Map<string, number>();
+                const entries: CheckBatchEntry[] = eligible.map(
+                    ({ target, data }) => {
+                        const tableKey = `${target.date}:${target.sectionOccurrence}:${target.tableIndex}`;
+                        if (!tableKeys.has(tableKey))
+                            tableKeys.set(tableKey, tableKeys.size);
+                        return {
+                            nomination: data,
+                            target,
+                            tableKey,
+                            tableIndex: tableKeys.get(tableKey)!,
+                        };
+                    },
+                );
+                const outcome = normalizeCheckOutcome(
+                    await dialogs.showCheckBatchDialog(entries),
+                );
+                if (outcome === CHECK_OUTCOME.SAVE) {
+                    return !(await completeNominationCheckBatch());
+                }
+                if (outcome === CHECK_OUTCOME.QUIT && batchCommitted)
+                    return true;
+                if (!batchCommitted)
+                    notify(
+                        msg(
+                            "the_temporary_results_of_this_batch_have_been_discarded",
+                        ),
+                        { type: "info" },
+                    );
+                return batchCommitted;
+            }
+            for (const [index, { target, data }] of eligible.entries()) {
                 const outcome = await dialogs.showCheckNominationDialog(
                     data,
-                    target!,
-                    { current: index + 1, total: targets.length },
+                    target,
+                    { current: index + 1, total: eligible.length },
                 );
                 if (outcome !== "save" && outcome !== "skip") {
                     notify(
@@ -546,16 +723,7 @@ export function createNominationService(services: NominationServices) {
                     return false;
                 }
             }
-            const changes = [...batch];
-            const keepOpen = await guarded(() =>
-                commitChanges(
-                    changes,
-                    "批次核對：" +
-                        formatSummaryPageLinks(
-                            changes.map((item) => item.pageName),
-                        ),
-                ),
-            );
+            const keepOpen = await completeNominationCheckBatch();
             return !keepOpen;
         } catch (cause) {
             reportError(cause, "Batch checking");
@@ -565,6 +733,7 @@ export function createNominationService(services: NominationServices) {
             return false;
         } finally {
             batch = null;
+            batchCommitted = false;
         }
     }
 
@@ -675,10 +844,26 @@ export function createNominationService(services: NominationServices) {
     }
 
     return {
+        async getExistingNominations(
+            pageName?: string,
+            expectedRevisionId?: string | number | null,
+        ) {
+            const snapshot = await api.getPageSnapshot(REGISTRY_PAGE);
+            if (!matchesRevision(snapshot, expectedRevisionId)) {
+                throw new Error(
+                    msg(
+                        "this_nomination_or_the_registry_has_changed_refresh_the_page",
+                    ),
+                );
+            }
+            return getExistingNominations(snapshot.text, pageName);
+        },
         previewNewNomination,
         saveNewNomination,
         saveModifiedNomination,
         saveNominationCheck,
+        discardNominationCheck,
+        completeNominationCheckBatch,
         saveRawNominationSource,
         checkBatch,
         archiveChapter,
@@ -695,11 +880,11 @@ export function createNominationService(services: NominationServices) {
         async checkNomination(selection: EntrySelection) {
             if (batch || writing) return;
             const target = await readTarget(selection);
-            if (target)
-                return dialogs.showCheckNominationDialog(
-                    queried2NomData(target),
-                    target,
-                );
+            if (target) {
+                const data = queried2NomData(target);
+                if (!checkAllowed(data)) return "cancel" as const;
+                return dialogs.showCheckNominationDialog(data, target);
+            }
             return "cancel" as const;
         },
     };
