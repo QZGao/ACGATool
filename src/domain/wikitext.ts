@@ -6,17 +6,11 @@ type SourceToken = SourceLocation & { text: string };
 type TemplateParameter = {
     value: string;
     fullLocation: SourceLocation;
-    valueLocation?: SourceLocation;
-    nestedTemplates?: ParsedTemplate[];
+    valueLocation: SourceLocation;
 };
-type ParsedTemplate = {
-    name: string;
-    params: Record<string, TemplateParameter>;
-    location: SourceLocation;
-    entries?: Array<{
-        fullLocation: SourceLocation;
-        [key: string]: TemplateParameter | SourceLocation;
-    }>;
+type ParsedEntry = {
+    fullLocation: SourceLocation;
+    [key: string]: TemplateParameter | SourceLocation;
 };
 
 /** Keep source offsets stable while ignoring comments and literal wikitext examples. */
@@ -113,52 +107,28 @@ function findTemplateEnd(text: string, start: number): { endIndex: number } {
 }
 
 /**
- * 解析維基文字中從指定索引開始的模板。
- * 一般的 {{ACG提名}} 模板會將參數解析為 key=value 配對，並特別處理巢狀的額外提名。
- * 較簡單的 {{ACG提名2}} 模板也會將參數解析為 key=value 配對。鍵名預期以數字結尾（例如「條目名稱1」、「用戶名稱1」等），各筆資料會依該數字分組。
+ * 解析維基文字中從指定索引開始的 {{ACG提名2}} 模板。
+ * 參數以數字後綴（例如「條目名稱1」、「用戶名稱1」）分組為各筆提名。
  * @param text 完整的維基文字。
  * @param start 模板的起始索引（預期指向「{{」）。
- * @returns 包含 template 與 endIndex 的物件。
+ * @returns 包含 entries 與 endIndex 的物件。
  */
 function parseTemplate(
     text: string,
     start: number,
-): { template: ParsedTemplate; endIndex: number } {
-    const templateStart = start;
+): { entries: ParsedEntry[]; endIndex: number } {
     const { endIndex: templateEnd } = findTemplateEnd(text, start);
     const innerStart = start + 2;
     const innerEnd = templateEnd - 2;
     const innerContent = text.slice(innerStart, innerEnd);
     const tokens = splitParameters(innerContent, innerStart);
-    const nameToken = trimToken(tokens[0]);
-    const templateObj: ParsedTemplate = {
-        name: nameToken.text,
-        params: {},
-        location: {
-            start: templateStart,
-            end: templateEnd,
-        },
-    };
-
-    const numbered = templateObj.name.startsWith("ACG提名2");
     const groups: Record<string, Record<string, TemplateParameter>> = {};
     for (let j = 1; j < tokens.length; j++) {
         const token = tokens[j];
         const trimmed = trimToken(token);
         if (trimmed.text === "") continue;
         const equal = trimmed.text.indexOf("=");
-        if (equal < 0) {
-            if (!numbered) {
-                templateObj.params[j] = {
-                    value: trimmed.text,
-                    fullLocation: {
-                        start: token.start,
-                        end: token.end,
-                    },
-                };
-            }
-            continue;
-        }
+        if (equal < 0) continue;
         const rawKey = trimmed.text.slice(0, equal);
         const rawValue = trimmed.text.slice(equal + 1);
         const key = rawKey.trim();
@@ -172,79 +142,35 @@ function parseTemplate(
             },
             fullLocation: { start: token.start, end: token.end },
         };
-        if (numbered) {
-            const suffix = key.match(/^(.+?)(\d+)$/);
-            const groupNumber = suffix ? Number(suffix[2]) : 0;
-            const groupKey = suffix ? suffix[1].trim() : key;
-            (groups[groupNumber] ??= {})[groupKey] = parameter;
-        } else {
-            templateObj.params[key] = parameter;
-        }
+        const suffix = key.match(/^(.+?)(\d+)$/);
+        if (!suffix) continue;
+        const groupNumber = Number(suffix[2]);
+        if (groupNumber === 0) continue;
+        const groupKey = suffix[1].trim();
+        (groups[groupNumber] ??= {})[groupKey] = parameter;
     }
-    if (numbered) {
-        templateObj.entries = Object.keys(groups)
-            .filter((number) => number !== "0")
-            .map(Number)
-            .sort((left, right) => left - right)
-            .map((number) => {
-                const group = groups[number];
-                const parameters = Object.values(group);
-                return {
-                    ...group,
-                    fullLocation: {
-                        start: Math.min(
-                            ...parameters.map(
-                                (param) => param.fullLocation.start,
-                            ),
-                        ),
-                        end: Math.max(
-                            ...parameters.map(
-                                (param) => param.fullLocation.end,
-                            ),
-                        ),
-                    },
-                };
-            });
-    } else {
-        const extraParam = templateObj.params["額外提名"];
-        if (extraParam?.valueLocation) {
-            extraParam.nestedTemplates = parseMultipleTemplates(
-                text,
-                extraParam.valueLocation.start,
-                extraParam.valueLocation.end,
-            );
-        }
-    }
+    const entries = Object.keys(groups)
+        .map(Number)
+        .sort((left, right) => left - right)
+        .map((number) => {
+            const group = groups[number];
+            const parameters = Object.values(group);
+            return {
+                ...group,
+                fullLocation: {
+                    start: Math.min(
+                        ...parameters.map((param) => param.fullLocation.start),
+                    ),
+                    end: Math.max(
+                        ...parameters.map((param) => param.fullLocation.end),
+                    ),
+                },
+            };
+        });
     return {
-        template: templateObj,
+        entries,
         endIndex: templateEnd,
     };
-}
-
-/**
- * 解析指定文字範圍內巢狀的額外提名模板。
- * 此函式使用正規表示式，擷取出現在範圍開頭或前方為換行符的所有「{{ACG提名/extra」。
- * @param text 完整的維基文字。
- * @param regionStart 範圍的起始索引。
- * @param regionEnd 範圍的結束索引。
- * @returns 已解析之額外提名模板物件的陣列。
- */
-function parseMultipleTemplates(
-    text: string,
-    regionStart: number,
-    regionEnd: number,
-): Array<any> {
-    const templates = [];
-    const regionText = structuralWikitext(text).slice(regionStart, regionEnd);
-    const regex = /(^|\n)({{ACG提名\/extra)/g;
-    let match;
-    while ((match = regex.exec(regionText)) !== null) {
-        const extraStart = regionStart + match.index + match[1].length;
-        const { template, endIndex } = parseTemplate(text, extraStart);
-        templates.push(template);
-        regex.lastIndex = endIndex - regionStart;
-    }
-    return templates;
 }
 
 /**
@@ -294,7 +220,7 @@ function tableNominator(sourceAfterTable: string): string | undefined {
 
 /**
  * 收集指定日期章節（從 h3 標題到下一個 h3 之前）的所有提名項目。
- * 每個項目可能是主模板（{{ACG提名}}）、巢狀的額外提名模板，或 {{ACG提名2}} 中的一筆資料。
+ * 每個項目是 {{ACG提名2}} 中的一筆資料。
  * @param text 完整的維基文字。
  * @param section { date, start, end } 章節物件。
  * @returns 項目物件陣列：{ template, start, end, type }。
@@ -303,52 +229,28 @@ function collectEntriesInSection(text: string, section: any): Array<any> {
     const entries = [];
     const structure = structuralWikitext(text);
     const sectionText = structure.slice(section.start, section.end);
-    const regex = /{{ACG提名2?(?=[\s|}])/g;
+    const regex = /{{ACG提名2(?=[\s|}])/g;
     let unsignedEntries: Array<any> = [];
     let previousTableEnd = section.start;
     let tableIndex = 0;
     let match;
     while ((match = regex.exec(sectionText)) !== null) {
         const absolutePos = section.start + match.index;
-        const { template, endIndex } = parseTemplate(text, absolutePos);
+        const { entries: tableEntries, endIndex } = parseTemplate(
+            text,
+            absolutePos,
+        );
         if (structure.slice(previousTableEnd, absolutePos).trim())
             unsignedEntries = [];
         const firstNewEntry = entries.length;
-        if (template.name.startsWith("ACG提名2")) {
-            if (template.entries) {
-                for (const entry of template.entries) {
-                    entries.push({
-                        template: entry,
-                        start: entry.fullLocation.start,
-                        end: entry.fullLocation.end,
-                        type: "acg2",
-                        tableIndex,
-                    });
-                }
-            }
-        } else {
+        for (const entry of tableEntries) {
             entries.push({
-                template: template,
-                start: template.location.start,
-                end: template.location.end,
-                type: "main",
+                template: entry,
+                start: entry.fullLocation.start,
+                end: entry.fullLocation.end,
+                type: "acg2",
                 tableIndex,
             });
-            if (
-                template.params["額外提名"] &&
-                template.params["額外提名"].nestedTemplates
-            ) {
-                for (const nested of template.params["額外提名"]
-                    .nestedTemplates) {
-                    entries.push({
-                        template: nested,
-                        start: nested.location.start,
-                        end: nested.location.end,
-                        type: "extra",
-                        tableIndex,
-                    });
-                }
-            }
         }
         tableIndex++;
         unsignedEntries.push(...entries.slice(firstNewEntry));
@@ -501,10 +403,7 @@ export function resolveEntryByFingerprint(
  * 使用精確的位置資料，只更新原始維基文字中的指定參數值。
  * 此函式不會替換整段項目文字，只會替換已變更的參數值。
  *
- * 對 main 或 extra 項目而言，changes 應為以參數名稱（例如「條目名稱」）為鍵、
- * 以新文字為值的物件。
- *
- * 對 ACG提名2 項目而言，請使用「條目名稱」、「用戶名稱」、「提名理由」、「核對用」等鍵名。
+ * changes 使用「條目名稱」、「用戶名稱」、「提名理由」、「核對用」等鍵名。
  *
  * @param original 完整的原始維基文字。
  * @param entry queryEntry 回傳的項目物件。
@@ -517,27 +416,14 @@ export function updateEntryParameters(
     changes: any,
 ): string {
     const mods = [];
-    if (entry.type === "main" || entry.type === "extra") {
-        const params = entry.template.params;
-        for (const key in changes) {
-            if (params[key] && params[key].valueLocation) {
-                mods.push({
-                    start: params[key].valueLocation.start,
-                    end: params[key].valueLocation.end,
-                    replacement: changes[key],
-                });
-            }
-        }
-    } else if (entry.type === "acg2") {
-        for (const key in changes) {
-            if (entry.template[key]) {
-                const token = entry.template[key];
-                mods.push({
-                    start: token.valueLocation.start,
-                    end: token.valueLocation.end,
-                    replacement: changes[key],
-                });
-            }
+    for (const key in changes) {
+        if (entry.template[key]) {
+            const token = entry.template[key];
+            mods.push({
+                start: token.valueLocation.start,
+                end: token.valueLocation.end,
+                replacement: changes[key],
+            });
         }
     }
     mods.sort((a: any, b: any) => b.start - a.start);
@@ -584,16 +470,9 @@ export function queried2NomData(queried: any): any {
             : value;
     };
 
-    if (
-        queried.type !== "main" &&
-        queried.type !== "extra" &&
-        queried.type !== "acg2"
-    ) {
-        return null;
-    }
+    if (queried.type !== "acg2") return null;
 
-    const params =
-        queried.type === "acg2" ? queried.template : queried.template.params;
+    const params = queried.template;
     const rawFields = {
         條目名稱: params["條目名稱"]?.value ?? "",
         用戶名稱: params["用戶名稱"]?.value ?? "",
@@ -601,12 +480,9 @@ export function queried2NomData(queried: any): any {
         核對用: params["核對用"]?.value ?? "",
     };
     const reasonWikitext = rawFields["提名理由"];
-    const cleanIdentity = (value: any) =>
-        queried.type === "acg2" ? removeComments(value) : value;
-
     return {
-        pageName: cleanIdentity(rawFields["條目名稱"]),
-        awarder: cleanIdentity(rawFields["用戶名稱"]),
+        pageName: removeComments(rawFields["條目名稱"]),
+        awarder: removeComments(rawFields["用戶名稱"]),
         ...(queried.nominator ? { nominator: queried.nominator } : {}),
         requestReasonText: requestReasonText(reasonWikitext),
         requestReasonWikitext: reasonWikitext,
@@ -1031,8 +907,7 @@ export function updateEntriesParameters(
                 "The same nomination appears more than once in the batch",
             );
         targets.add(key);
-        const fields =
-            entry.type === "acg2" ? entry.template : entry.template?.params;
+        const fields = entry.template;
         for (const [name, replacement] of Object.entries(update.changes)) {
             const location = fields?.[name]?.valueLocation;
             if (

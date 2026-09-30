@@ -2,8 +2,14 @@
 
 ## Unreleased
 
-- Remove obsolete batch-checking paths, unreachable forms and duplicate state;
-  simplify rule metadata and form setup, and shorten compact message IDs.
+## [2.0.0-alpha.2] - 2026-10-01
+
+- Identify pending checks solely by yellow article-cell backgrounds, retaining
+  check buttons and batch-selection boxes after eligibility lookups.
+- Remove unused nomination-template parsing branches and fixtures; registry
+  parsing and editing use numbered `ACG提名2` entries.
+- Read DYK outcomes only from explicit `+` or `-` archive results, removing
+  obsolete banner and article-history parsing.
 
 ## [2.0.0-alpha.1] - 2026-10-01
 

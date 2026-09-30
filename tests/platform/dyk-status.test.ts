@@ -19,14 +19,14 @@ test("DYK invitations recognize active nominations with spaces, underscores, pre
     }
 });
 
-test("active DYK nominations coexist with passed banner milestones", () => {
+test("active DYK nominations remain independent of ignored appearance banners", () => {
     for (const history of [
         "{{DYKtalk|date=2025-08-05}}",
         "{{Article history|dykdate=2025-08-05}}",
     ]) {
         assert.deepEqual(parseDykStatus(history + "{{DYK Invite}}"), {
-            passed: true,
-            date: "2025-08-05",
+            passed: false,
+            date: null,
             nominated: true,
         });
     }
@@ -67,62 +67,50 @@ test("DYK invitations exclude literal examples, template parameters and lookalik
     }
 });
 
-test("DYK records recognize talk banners and numbered article-history dates", () => {
+test("DYK appearance banners and article-history dates do not create outcomes", () => {
     for (const source of [
+        "{{DYK|date=2026-09-30|result=+}}",
         "{{DYKtalk|2026年|9月30日}}",
         "{{Template:Didyouknow date|1=2026年|2=9月30日}}",
         "{{Article history|dyk2date=2026年9月30日|dyk2entry=[[A|B]]}}",
         "{{ArticleHistory\n|dyk1date = 2026年9月30日\n|action1 = GAN}}",
         "{{Banner shell|1={{DYKtalk|2026年|9月30日}}}}",
+        "{{DYKtalk}}",
+        "{{Article history|dykdate=20260930}}",
     ]) {
-        assert.deepEqual(parseDykStatus(source), {
-            passed: true,
-            date: "2026年9月30日",
-        });
+        for (const archive of [
+            "",
+            "{{DYKEntry/archive|author=Unfinished|timestamp=1790726400}}",
+            "{{DYKEntry/archive|author=Unfinished|result=?|hash|1790726400}}",
+        ])
+            assert.deepEqual(parseDykStatus(source + archive), {
+                passed: false,
+                date: null,
+            });
     }
-    assert.deepEqual(parseDykStatus("{{DYKtalk}}"), {
-        passed: true,
-        date: null,
-    });
-    assert.deepEqual(parseDykStatus("{{Article history|dykdate=20260930}}"), {
-        passed: true,
-        date: "2026-09-30",
-    });
 });
 
-test("DYK records exclude literal examples, candidates, and blank milestone fields", () => {
+test("finalized DYK archive results accept normalized template names and trimmed result symbols", () => {
     for (const source of [
-        "<!-- {{DYKtalk|2026年|9月30日}} -->",
-        "<nowiki>{{DYKtalk}}</nowiki>",
-        "{{DYK<nowiki>literal template name</nowiki>talk}}",
-        "<syntaxhighlight lang=wikitext>{{Article history|dykdate=2026-09-30}}</syntaxhighlight>",
-        "{{DYKEntry|result=+|article=Example}}",
-        "{{Article history|dykdate=|dykentry=Question}}",
-        "{{Article history|dykdate={{Unresolved}}}}",
-        "{{Article history|dykdate=20260230}}",
-        "{{DYKtalk|2026年|9月30日",
-    ])
-        assert.deepEqual(parseDykStatus(source), { passed: false, date: null });
-    assert.deepEqual(
-        parseDykStatus("{{DYKtalk|<img src=x onerror=alert(1)>}}"),
-        {
-            passed: true,
-            date: null,
-        },
-    );
-});
-
-test("named DYK banner dates and article histories prefer the latest readable milestone", () => {
-    for (const source of [
-        "{{DYKtalk|date=2025-08-05}}{{DYKtalk|2016年|3月30日}}",
-        "{{DYKtalk|2016年|3月30日}}{{DYKtalk|date=2025-08-05}}",
-        "{{Article history|dyk2date=2025-08-05|dyk1date=2016年3月30日}}",
+        "{{ Template:DYKEntry/archive | author = Example | result = + | closets = 1754391689 }}",
+        "{{模板:dykentry/archive|author=Example|result=+|closets=1754391689}}",
     ]) {
         assert.deepEqual(parseDykStatus(source), {
             passed: true,
             date: "2025-08-05",
+            records: [{ author: "Example", date: "2025-08-05", passed: true }],
         });
     }
+    assert.deepEqual(
+        parseDykStatus(
+            "{{Template:DYKEntry/archive|author=Example|result= - |closets=1754391689}}",
+        ),
+        {
+            passed: false,
+            date: "2025-08-05",
+            records: [{ author: "Example", date: "2025-08-05", passed: false }],
+        },
+    );
 });
 
 test("the Redstone circuit talk-page records preserve both successful authors and closing dates", () => {
@@ -151,9 +139,10 @@ test("the Redstone circuit talk-page records preserve both successful authors an
     });
 });
 
-test("a later failed archive outcome takes precedence over old passed banners", () => {
+test("failed archive outcomes stay failed alongside ignored passed banners", () => {
     assert.deepEqual(
         parseDykStatus(`{{DYKtalk|date=2025-08-05}}
+{{Article history|dykdate=2026-09-30}}
 {{DYKEntry/archive|author=Pathfinbird|result=-|hash|1790489824}}`),
         {
             passed: false,
@@ -228,6 +217,8 @@ test("DYK candidates, unfinished archives and literal archive examples do not be
         "{{DYKEntry|author=Candidate|result=+|hash|1754391689}}",
         "{{DYKEntry/archive|author=Candidate|result=?|hash|1754391689}}",
         "{{DYKEntry/archive|author=Candidate|result=+?|hash|1754391689}}",
+        "{{DYKEntry/archive|author=Candidate|result=−|hash|1754391689}}",
+        "{{DYKEntry/archiveExample|author=Candidate|result=+|hash|1754391689}}",
         "{{DYKEntry/archive|author=Candidate|timestamp=1754391689}}",
         "<!-- {{DYKEntry/archive|author=Example|result=-|hash|1754391689}} -->",
         "<nowiki>{{DYKEntry/archive|author=Example|result=+|hash|1754391689}}</nowiki>",
@@ -281,7 +272,7 @@ test("DYK lookup follows talk redirects and keeps article punctuation", async ()
                             slots: {
                                 main: {
                                     content:
-                                        "{{Article history|dykdate=2026-09-30}}",
+                                        "{{DYKEntry/archive|author=Example|result=+|closets=1790726400}}",
                                 },
                             },
                         },
@@ -293,6 +284,7 @@ test("DYK lookup follows talk redirects and keeps article punctuation", async ()
     assert.deepEqual(await api.getDykStatus(" Re:Zero_Example "), {
         passed: true,
         date: "2026-09-30",
+        records: [{ author: "Example", date: "2026-09-30", passed: true }],
     });
     assert.equal(queries[0]!.titles, "Talk:Re:Zero Example");
     assert.equal(queries[0]!.redirects, true);

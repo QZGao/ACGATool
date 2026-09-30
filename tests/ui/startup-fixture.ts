@@ -28,7 +28,7 @@ export async function mountStartup(
     );
     await page.goto(fixtureUrl);
     const content = options.renderedNominations
-        ? '<h2>2026</h2><h3>9月27日</h3><table class="acgnom-table"><tbody><tr><th scope="row" rowspan="2">Example article</th><td>Nomination by another editor</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></tbody></table>'
+        ? '<h2>2026</h2><h3>9月27日</h3><table class="acgnom-table"><tbody><tr><th scope="row" rowspan="2" style="background: #ffffb999">Example article</th><td>Nomination by another editor</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></tbody></table>'
         : "<h1>Example article</h1><p>Offline article fixture.</p>";
     await page.setContent(
         `<!doctype html><html lang="en"><body><nav id="p-tb" aria-label="Tools"><ul></ul></nav><main id="mw-content-text"><div class="mw-parser-output">${content}</div></main></body></html>`,

@@ -100,7 +100,7 @@ test("registry keeps repeated sections distinct and sends a selected batch once"
         <h2>2026</h2>
         <div class="mw-heading mw-heading3"><h3><span class="mw-headline">9月27日</span></h3></div>
         <table class="acgnom-table" id="first"><tbody>
-            <tr><th scope="row" rowspan="2">First</th><td>Request one
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">First</th><td>Request one
                 <table class="acgnom-table" id="nested"><tbody>
                     <tr><th scope="row">Nested content</th><td><h3>1月1日</h3></td></tr>
                     <tr><td class="mw-notalk">Not a nomination</td></tr>
@@ -110,7 +110,7 @@ test("registry keeps repeated sections distinct and sends a selected batch once"
         </tbody></table>
         <div class="mw-heading mw-heading3"><h3><span class="mw-headline">9月27日</span></h3></div>
         <table class="acgnom-table" id="second"><tbody>
-            <tr><th scope="row" rowspan="2">Second</th><td>Request two</td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Second</th><td>Request two</td></tr>
             <tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
         </tbody></table>
         <h2>Other content</h2>
@@ -243,7 +243,7 @@ test("registry releases controls after a synchronous action failure and permits 
     page.on("pageerror", (error) => errors.push(error.message));
     await page.setContent(`<!doctype html><html><body><main id="registry"><h3>9月27日</h3>
         <table class="acgnom-table"><tbody>
-            <tr><th scope="row" rowspan="2">One</th><td>Request</td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">One</th><td>Request</td></tr>
             <tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
         </tbody></table>
     </main></body></html>`);
@@ -285,8 +285,8 @@ test("registry row batch actions use only selections and preserve them after fai
 }) => {
     await page.setContent(`<!doctype html><html><body><main id="registry"><h3>9月27日</h3>
         <table class="acgnom-table"><tbody>
-            <tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
-            <tr><th scope="row" rowspan="2">Two</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Two</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
         </tbody></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
@@ -412,7 +412,7 @@ test("registry compact buttons and batch checkboxes support keyboard actions and
 }) => {
     await page.setContent(`<!doctype html><html lang="zh-Hant"><body><main id="registry"><h3>9月27日</h3>
         <table class="acgnom-table"><tbody>
-            <tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td style="background-color: rgb(255, 244, 204)"><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">One</th><td>Request</td></tr><tr><td style="background-color: rgb(255, 244, 204)"><span class="mw-notalk">此提名尚未核對。</span></td></tr>
         </tbody></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
@@ -550,10 +550,10 @@ test("registry omits repeated recipient-target notices from the page", async ({
 }) => {
     await page.setContent(`<!doctype html><html><body><main id="registry">
         <h3>9月27日</h3>
-        <table class="acgnom-table" id="one"><tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
+        <table class="acgnom-table" id="one"><tr><th scope="row" rowspan="2" style="background: #ffffb999">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
         <h3>9月27日</h3>
         <table class="acgnom-table" id="two"><tr><th scope="row" rowspan="2">Two</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
-        <table class="acgnom-table" id="other"><tr><th scope="row" rowspan="2">Other recipient</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
+        <table class="acgnom-table" id="other"><tr><th scope="row" rowspan="2" style="background: #ffffb999">Other recipient</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
     await page.evaluate(() => {
@@ -614,10 +614,10 @@ test("registry disables self checks with reason tooltips and excludes them from 
 }) => {
     await page.setContent(`<!doctype html><html><body><main id="registry"><h3>9月27日</h3>
         <table class="acgnom-table"><tbody>
-            <tr><th scope="row" rowspan="2">Own nomination</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
-            <tr><th scope="row" rowspan="2">Own score</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
-            <tr><th scope="row" rowspan="2">Own nomination and score</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
-            <tr><th scope="row" rowspan="2">Other editors</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Own nomination</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Own score</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Own nomination and score</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Other editors</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
         </tbody></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
@@ -738,24 +738,24 @@ test("registry disables self checks with reason tooltips and excludes them from 
     ).toBeEnabled();
 });
 
-test("registry initializes check labels from rendered results before the source lookup", async ({
+test("registry uses only yellow headers for pending controls before and after source lookup", async ({
     page,
 }) => {
     await page.setContent(`<!doctype html><html lang="zh-Hant"><body><main id="registry"><h3>9月27日</h3>
         <table class="acgnom-table"><tbody>
             <tr><th scope="row" rowspan="2">Reviewed</th><td>Request</td></tr>
             <tr><td><div class="mw-notalk"><img alt="✓">符合要求，<b>得1分</b>。此前顯示「此提名尚未核对。」--Reviewer</div></td></tr>
-            <tr><th scope="row" rowspan="2">Pending simplified</th><td>Request</td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Pending simplified</th><td>Request</td></tr>
             <tr><td><div class="mw-notalk"><img alt="🕒">此提名尚未核对。
                 <table class="acgnom-table"><tr><td><div class="mw-notalk"><img alt="✓">Nested review example</div></td></tr></table>
             </div></td></tr>
-            <tr><th scope="row" rowspan="2">Pending traditional</th><td>Request</td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Pending traditional</th><td>Request</td></tr>
             <tr><td><div class="mw-notalk"> 此提名<span>尚未</span> 核對。 </div></td></tr>
             <tr><th scope="row" rowspan="2" style="background: #ffffb999">Pending variant</th><td>Request</td></tr>
-            <tr><td><div class="mw-notalk">待核查。</div></td></tr>
-            <tr><th scope="row" rowspan="2">Rejected</th><td>Request</td></tr>
-            <tr><td><div class="mw-notalk"><img alt="✗">不符合要求，不得分。--Reviewer</div></td></tr>
-            <tr><th scope="row" rowspan="2">Manual result</th><td>Request</td></tr>
+            <tr><td><div class="mw-notalk"><img alt="✓">已核對，得4分。--Reviewer</div></td></tr>
+            <tr><th scope="row" rowspan="2">Uncolored placeholder</th><td>Request</td></tr>
+            <tr><td><div class="mw-notalk"><img alt="🕒">此提名尚未核对。</div></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffb9ff99">Rechecking</th><td>Request</td></tr>
             <tr><td>已核對，細節見討論。--Reviewer</td></tr>
             <tr><th scope="row" rowspan="2">Empty</th><td>Request</td></tr>
             <tr><td><div class="mw-notalk"> </div></td></tr>
@@ -787,7 +787,7 @@ test("registry initializes check labels from rendered results before the source 
         );
     });
     expect(initial).toEqual(
-        [true, false, false, false, true, true, false].map((checked) => ({
+        [true, false, false, false, true, true, true].map((checked) => ({
             label: checked ? "複核" : "核對",
             progressive: !checked,
             disabled: true,
@@ -804,10 +804,10 @@ test("registry initializes check labels from rendered results before the source 
         ),
     ).toEqual([]);
 
-    // The source remains authoritative if rendered results disagree with it.
+    // Source eligibility must not replace the rendered header classification.
     await page.evaluate(() => {
         (window as any).registryFixture.resolveEligibility(
-            [false, false, true, false, true, true, false].map(
+            [false, true, true, true, false, false, false].map(
                 (checked, index) => ({
                     pageName: "Example",
                     awarder: "Recipient",
@@ -823,22 +823,22 @@ test("registry initializes check labels from rendered results before the source 
     const buttons = page.locator(".acga-registry-controls > button");
     const controls = page.locator(".acga-registry-controls");
     await expect(buttons).toHaveText([
+        "複核",
+        "核對",
         "核對",
         "核對",
         "複核",
-        "核對",
         "複核",
         "複核",
-        "核對",
     ]);
     for (const [index, checked] of [
+        true,
+        false,
         false,
         false,
         true,
-        false,
         true,
         true,
-        false,
     ].entries()) {
         await expect(buttons.nth(index)).toBeEnabled();
         const choice = controls.nth(index).locator('input[type="checkbox"]');
@@ -855,20 +855,98 @@ test("registry initializes check labels from rendered results before the source 
             await expect(choice).toBeEnabled();
         }
     }
-    await controls.nth(0).getByRole("checkbox").check();
+    await controls.nth(1).getByRole("checkbox").check();
+    await buttons.nth(1).click();
+    await expect(buttons.nth(0)).toBeEnabled();
     await buttons.nth(0).click();
-    await expect(buttons.nth(2)).toBeEnabled();
-    await buttons.nth(2).click();
-    await expect(buttons.nth(2)).toBeEnabled();
+    await expect(buttons.nth(0)).toBeEnabled();
     const effects = await page.evaluate(
         () => (window as any).registryFixture.effects,
     );
     expect(effects.batches).toEqual([
-        [expect.objectContaining({ index: 1, sectionOccurrence: 0 })],
+        [expect.objectContaining({ index: 2, sectionOccurrence: 0 })],
     ]);
     expect(effects.checks).toEqual([
-        expect.objectContaining({ index: 3, sectionOccurrence: 0 }),
+        expect.objectContaining({ index: 1, sectionOccurrence: 0 }),
     ]);
+});
+
+test("registry keeps the live yellow nomination pending when source eligibility says checked", async ({
+    page,
+}) => {
+    await page.setContent(`<!doctype html><html lang="zh-Hans"><body><main id="registry"><h3>9月27日</h3>
+        <table class="wikitable plain-row-headers skin-invert acgnom-table" style="font-size: 90%; width: 100%; margin-bottom: 0;"><tbody>
+            <tr><th scope="col" style="width: 25%;">條目</th><th scope="col" style="width: 25%;">獲提名者</th><th scope="col">提名內容</th></tr>
+            <tr>
+                <th rowspan="2" scope="row" style="text-align: center; background: #ffffb999;"><b><a href="/wiki/超閾限空間" title="超閾限空間">超閾限空間</a></b></th>
+                <td><a href="/wiki/User:菜國人" title="User:菜國人">菜國人</a><span class="plainlinks" style="font-size: smaller; user-select: none;">［41分］</span></td>
+                <td><span style="margin-right: 0.2em; font-weight: bold;">1</span><small title="3分">長新增</small>、<span style="margin-right: 0.2em; font-weight: bold;">3</span><small title="1分">格式</small>，計4分</td>
+            </tr>
+            <tr><td colspan="2"><div class="mw-notalk"><span typeof="mw:File"><span><img alt="🕒" width="13" height="13" class="mw-file-element"></span></span> 此提名尚未核对。</div></td></tr>
+        </tbody></table>
+    </main></body></html>`);
+    await loadRegistryRuntime(page);
+    await page.evaluate(() => {
+        const global = window as any;
+        global.registryFixture = global.AcgaRegistryUI.mount(
+            document.getElementById("registry"),
+            { language: "zh-Hans", deferredLookup: true },
+        );
+    });
+    const check = page.getByRole("button", { name: "核对", exact: true });
+    const choice = page.getByRole("checkbox", {
+        name: "加入批量核对",
+        exact: true,
+    });
+    const archive = page.getByRole("button", { name: "归档", exact: true });
+    await expect(check).toHaveCount(1);
+    await expect(check).toBeDisabled();
+    await expect(choice).toHaveCount(1);
+    await expect(choice).toBeDisabled();
+    await expect(archive).toBeDisabled();
+
+    await page.evaluate(() => {
+        const global = window as any;
+        global.registryFixture.resolveEligibility([
+            {
+                pageName: "超閾限空間",
+                awarder: "菜國人",
+                date: "9月27日",
+                index: 1,
+                sectionOccurrence: 0,
+                checked: true,
+            },
+        ]);
+    });
+    await expect(check).toBeEnabled();
+    await expect(check).toHaveClass(/cdx-button--action-progressive/u);
+    await expect(choice).toBeEnabled();
+    await expect(
+        page.getByRole("button", { name: "复核", exact: true }),
+    ).toHaveCount(0);
+    await expect(archive).toBeDisabled();
+    await expect(archive).toHaveAttribute("title", "仍有尚未核对的提名。");
+    await choice.check();
+    await page.getByRole("button", { name: "批量核对", exact: true }).click();
+    await expect(check).toBeEnabled();
+    await expect(choice).not.toBeChecked();
+    await expect(archive).toBeDisabled();
+    const effects = await page.evaluate(
+        () => (window as any).registryFixture.effects,
+    );
+    expect(effects.batches).toEqual([
+        [
+            {
+                date: "9月27日",
+                index: 1,
+                sectionOccurrence: 0,
+                expectedRevisionId: 42,
+            },
+        ],
+    ]);
+    expect(effects.checks).toEqual([]);
+    expect(effects.eligibilityRequests).toEqual([[undefined, 42]]);
+    expect(effects.errors).toEqual([]);
 });
 
 test("registry labels reviewed entries as rechecks and keeps their eligibility restrictions", async ({
@@ -881,7 +959,7 @@ test("registry labels reviewed entries as rechecks and keeps their eligibility r
             <tr><th scope="row" rowspan="2">Reviewed by another editor</th><td>Request</td></tr><tr><td><span>Previous review and signature</span></td></tr>
             <tr><th scope="row" rowspan="2">Own reviewed nomination</th><td>Request</td></tr><tr><td><span class="mw-notalk">Pending</span></td></tr>
             <tr><th scope="row" rowspan="2">Own reviewed score</th><td>Request</td></tr><tr><td><span class="mw-notalk">Pending</span></td></tr>
-            <tr><th scope="row" rowspan="2">Pending other editors</th><td>Request</td></tr><tr><td><span class="mw-notalk">Reviewed</span></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Pending other editors</th><td>Request</td></tr><tr><td><span class="mw-notalk">Reviewed</span></td></tr>
         </tbody></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
@@ -1064,8 +1142,8 @@ test("registry disables single rechecks during pending batch selection and resto
 }) => {
     await page.setContent(`<!doctype html><html lang="zh-Hans"><body><main id="registry"><h3>9月27日</h3>
         <table class="acgnom-table"><tbody>
-            <tr><th scope="row" rowspan="2">Pending one</th><td>Request</td></tr><tr><td><div class="mw-notalk"><img alt="🕒">此提名尚未核对。</div></td></tr>
-            <tr><th scope="row" rowspan="2">Pending two</th><td>Request</td></tr><tr><td><div class="mw-notalk"><img alt="🕒">此提名尚未核对。</div></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Pending one</th><td>Request</td></tr><tr><td><div class="mw-notalk"><img alt="🕒">此提名尚未核对。</div></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Pending two</th><td>Request</td></tr><tr><td><div class="mw-notalk"><img alt="🕒">此提名尚未核对。</div></td></tr>
             <tr><th scope="row" rowspan="2">Reviewed one</th><td>Request</td></tr><tr><td><div class="mw-notalk"><img alt="✓">符合要求，得1分。--Reviewer</div></td></tr>
             <tr><th scope="row" rowspan="2">Reviewed two</th><td>Request</td></tr><tr><td><div class="mw-notalk"><img alt="✗">不得分。--Reviewer</div></td></tr>
         </tbody></table>
@@ -1276,7 +1354,7 @@ test("registry keeps checks disabled after an eligibility lookup fails", async (
     page,
 }) => {
     await page.setContent(`<!doctype html><html><body><main id="registry"><h3>9月27日</h3>
-        <table class="acgnom-table"><tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
+        <table class="acgnom-table"><tr><th scope="row" rowspan="2" style="background: #ffffb999">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
     await page.evaluate(() => {
@@ -1304,7 +1382,7 @@ test("registry blocks checks during eligibility loading and ignores responses af
     page,
 }) => {
     await page.setContent(`<!doctype html><html><body><main id="registry"><h3>9月27日</h3>
-        <table class="acgnom-table"><tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
+        <table class="acgnom-table"><tr><th scope="row" rowspan="2" style="background: #ffffb999">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
     await page.evaluate(() => {

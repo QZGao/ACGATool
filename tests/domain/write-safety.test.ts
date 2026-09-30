@@ -52,19 +52,8 @@ test("batched parameters use the original snapshot even when earlier replacement
 });
 
 test("registry entries share physical table groups while repeated date sections remain independent", () => {
-    const legacy = `\n{{ACG提名
-|條目名稱 = Main
-|用戶名稱 = Example
-|提名理由 = 1a
-|核對用 =
-|額外提名 = {{ACG提名/extra
-|條目名稱 = Extra
-|用戶名稱 = Example
-|提名理由 = 1b
-|核對用 =
-}}
-}}`;
-    const source = registry + legacy + "\n" + registry;
+    const secondTable = registry.slice(registry.indexOf("{{ACG提名2"));
+    const source = registry + "\n" + secondTable + "\n" + registry;
     assert.deepEqual(
         getRegistryEntries(source).map((entry) => [
             entry.sectionOccurrence,
@@ -100,42 +89,6 @@ test("batch validation rejects stale entries, duplicate targets and missing para
         updateEntriesParameters(registry, [
             { entry, changes: { 核對用: "First" } },
             { entry, changes: { 條目名稱: "Second" } },
-        ]),
-    );
-});
-
-test("nested legacy main and extra check fields save in one batch without invalidating each other", () => {
-    const source = `=== 9月27日 ===
-{{ACG提名
-|條目名稱 = Main
-|用戶名稱 = Example
-|提名理由 = 1a
-|核對用 =
-|額外提名 = {{ACG提名/extra
-|條目名稱 = Extra
-|用戶名稱 = Example
-|提名理由 = 1b
-|核對用 =
-}}
-}}`;
-    const main = queryEntry(source, "9月27日", 1);
-    const extra = queryEntry(source, "9月27日", 2);
-    const updated = updateEntriesParameters(source, [
-        { entry: main, changes: { 核對用: "Checked main" } },
-        { entry: extra, changes: { 核對用: "Checked extra" } },
-    ]);
-    assert.equal(
-        queryEntry(updated, "9月27日", 1).template.params["核對用"].value,
-        "Checked main",
-    );
-    assert.equal(
-        queryEntry(updated, "9月27日", 2).template.params["核對用"].value,
-        "Checked extra",
-    );
-    assert.throws(() =>
-        updateEntriesParameters(source, [
-            { entry: main, changes: { 額外提名: "replaced" } },
-            { entry: extra, changes: { 核對用: "overlap" } },
         ]),
     );
 });

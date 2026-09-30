@@ -226,7 +226,7 @@ export function getWikitextArchiveEligibility(
     });
     let discussion = source;
     for (const template of readTemplates(source)) {
-        if (!/^ACG提名2?(?:\/extra)?$/u.test(template.name)) continue;
+        if (template.name !== "ACG提名2") continue;
         discussion =
             discussion.slice(0, template.start) +
             discussion

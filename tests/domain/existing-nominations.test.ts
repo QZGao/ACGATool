@@ -77,21 +77,6 @@ test("indexing ignores literal examples and nominations outside a date chapter",
     );
 });
 
-test("legacy nominations and their extra requests share the registry numbering", () => {
-    const text = `=== 9月27日 ===\n{{ACG提名\n|條目名稱=Legacy\n|用戶名稱=Editor\n|提名理由=1c\n|核對用=\n|額外提名=\n{{ACG提名/extra\n|條目名稱=Extra\n|用戶名稱=Other\n|提名理由=3\n|核對用=Reviewed manually\n}}\n}}\n`;
-    assert.deepEqual(
-        getExistingNominations(text).map((item) => [
-            item.pageName,
-            item.index,
-            item.checked,
-        ]),
-        [
-            ["Legacy", 1, false],
-            ["Extra", 2, true],
-        ],
-    );
-});
-
 test("identity comparison recognizes spaces and file aliases without ignoring full-name case", () => {
     assert.equal(
         normalizeNominationPageName(":檔案:Example_image.png"),
@@ -173,16 +158,16 @@ test("signature detection ignores examples and never infers a nominator from dis
     );
 });
 
-test("a legacy table's attached nominator applies to its extra nominations", () => {
-    const text = `=== 9月27日 ===\n{{ACG提名\n|條目名稱=Legacy\n|用戶名稱=Recipient\n|提名理由=1c\n|核對用=\n|額外提名=\n{{ACG提名/extra\n|條目名稱=Extra\n|用戶名稱=Other\n|提名理由=3\n|核對用=\n}}\n}}\n'''提名人：''' [[User:Current editor|Current editor]]\n`;
+test("a table's attached nominator applies to all numbered nominations", () => {
+    const text = `=== 9月27日 ===\n{{ACG提名2\n|條目名稱1=First\n|用戶名稱1=Recipient\n|提名理由1={{ACG提名2/request|ver=1|1c}}\n|核對用1=\n|條目名稱2=Second\n|用戶名稱2=Other\n|提名理由2={{ACG提名2/request|ver=1|3}}\n|核對用2=\n}}\n'''提名人：''' [[User:Current editor|Current editor]]\n`;
     assert.deepEqual(
         getExistingNominations(text).map((entry) => [
             entry.pageName,
             entry.nominator,
         ]),
         [
-            ["Legacy", "Current editor"],
-            ["Extra", "Current editor"],
+            ["First", "Current editor"],
+            ["Second", "Current editor"],
         ],
     );
 });

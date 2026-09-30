@@ -41,20 +41,6 @@ export interface RegistryOptions extends Feedback {
     now?(): Date;
 }
 
-function hasRenderedCheckResult(
-    anchor: HTMLElement,
-    heading: HTMLTableCellElement,
-): boolean {
-    const headerState = getRenderedHeaderState(heading);
-    if (headerState) return headerState === "rechecking";
-    // The template uses .mw-notalk for both its placeholder and saved results.
-    const result = anchor.cloneNode(true) as HTMLElement;
-    for (const nestedTable of result.querySelectorAll("table"))
-        nestedTable.remove();
-    const text = (result.textContent ?? "").replace(/\s+/gu, "");
-    return Boolean(text) && !/^此提名尚未核[对對][。.]?$/u.test(text);
-}
-
 export function mountRegistry(
     root: HTMLElement,
     actions: RegistryActions,
@@ -363,7 +349,7 @@ export function mountRegistry(
             if (!anchor || anchor.closest("table") !== table) continue;
             const cell = anchor.closest("td");
             if (!cell) continue;
-            const checked = hasRenderedCheckResult(anchor, heading);
+            const checked = getRenderedHeaderState(heading) !== "pending";
             archiveEntry.checked = checked;
             archiveEntry.latestCheckTimestamp =
                 getRenderedReviewTimestamp(anchor);
@@ -404,7 +390,6 @@ export function mountRegistry(
                 const nomination = nominations.find((item) =>
                     isSameNomination(item, row.selection),
                 );
-                row.checked = Boolean(nomination?.checked);
                 const restriction = nomination
                     ? getNominationCheckRestriction(nomination, currentUser)
                     : "this_nomination_or_the_registry_has_changed_refresh_the_page";

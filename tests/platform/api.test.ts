@@ -131,45 +131,41 @@ test("public reason parser treats every whitespace sequence as a token delimiter
     assert.equal(parsed.rawReason, "4(基礎條目 擴充)");
 });
 
-function queried(type: any, values: any) {
+function queried(values: any) {
     const params = Object.fromEntries(
         Object.entries(values).map(([key, value]) => [key, { value }]),
     );
-    return type === "acg2"
-        ? { type, template: params }
-        : { type, template: { params } };
+    return { type: "acg2", template: params };
 }
 
-for (const type of ["main", "extra", "acg2"]) {
-    test(`queried2NomData preserves source and parse metadata for ${type}`, () => {
-        const fields = {
-            條目名稱: "Example",
-            用戶名稱: "Editor",
-            提名理由:
-                " <!--keep source--> {{ACG提名2/request|ver=1|4?(活動)[0.5] 4}} ",
-            核對用: "{{ACG提名2/check|ver=1|4}} <!--checked-->",
-        };
-        const nomData = queried2NomData(queried(type, fields));
+test("queried2NomData preserves source and parse metadata", () => {
+    const fields = {
+        條目名稱: "Example",
+        用戶名稱: "Editor",
+        提名理由:
+            " <!--keep source--> {{ACG提名2/request|ver=1|4?(活動)[0.5] 4}} ",
+        核對用: "{{ACG提名2/check|ver=1|4}} <!--checked-->",
+    };
+    const nomData = queried2NomData(queried(fields));
 
-        assert.equal(nomData.pageName, "Example");
-        assert.equal(nomData.awarder, "Editor");
-        assert.equal(nomData.requestReasonText, "4?(活動)[0.5] 4");
-        assert.equal(nomData.requestReasonWikitext, fields["提名理由"]);
-        assert.equal(nomData.checkWikitext, fields["核對用"]);
-        assert.deepEqual(nomData.rawFields, fields);
-        assert.deepEqual(nomData.reasonParse, {
-            ok: true,
-            tokens: [
-                token("4", {
-                    pending: true,
-                    comment: "活動",
-                    scoreOverride: 0.5,
-                }),
-                token("4", { sourceIndex: 1 }),
-            ],
-        });
+    assert.equal(nomData.pageName, "Example");
+    assert.equal(nomData.awarder, "Editor");
+    assert.equal(nomData.requestReasonText, "4?(活動)[0.5] 4");
+    assert.equal(nomData.requestReasonWikitext, fields["提名理由"]);
+    assert.equal(nomData.checkWikitext, fields["核對用"]);
+    assert.deepEqual(nomData.rawFields, fields);
+    assert.deepEqual(nomData.reasonParse, {
+        ok: true,
+        tokens: [
+            token("4", {
+                pending: true,
+                comment: "活動",
+                scoreOverride: 0.5,
+            }),
+            token("4", { sourceIndex: 1 }),
+        ],
     });
-}
+});
 
 test("queried2NomData keeps malformed nominations available for source editing", () => {
     const fields = {
@@ -178,7 +174,7 @@ test("queried2NomData keeps malformed nominations available for source editing",
         提名理由: "{{ACG提名2/request|ver=1|4[bad]}}",
         核對用: "existing check text",
     };
-    const nomData = queried2NomData(queried("main", fields));
+    const nomData = queried2NomData(queried(fields));
 
     assert.notEqual(nomData, null);
     assert.deepEqual(nomData.rawFields, fields);
@@ -195,7 +191,7 @@ test("queried2NomData retains ACG提名2 source identity fields while exposing c
         提名理由: "1c",
         核對用: "",
     };
-    const nomData = queried2NomData(queried("acg2", fields));
+    const nomData = queried2NomData(queried(fields));
 
     assert.equal(nomData.pageName, "Example");
     assert.equal(nomData.awarder, "Editor");
@@ -350,25 +346,15 @@ test('getPageSnapshot treats the presence of missing="" as an absent page', asyn
 test("queryEntry distinguishes duplicate date headings and returns its locator", () => {
     const text = [
         "=== 8月18日 ===",
-        "{{ACG提名",
-        "|條目名稱 = First article",
-        "|用戶名稱 = First user",
-        "|提名理由 = 1c",
-        "|核對用 =",
-        "}}",
+        nominationSource("First article", "First user"),
         "=== 8月18日 ===",
-        "{{ACG提名",
-        "|條目名稱 = Second article",
-        "|用戶名稱 = Second user",
-        "|提名理由 = 1c",
-        "|核對用 =",
-        "}}",
+        nominationSource("Second article", "Second user"),
     ].join("\n");
 
     const first = queryEntry(text, "8月18日", 1);
     const second = queryEntry(text, "8月18日", 1, 1);
 
-    assert.equal(first.template.params["條目名稱"].value, "First article");
+    assert.equal(first.template["條目名稱"].value, "First article");
     assert.deepEqual(
         {
             date: first.date,
@@ -377,7 +363,7 @@ test("queryEntry distinguishes duplicate date headings and returns its locator",
         },
         { date: "8月18日", index: 1, sectionOccurrence: 0 },
     );
-    assert.equal(second.template.params["條目名稱"].value, "Second article");
+    assert.equal(second.template["條目名稱"].value, "Second article");
     assert.deepEqual(
         {
             date: second.date,
@@ -392,11 +378,11 @@ test("queryEntry distinguishes duplicate date headings and returns its locator",
 
 function nominationSource(pageName: any, awarder = "Example user") {
     return [
-        "{{ACG提名",
-        `|條目名稱 = ${pageName}`,
-        `|用戶名稱 = ${awarder}`,
-        "|提名理由 = 1c",
-        "|核對用 =",
+        "{{ACG提名2",
+        `|條目名稱1 = ${pageName}`,
+        `|用戶名稱1 = ${awarder}`,
+        "|提名理由1 = {{ACG提名2/request|ver=1|1c}}",
+        "|核對用1 =",
         "}}",
     ].join("\n");
 }
@@ -439,7 +425,7 @@ test("resolveEntryByFingerprint uniquely relocates an entry shifted within its d
     assert.notEqual(resolved, null);
     assert.equal(resolved.index, 2);
     assert.equal(resolved.sectionOccurrence, 0);
-    assert.equal(resolved.template.params["條目名稱"].value, "Target article");
+    assert.equal(resolved.template["條目名稱"].value, "Target article");
 });
 
 test("resolveEntryByFingerprint uniquely relocates a shifted duplicate date heading", () => {
@@ -460,7 +446,7 @@ test("resolveEntryByFingerprint uniquely relocates a shifted duplicate date head
     assert.notEqual(resolved, null);
     assert.equal(resolved.index, 1);
     assert.equal(resolved.sectionOccurrence, 2);
-    assert.equal(resolved.template.params["條目名稱"].value, "Target article");
+    assert.equal(resolved.template["條目名稱"].value, "Target article");
 });
 
 test("resolveEntryByFingerprint aborts when the original source no longer exists", () => {
