@@ -967,12 +967,6 @@
                             @click="backToCheckReasonBuilder"
                             >{{ msg("edit_nomination") }}
                         </cdx-button>
-                        <cdx-button
-                            v-if="kind === 'check' && batchStatus"
-                            :disabled="busy"
-                            @click="skip"
-                            >{{ msg("skip") }}
-                        </cdx-button>
                         <cdx-button :disabled="busy" @click="requestCancel"
                             >{{ msg("cancel") }}
                         </cdx-button>
@@ -1206,7 +1200,6 @@
 
         <cdx-field
             class="acga-author-fields"
-            v-if="!rulesOnly"
             :class="{ 'acga-error-field': nomination.errors.awarder }"
             :disabled="disabled"
             :status="nomination.errors.awarder ? 'error' : 'default'"
@@ -1232,9 +1225,8 @@
         <div class="acga-rule-category-panel">
             <cdx-field
                 v-if="
-                    !rulesOnly &&
-                    (nomination.activeRuleCategory === 'article' ||
-                        nomination.activeRuleCategory === 'review')
+                    nomination.activeRuleCategory === 'article' ||
+                    nomination.activeRuleCategory === 'review'
                 "
                 class="acga-author-field acga-rule-page-name"
                 :class="{ 'acga-error-field': nomination.errors.pageName }"
@@ -1261,7 +1253,7 @@
                 <slot name="article-status" />
             </cdx-field>
             <cdx-field
-                v-if="!rulesOnly && nomination.activeRuleCategory === 'media'"
+                v-if="nomination.activeRuleCategory === 'media'"
                 class="acga-author-field acga-media-target-fields"
                 :class="{ 'acga-error-field': nomination.errors.media }"
                 :disabled="disabled"
@@ -1291,7 +1283,7 @@
                 </div>
             </cdx-field>
             <cdx-field
-                v-if="!rulesOnly && nomination.activeRuleCategory === 'other'"
+                v-if="nomination.activeRuleCategory === 'other'"
                 class="acga-author-field acga-other-target-fields"
                 :class="{ 'acga-error-field': nomination.errors.other }"
                 :disabled="disabled"
@@ -1322,7 +1314,6 @@
                 :nomination="nomination"
                 :groups="activeRuleGroups"
                 :rule-dict="ruleDict"
-                :rules-only="rulesOnly"
                 :disabled="disabled"
                 @change="handleRuleChange"
             />
@@ -1461,19 +1452,6 @@
                                         @change="$emit('change')"
                                     />
                                 </template>
-
-                                <div v-else class="acga-rule-list">
-                                    <acga-rule-editor
-                                        v-for="ruleset in line.rules"
-                                        :key="ruleset.rule"
-                                        :ruleset="ruleset"
-                                        :status="
-                                            nomination.ruleStatus[ruleset.rule]
-                                        "
-                                        :disabled="disabled"
-                                        @change="$emit('change')"
-                                    />
-                                </div>
                             </div>
                         </template>
                     </div>
@@ -1485,82 +1463,18 @@
                 class="acga-rule-group"
                 :is-fieldset="groupType(group) !== 'review'"
                 :disabled="disabled"
-                :hide-label="
-                    groupType(group) === 'review' || !showGroupLabel(group)
-                "
+                :hide-label="groupType(group) === 'review'"
             >
-                <template
-                    v-if="
-                        groupType(group) !== 'review' && showGroupLabel(group)
-                    "
-                    #label
-                    >{{ groupLabel(group) }}</template
-                >
+                <template v-if="groupType(group) !== 'review'" #label>{{
+                    groupLabel(group)
+                }}</template>
                 <template
                     v-if="group.explanation && groupType(group) !== 'review'"
                     #description
                     >{{ group.explanation }}
                 </template>
 
-                <template v-if="groupType(group) === 'content'">
-                    <template v-if="nomination.contentExpansion.legacy">
-                        <cdx-message type="warning" :inline="true"
-                            >{{
-                                $root.msg(
-                                    "this_nomination_has_multiple_expansion_rules_or_custom_scores_each",
-                                )
-                            }}
-                        </cdx-message>
-                        <div class="acga-rule-list">
-                            <acga-rule-editor
-                                v-for="ruleset in group.rules"
-                                :key="ruleset.rule"
-                                :ruleset="ruleset"
-                                :status="nomination.ruleStatus[ruleset.rule]"
-                                :disabled="disabled"
-                                @change="$emit('change')"
-                            />
-                        </div>
-                    </template>
-                    <acga-content-expansion-editor
-                        v-else
-                        :nomination="nomination"
-                        :rule-dict="ruleDict"
-                        :disabled="disabled"
-                        @change="$emit('change')"
-                    />
-                </template>
-
-                <template v-else-if="groupType(group) === 'quality'">
-                    <template v-if="nomination.quality.legacy">
-                        <cdx-message type="warning" :inline="true"
-                            >{{
-                                $root.msg(
-                                    "this_nomination_has_custom_or_nonconsecutive_quality_improvement_rules_each",
-                                )
-                            }}
-                        </cdx-message>
-                        <div class="acga-rule-list">
-                            <acga-rule-editor
-                                v-for="ruleset in group.rules"
-                                :key="ruleset.rule"
-                                :ruleset="ruleset"
-                                :status="nomination.ruleStatus[ruleset.rule]"
-                                :disabled="disabled"
-                                @change="$emit('change')"
-                            />
-                        </div>
-                    </template>
-                    <acga-quality-editor
-                        v-else
-                        :nomination="nomination"
-                        :rule-dict="ruleDict"
-                        :disabled="disabled"
-                        @change="$emit('change')"
-                    />
-                </template>
-
-                <template v-else-if="groupType(group) === 'review'">
+                <template v-if="groupType(group) === 'review'">
                     <cdx-message
                         v-if="nomination.rule5Unresolved"
                         type="warning"
@@ -1587,33 +1501,13 @@
                     @change="$emit('change')"
                 />
 
-                <template v-else-if="groupType(group) === 'media'">
-                    <div class="acga-rule-list acga-media-rule-list">
-                        <acga-rule-editor
-                            v-for="ruleset in group.rules"
-                            :key="ruleset.rule"
-                            :ruleset="ruleset"
-                            :status="nomination.ruleStatus[ruleset.rule]"
-                            :disabled="disabled"
-                            @change="$emit('change')"
-                        />
-                    </div>
-                </template>
-
-                <template v-else-if="groupType(group) === 'other-target'">
-                    <div class="acga-rule-list">
-                        <acga-rule-editor
-                            v-for="ruleset in group.rules"
-                            :key="ruleset.rule"
-                            :ruleset="ruleset"
-                            :status="nomination.ruleStatus[ruleset.rule]"
-                            :disabled="disabled"
-                            @change="$emit('change')"
-                        />
-                    </div>
-                </template>
-
-                <div v-else class="acga-rule-list">
+                <div
+                    v-else
+                    class="acga-rule-list"
+                    :class="{
+                        'acga-media-rule-list': groupType(group) === 'media',
+                    }"
+                >
                     <acga-rule-editor
                         v-for="ruleset in group.rules"
                         :key="ruleset.rule"

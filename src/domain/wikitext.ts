@@ -6,13 +6,11 @@ type SourceToken = SourceLocation & { text: string };
 type TemplateParameter = {
     value: string;
     fullLocation: SourceLocation;
-    keyLocation?: SourceLocation;
     valueLocation?: SourceLocation;
     nestedTemplates?: ParsedTemplate[];
 };
 type ParsedTemplate = {
     name: string;
-    nameLocation: SourceLocation;
     params: Record<string, TemplateParameter>;
     location: SourceLocation;
     entries?: Array<{
@@ -135,10 +133,6 @@ function parseTemplate(
     const nameToken = trimToken(tokens[0]);
     const templateObj: ParsedTemplate = {
         name: nameToken.text,
-        nameLocation: {
-            start: nameToken.start,
-            end: nameToken.end,
-        },
         params: {},
         location: {
             start: templateStart,
@@ -172,10 +166,6 @@ function parseTemplate(
         const valueLeading = rawValue.length - rawValue.trimStart().length;
         const parameter: TemplateParameter = {
             value,
-            keyLocation: {
-                start: trimmed.start,
-                end: trimmed.start + key.length,
-            },
             valueLocation: {
                 start: trimmed.start + equal + 1 + valueLeading,
                 end: trimmed.end,

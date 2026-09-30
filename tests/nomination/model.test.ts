@@ -216,10 +216,13 @@ test("author validation collects all identity and scoring errors in field order 
     assert.deepEqual(first.validationIssues, expected);
     assert.deepEqual(second.validationIssues, expected);
     assert.equal(first.errors.rules, expected.slice(2).join("\n"));
-    assert.deepEqual(
-        model.collectAuthorValidationIssues(first).map((issue) => issue.field),
-        ["awarder", "pageName", "rules", "rules"],
-    );
+    assert.deepEqual(first.errors, {
+        awarder: expected[0],
+        pageName: expected[1],
+        media: "",
+        other: "",
+        rules: expected.slice(2).join("\n"),
+    });
 
     first.awarder = "Recipient";
     first.pageName = "Article";
@@ -438,10 +441,13 @@ test("article and talk-page entry supplies fresh placeholders while edits retain
         model.articlePageNamePlaceholder(nomination),
         "Current article",
     );
-    assert.equal(model.effectiveArticlePageName(nomination), "Current article");
+    assert.equal(
+        model.nominationPayload(nomination).pageName,
+        "Current article",
+    );
     assert.equal(nomination.awarder, "");
     assert.equal(model.recipientPlaceholder(nomination), "Article editor");
-    assert.equal(model.effectiveRecipient(nomination), "Article editor");
+    assert.equal(model.nominationPayload(nomination).awarder, "Article editor");
     const edited = model.makeAuthorNomination(
         {
             awarder: "Original user",
@@ -495,7 +501,7 @@ test("new recipient placeholders follow category and article identity without fi
     assert.equal(model.recipientPlaceholder(draft), "Largest contributor");
     assert.equal(model.nominationPayload(draft).pageName, "Sidebar article");
     assert.equal(
-        model.effectiveArticlePageName(model.cloneValue(draft)),
+        model.nominationPayload(model.cloneValue(draft)).pageName,
         "Sidebar article",
     );
 
@@ -512,7 +518,7 @@ test("new recipient placeholders follow category and article identity without fi
     rowDraft.activeRuleCategory = "other";
     assert.equal(rowDraft.awarder, "   ");
     assert.equal(model.recipientPlaceholder(rowDraft), "Current user");
-    assert.equal(model.effectiveRecipient(rowDraft), "Current user");
+    assert.equal(model.nominationPayload(rowDraft).awarder, "Current user");
     assert.equal(model.recipientPlaceholder(draft), "Largest contributor");
 });
 
@@ -566,7 +572,7 @@ test("pending suggestions display a loading placeholder without validating or sa
     const draft = model.makeAuthorNomination(null, ruleNames, ruleDict);
     draft.ruleStatus["1a"].selected = true;
     assert.equal(model.recipientPlaceholder(draft), "...");
-    assert.equal(model.effectiveRecipient(draft), "");
+    assert.equal(model.nominationPayload(draft).awarder, "");
     assert.equal(model.authorValidation([draft]), draft);
     assert.ok(draft.errors.awarder);
     assert.equal(model.nominationPayload(draft).awarder, "");
@@ -672,7 +678,7 @@ test("new media nominations use an editable sidebar title default and select onl
     assert.equal(model.authorValidation([draft]), null);
     assert.equal(model.nominationPayload(draft).pageName, "Sidebar article");
     const rowDraft = model.cloneValue(draft);
-    assert.equal(model.effectiveMediaPageName(rowDraft), "Sidebar article");
+    assert.equal(model.nominationPayload(rowDraft).pageName, "Sidebar article");
 
     const edit = model.makeAuthorNomination(
         {

@@ -65,13 +65,18 @@ function fixture(text = registry(), userName: string | null = null) {
     const dialogs: NominationDialogs = {
         showNewNominationDialog: async () => "cancel",
         showEditNominationDialog: async () => "cancel",
-        showCheckNominationDialog: async (data, target) => {
+        showCheckNominationDialog: async () => "cancel",
+        showCheckBatchDialog: async (entries) => {
             assert.equal(
                 edits.length,
                 0,
                 "batch must not write while collecting decisions",
             );
-            await service.saveNominationCheck(draft(data.pageName), target);
+            for (const { nomination, target } of entries)
+                await service.saveNominationCheck(
+                    draft(nomination.pageName),
+                    target,
+                );
             return "save";
         },
         showConfirmDialog: async () => true,
@@ -206,9 +211,8 @@ test("new and modified nominations write complete attributed summaries within 25
 
 test("batch check summaries use only staged rows and their checked scores", async () => {
     const f = fixture();
-    f.dialogs.showCheckNominationDialog = async (data, target) => {
-        if (data.pageName === "B") return "skip";
-        await f.service.saveNominationCheck(draft("A"), target);
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        await f.service.saveNominationCheck(draft("A"), entries[0].target);
         return "save";
     };
     await f.service.checkBatch(selections);
@@ -543,13 +547,11 @@ test("mixed initial checks and rechecks use one combined score update and summar
     assert.equal(f.scores[0].recheck, true);
 });
 
-test("cancelling the second item discards the entire cached batch", async () => {
+test("cancelling a partly accepted batch discards its cache and releases the lock", async () => {
     const f = fixture();
-    let count = 0;
-    f.dialogs.showCheckNominationDialog = async (data, target) => {
-        if (count++ === 1) return "cancel";
-        await f.service.saveNominationCheck(draft(data.pageName), target);
-        return "save";
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        await f.service.saveNominationCheck(draft(), entries[0].target);
+        return "cancel";
     };
     assert.equal(await f.service.checkBatch(selections), false);
     assert.equal(f.edits.length, 0);
@@ -564,9 +566,9 @@ test("cancelling the second item discards the entire cached batch", async () => 
 
 test("skipped items are excluded and duplicate selections are deduplicated", async () => {
     const f = fixture();
-    f.dialogs.showCheckNominationDialog = async (data, target) => {
-        if (data.pageName === "B") return "skip";
-        await f.service.saveNominationCheck(draft(), target);
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        assert.equal(entries.length, 2);
+        await f.service.saveNominationCheck(draft(), entries[0].target);
         return "save";
     };
     await f.service.checkBatch([...selections, selections[0]]);
@@ -577,14 +579,17 @@ test("skipped items are excluded and duplicate selections are deduplicated", asy
 
 test("an edit to a cached nomination aborts the entire batch", async () => {
     const f = fixture();
-    f.dialogs.showCheckNominationDialog = async (data, target) => {
-        await f.service.saveNominationCheck(draft(data.pageName), target);
-        if (data.pageName === "B")
-            f.pages.set(REGISTRY_PAGE, {
-                exists: true,
-                text: registry().replace("條目名稱1=A", "條目名稱1=Changed"),
-                revisionId: 12,
-            });
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        for (const { nomination, target } of entries)
+            await f.service.saveNominationCheck(
+                draft(nomination.pageName),
+                target,
+            );
+        f.pages.set(REGISTRY_PAGE, {
+            exists: true,
+            text: registry().replace("條目名稱1=A", "條目名稱1=Changed"),
+            revisionId: 12,
+        });
         return "save";
     };
     assert.equal(await f.service.checkBatch(selections), false);
@@ -594,7 +599,7 @@ test("an edit to a cached nomination aborts the entire batch", async () => {
 
 test("a stale rendered revision is refused before any dialog opens", async () => {
     const f = fixture();
-    f.dialogs.showCheckNominationDialog = async () => {
+    f.dialogs.showCheckBatchDialog = async () => {
         assert.fail("stale page opened a dialog");
     };
     assert.equal(
@@ -821,7 +826,7 @@ for (const ownership of ["nomination", "score", "both"] as const)
         assert.equal(f.notices.length, 2);
     });
 
-test("mixed batches skip self nominations and self scores while numbering only eligible checks", async () => {
+test("mixed batches include only checks eligible for the current reviewer", async () => {
     const text = signedRegistry([
         {
             pageName: "Own nomination",
@@ -832,11 +837,16 @@ test("mixed batches skip self nominations and self scores while numbering only e
         { pageName: "Eligible", awarder: "Example", nominator: "Other" },
     ]);
     const f = fixture(text, "Reviewer");
-    const opened: Array<unknown> = [];
-    f.dialogs.showCheckNominationDialog = async (data, target, progress) => {
-        opened.push([data.pageName, progress]);
+    const opened: string[] = [];
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        assert.equal(entries.length, 1);
+        const { nomination, target } = entries[0];
+        opened.push(nomination.pageName);
         assert.equal(
-            await f.service.saveNominationCheck(draft(data.pageName), target),
+            await f.service.saveNominationCheck(
+                draft(nomination.pageName),
+                target,
+            ),
             false,
         );
         return "save";
@@ -847,7 +857,7 @@ test("mixed batches skip self nominations and self scores while numbering only e
         ),
         true,
     );
-    assert.deepEqual(opened, [["Eligible", { current: 1, total: 1 }]]);
+    assert.deepEqual(opened, ["Eligible"]);
     assert.equal(f.edits.length, 1);
     assert.equal((f.edits[0].text.match(/ACG提名2\/check/gu) ?? []).length, 1);
     assert.deepEqual(f.scores[0].deltas, [{ userName: "Example", score: 1 }]);
@@ -858,7 +868,7 @@ test("a batch containing only restricted nominations opens no dialogs and writes
         { pageName: "A", awarder: "Reviewer", nominator: "Other" },
     ]);
     const f = fixture(text, "Reviewer");
-    f.dialogs.showCheckNominationDialog = async () => {
+    f.dialogs.showCheckBatchDialog = async () => {
         assert.fail("a restricted nomination opened a batch check dialog");
     };
     assert.equal(await f.service.checkBatch([selections[0]]), false);

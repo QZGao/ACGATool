@@ -9,10 +9,21 @@ type TemplateNode = NonNullable<
 export function compactMessageKeys(keys: string[]): Map<string, string> {
     // Short plain words can also be public data fields or nomination categories.
     // Only rename the distinct underscore-separated message identifiers.
+    const reserved = new Set(keys);
+    let index = 0;
     return new Map(
         keys
             .filter((key) => key.includes("_"))
-            .map((key, index) => [key, `_${index.toString(36)}`]),
+            .map((key) => {
+                let compact;
+                do {
+                    compact =
+                        String.fromCharCode(97 + (index % 26)) +
+                        (index < 26 ? "" : Math.floor(index / 26).toString(36));
+                    index++;
+                } while (reserved.has(compact));
+                return [key, compact];
+            }),
     );
 }
 

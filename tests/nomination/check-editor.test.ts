@@ -757,7 +757,6 @@ test("checking offers exactly the five nomination categories and rejects cross-g
     vm.newCheckRuleCode = "5x";
     vm.addCheckItem();
     vm.setCheckCode(vm.checkTableRows[0], "6");
-    vm.setCheckRuleCategory("review");
     assert.equal(vm.checkRuleCategory, "article");
     assert.deepEqual(
         vm.checkTableRows.map((row: { rule: string }) => row.rule),
@@ -765,7 +764,6 @@ test("checking offers exactly the five nomination categories and rejects cross-g
     );
     vm.removeCheckItem(vm.checkTableRows[0]);
     vm.removeCheckItem(vm.checkTableRows[0]);
-    vm.setCheckRuleCategory("review");
     vm.newCheckRuleCode = "5x";
     vm.addCheckItem();
     assert.equal(vm.checkRuleCategory, "review");
@@ -1129,13 +1127,8 @@ test("supported requests can be repaired with the same author form before checki
     assert.equal(vm.currentNomination.replaceRequestReason, true);
 });
 
-test("batch actions describe staged results and the final submission", () => {
+test("single checks use the save action", () => {
     const vm = openCheck("1a");
-    vm.batchStatus = { current: 1, total: 2 };
-    assert.equal(vm.saveLabel, "暫存並繼續");
-    vm.batchStatus = { current: 2, total: 2 };
-    assert.equal(vm.saveLabel, "儲存全部");
-    vm.batchStatus = null;
     assert.equal(vm.saveLabel, "儲存");
 });
 

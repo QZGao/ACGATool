@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-    ACTIVITY_ADDABLE_RULES,
     ACTIVITY_DEFAULT_RULES,
     ACTIVITY_RULES,
     CONTENT_EXPANSION_RULES,
@@ -10,7 +9,6 @@ import {
     QUALITY_RULES,
     REVIEW_APPLY_MODE,
     REVIEW_ASPECT_ROWS,
-    REVIEW_ROWS,
     REVIEW_TIERS,
     addActivityDraftRow,
     allocateQualityScore,
@@ -62,6 +60,7 @@ const REVIEW_PREFIXES: Record<string, any> = {
     coverage: "5b",
     source: "5c",
 };
+const REVIEW_ROWS = Object.keys(REVIEW_PREFIXES);
 const REVIEW_BASE_SCORES: Record<string, any> = {
     none: 1,
     bcr: 1,
@@ -137,16 +136,12 @@ test("compact form metadata uses the canonical activity, quality, and review row
         "4-req-ac",
     ]);
     assert.deepEqual(ACTIVITY_DEFAULT_RULES, ["4-dyk"]);
-    assert.deepEqual(ACTIVITY_ADDABLE_RULES, ACTIVITY_RULES);
     assert.deepEqual(
         QUALITY_LEVELS.map((level: any) => level.value),
         ["base", "c", "b", "ga", "fa"],
     );
     assert.deepEqual(QUALITY_RULES, ["2-c", "2-b", "2-ga", "2-fa"]);
     assert.deepEqual(REVIEW_ASPECT_ROWS, ["writing", "coverage", "source"]);
-    assert.deepEqual(REVIEW_ROWS, ["general", "writing", "coverage", "source"]);
-    assert.equal(REVIEW_ROWS.includes("comprehensive"), false);
-    assert.equal(REVIEW_ROWS.includes("content"), false);
     assert.deepEqual(REVIEW_APPLY_MODE, {
         GENERAL: "general",
         ASPECTS: "aspects",

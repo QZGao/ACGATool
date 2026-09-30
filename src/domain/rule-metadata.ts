@@ -86,6 +86,7 @@ export type RuleTranslator = (key: RuleMessageKey) => string;
 export const canonicalRuleMessage: RuleTranslator = (key) =>
     CANONICAL_RULE_MESSAGES[key];
 
+/** Each rule row contains its code, translated label key and default score. */
 export const RULE_GROUPS = [
     {
         section: "article",
@@ -93,21 +94,9 @@ export const RULE_GROUPS = [
         groupKey: "content_expansion",
         explanationKey: "add_or_expand_article_content_new_content_of_at_least",
         rules: [
-            {
-                rule: "1a",
-                labelKey: "short_expansion",
-                score: 1,
-            },
-            {
-                rule: "1b",
-                labelKey: "medium_expansion",
-                score: 2,
-            },
-            {
-                rule: "1c",
-                labelKey: "long_expansion",
-                score: 3,
-            },
+            ["1a", "short_expansion", 1],
+            ["1b", "medium_expansion", 2],
+            ["1c", "long_expansion", 3],
         ],
     },
     {
@@ -117,26 +106,10 @@ export const RULE_GROUPS = [
         explanationKey:
             "choose_the_article_s_quality_class_before_and_after_improvement",
         rules: [
-            {
-                rule: "2-c",
-                labelKey: "c_class",
-                score: 1,
-            },
-            {
-                rule: "2-b",
-                labelKey: "b_class",
-                score: 3,
-            },
-            {
-                rule: "2-ga",
-                labelKey: "good_article",
-                score: 5,
-            },
-            {
-                rule: "2-fa",
-                labelKey: "featured_article",
-                score: 10,
-            },
+            ["2-c", "c_class", 1],
+            ["2-b", "b_class", 3],
+            ["2-ga", "good_article", 5],
+            ["2-fa", "featured_article", 10],
         ],
     },
     {
@@ -145,13 +118,7 @@ export const RULE_GROUPS = [
         groupKey: "formatting",
         explanationKey:
             "recognizes_well_formatted_articles_editors_below_creation_award_level_5",
-        rules: [
-            {
-                rule: "3",
-                labelKey: "formatting",
-                score: 1,
-            },
-        ],
+        rules: [["3", "formatting", 1]],
     },
     {
         section: "article",
@@ -159,31 +126,11 @@ export const RULE_GROUPS = [
         groupKey: "4_activities",
         explanationKey: null,
         rules: [
-            {
-                rule: "4",
-                labelKey: "activity",
-                score: 1,
-            },
-            {
-                rule: "4-req",
-                labelKey: "request",
-                score: 1,
-            },
-            {
-                rule: "4-dyk",
-                labelKey: "dyk",
-                score: 1,
-            },
-            {
-                rule: "4-req-game",
-                labelKey: "request_games",
-                score: 1,
-            },
-            {
-                rule: "4-req-ac",
-                labelKey: "request_anime_and_manga",
-                score: 1,
-            },
+            ["4", "activity", 1],
+            ["4-req", "request", 1],
+            ["4-dyk", "dyk", 1],
+            ["4-req-game", "request_games", 1],
+            ["4-req-ac", "request_anime_and_manga", 1],
         ],
     },
     {
@@ -192,231 +139,55 @@ export const RULE_GROUPS = [
         groupKey: "5_content_review",
         explanationKey: null,
         rules: [
-            {
-                rule: "5",
-                labelKey: "review",
-                score: 1,
-            },
-            {
-                rule: "5-half",
-                labelKey: "quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5a",
-                labelKey: "writing_review",
-                score: 1,
-            },
-            {
-                rule: "5a-half",
-                labelKey: "writing_quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5b",
-                labelKey: "coverage_review",
-                score: 1,
-            },
-            {
-                rule: "5b-half",
-                labelKey: "coverage_quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5c",
-                labelKey: "source_formatting_review",
-                score: 1,
-            },
-            {
-                rule: "5c-half",
-                labelKey: "source_formatting_quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5x",
-                labelKey: "complete_review",
-                score: 3,
-            },
-            {
-                rule: "5-bcr",
-                labelKey: "b_class_review",
-                score: 1,
-            },
-            {
-                rule: "5-bcr-half",
-                labelKey: "b_class_quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5a-bcr",
-                labelKey: "b_class_writing_review",
-                score: 1,
-            },
-            {
-                rule: "5a-bcr-half",
-                labelKey: "b_class_writing_quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5b-bcr",
-                labelKey: "b_class_coverage_review",
-                score: 1,
-            },
-            {
-                rule: "5b-bcr-half",
-                labelKey: "b_class_coverage_quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5c-bcr",
-                labelKey: "b_class_source_formatting_review",
-                score: 1,
-            },
-            {
-                rule: "5c-bcr-half",
-                labelKey: "b_class_source_formatting_quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5x-bcr",
-                labelKey: "complete_b_class_review",
-                score: 3,
-            },
-            {
-                rule: "5-gan",
-                labelKey: "good_article_review_2",
-                score: 1,
-            },
-            {
-                rule: "5-gan-half",
-                labelKey: "good_article_quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5a-gan",
-                labelKey: "good_article_writing_review",
-                score: 1,
-            },
-            {
-                rule: "5a-gan-half",
-                labelKey: "good_article_writing_quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5b-gan",
-                labelKey: "good_article_coverage_review",
-                score: 1,
-            },
-            {
-                rule: "5b-gan-half",
-                labelKey: "good_article_coverage_quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5c-gan",
-                labelKey: "good_article_source_formatting_review",
-                score: 1,
-            },
-            {
-                rule: "5c-gan-half",
-                labelKey: "good_article_source_formatting_quick_review",
-                score: 0.5,
-            },
-            {
-                rule: "5x-gan",
-                labelKey: "complete_good_article_review",
-                score: 3,
-            },
-            {
-                rule: "5-acr",
-                labelKey: "a_class_review",
-                score: 2,
-            },
-            {
-                rule: "5-acr-half",
-                labelKey: "a_class_quick_review",
-                score: 1,
-            },
-            {
-                rule: "5a-acr",
-                labelKey: "a_class_writing_review",
-                score: 2,
-            },
-            {
-                rule: "5a-acr-half",
-                labelKey: "a_class_writing_quick_review",
-                score: 1,
-            },
-            {
-                rule: "5b-acr",
-                labelKey: "a_class_coverage_review",
-                score: 2,
-            },
-            {
-                rule: "5b-acr-half",
-                labelKey: "a_class_coverage_quick_review",
-                score: 1,
-            },
-            {
-                rule: "5c-acr",
-                labelKey: "a_class_source_formatting_review",
-                score: 2,
-            },
-            {
-                rule: "5c-acr-half",
-                labelKey: "a_class_source_formatting_quick_review",
-                score: 1,
-            },
-            {
-                rule: "5x-acr",
-                labelKey: "complete_a_class_review",
-                score: 6,
-            },
-            {
-                rule: "5-fac",
-                labelKey: "featured_article_review_2",
-                score: 2,
-            },
-            {
-                rule: "5-fac-half",
-                labelKey: "featured_article_quick_review",
-                score: 1,
-            },
-            {
-                rule: "5a-fac",
-                labelKey: "featured_article_writing_review",
-                score: 2,
-            },
-            {
-                rule: "5a-fac-half",
-                labelKey: "featured_article_writing_quick_review",
-                score: 1,
-            },
-            {
-                rule: "5b-fac",
-                labelKey: "featured_article_coverage_review",
-                score: 2,
-            },
-            {
-                rule: "5b-fac-half",
-                labelKey: "featured_article_coverage_quick_review",
-                score: 1,
-            },
-            {
-                rule: "5c-fac",
-                labelKey: "featured_article_source_formatting_review",
-                score: 2,
-            },
-            {
-                rule: "5c-fac-half",
-                labelKey: "featured_article_source_formatting_quick_review",
-                score: 1,
-            },
-            {
-                rule: "5x-fac",
-                labelKey: "complete_featured_article_review",
-                score: 6,
-            },
+            ["5", "review", 1],
+            ["5-half", "quick_review", 0.5],
+            ["5a", "writing_review", 1],
+            ["5a-half", "writing_quick_review", 0.5],
+            ["5b", "coverage_review", 1],
+            ["5b-half", "coverage_quick_review", 0.5],
+            ["5c", "source_formatting_review", 1],
+            ["5c-half", "source_formatting_quick_review", 0.5],
+            ["5x", "complete_review", 3],
+            ["5-bcr", "b_class_review", 1],
+            ["5-bcr-half", "b_class_quick_review", 0.5],
+            ["5a-bcr", "b_class_writing_review", 1],
+            ["5a-bcr-half", "b_class_writing_quick_review", 0.5],
+            ["5b-bcr", "b_class_coverage_review", 1],
+            ["5b-bcr-half", "b_class_coverage_quick_review", 0.5],
+            ["5c-bcr", "b_class_source_formatting_review", 1],
+            ["5c-bcr-half", "b_class_source_formatting_quick_review", 0.5],
+            ["5x-bcr", "complete_b_class_review", 3],
+            ["5-gan", "good_article_review_2", 1],
+            ["5-gan-half", "good_article_quick_review", 0.5],
+            ["5a-gan", "good_article_writing_review", 1],
+            ["5a-gan-half", "good_article_writing_quick_review", 0.5],
+            ["5b-gan", "good_article_coverage_review", 1],
+            ["5b-gan-half", "good_article_coverage_quick_review", 0.5],
+            ["5c-gan", "good_article_source_formatting_review", 1],
+            ["5c-gan-half", "good_article_source_formatting_quick_review", 0.5],
+            ["5x-gan", "complete_good_article_review", 3],
+            ["5-acr", "a_class_review", 2],
+            ["5-acr-half", "a_class_quick_review", 1],
+            ["5a-acr", "a_class_writing_review", 2],
+            ["5a-acr-half", "a_class_writing_quick_review", 1],
+            ["5b-acr", "a_class_coverage_review", 2],
+            ["5b-acr-half", "a_class_coverage_quick_review", 1],
+            ["5c-acr", "a_class_source_formatting_review", 2],
+            ["5c-acr-half", "a_class_source_formatting_quick_review", 1],
+            ["5x-acr", "complete_a_class_review", 6],
+            ["5-fac", "featured_article_review_2", 2],
+            ["5-fac-half", "featured_article_quick_review", 1],
+            ["5a-fac", "featured_article_writing_review", 2],
+            ["5a-fac-half", "featured_article_writing_quick_review", 1],
+            ["5b-fac", "featured_article_coverage_review", 2],
+            ["5b-fac-half", "featured_article_coverage_quick_review", 1],
+            ["5c-fac", "featured_article_source_formatting_review", 2],
+            [
+                "5c-fac-half",
+                "featured_article_source_formatting_quick_review",
+                1,
+            ],
+            ["5x-fac", "complete_featured_article_review", 6],
         ],
     },
     {
@@ -425,16 +196,8 @@ export const RULE_GROUPS = [
         groupKey: "6_media",
         explanationKey: null,
         rules: [
-            {
-                rule: "6",
-                labelKey: "media",
-                score: 3,
-            },
-            {
-                rule: "6-fp",
-                labelKey: "featured_picture",
-                score: 5,
-            },
+            ["6", "media", 3],
+            ["6-fp", "featured_picture", 5],
         ],
     },
     {
@@ -443,13 +206,7 @@ export const RULE_GROUPS = [
         groupKey: "7_nominating_others",
         explanationKey:
             "each_valid_nomination_of_another_editor_earns_0_5_points",
-        rules: [
-            {
-                rule: "7",
-                labelKey: "nominating_others",
-                score: 0.5,
-            },
-        ],
+        rules: [["7", "nominating_others", 0.5]],
     },
     {
         section: "other",
@@ -457,12 +214,6 @@ export const RULE_GROUPS = [
         groupKey: "8_other",
         explanationKey:
             "recognizes_other_contributions_that_are_difficult_to_quantify_enter_a",
-        rules: [
-            {
-                rule: "8",
-                labelKey: "other",
-                score: 0,
-            },
-        ],
+        rules: [["8", "other", 0]],
     },
 ] as const;

@@ -100,7 +100,7 @@ async function initialize(host: StartupHost): Promise<() => void> {
             showCheckNominationDialog: (...args) =>
                 dialogs.showCheckNominationDialog(...args),
             showCheckBatchDialog: (entries) =>
-                dialogs.showCheckBatchDialog!(entries),
+                dialogs.showCheckBatchDialog(entries),
             showConfirmDialog: (options) => dialogs.showConfirmDialog(options),
             dispose: () => dialogs.dispose(),
         },

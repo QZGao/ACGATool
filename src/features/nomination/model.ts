@@ -78,12 +78,6 @@ export function createNominationModel(services: DialogModelServices) {
         NominationRuleSet(msg);
     let nominationSequence = 0;
     const instanceId = Math.random().toString(36).slice(2);
-    function authorTargetErrorMessage(error: any) {
-        if (error?.code === "missing-author-category") {
-            return msg("choose_a_nomination_category");
-        }
-        return msg("article_title_missing");
-    }
     function authorCodePreviewResult(
         nomination: any,
         position: number,
@@ -241,42 +235,30 @@ export function createNominationModel(services: DialogModelServices) {
         });
         for (const rule of ruleNames) {
             const canonical = ruleDict[rule];
-            if (isRepeatableRule(rule)) {
-                const occurrences = hydrated[rule] || [];
-                for (const status of occurrences) {
-                    status.selected = Boolean(status.selected);
-                    if (status.desc == null) status.desc = canonical.label;
-                    status.ogDesc = canonical.label;
-                    status.score =
-                        status.score == null
-                            ? canonical.score
-                            : editableNumber(status.score);
-                    status.maxScore = canonical.score;
-                    if (status.pending && isEditablePendingRule(rule))
-                        status.pending = true;
-                    else delete status.pending;
-                }
-                hydrated[rule] = occurrences;
-                continue;
-            }
+            const repeatable = isRepeatableRule(rule);
             if (
+                !repeatable &&
                 !includeMissing &&
-                !Object.prototype.hasOwnProperty.call(hydrated, rule)
+                !Object.hasOwn(hydrated, rule)
             )
                 continue;
-            const status = hydrated[rule] || {};
-            status.selected = Boolean(status.selected);
-            if (status.desc == null) status.desc = canonical.label;
-            status.ogDesc = canonical.label;
-            status.score =
-                status.score == null
-                    ? canonical.score
-                    : editableNumber(status.score);
-            status.maxScore = canonical.score;
-            if (status.pending && isEditablePendingRule(rule))
-                status.pending = true;
-            else delete status.pending;
-            hydrated[rule] = status;
+            const occurrences = repeatable
+                ? hydrated[rule] || []
+                : [hydrated[rule] || {}];
+            for (const status of occurrences) {
+                status.selected = Boolean(status.selected);
+                if (status.desc == null) status.desc = canonical.label;
+                status.ogDesc = canonical.label;
+                status.score =
+                    status.score == null
+                        ? canonical.score
+                        : editableNumber(status.score);
+                status.maxScore = canonical.score;
+                if (status.pending && isEditablePendingRule(rule))
+                    status.pending = true;
+                else delete status.pending;
+            }
+            hydrated[rule] = repeatable ? occurrences : occurrences[0];
         }
         return hydrated;
     }
@@ -496,15 +478,10 @@ export function createNominationModel(services: DialogModelServices) {
             articlePageNamePlaceholder(nomination)
         );
     }
-    function mediaPageNamePlaceholder(nomination: any): string {
-        return nomination?.usesRecipientDefault
-            ? String(nomination.originalArticleTitle ?? "").trim()
-            : "";
-    }
     function effectiveMediaPageName(nomination: any): string {
         return (
             String(nomination?.media?.pageName ?? "").trim() ||
-            mediaPageNamePlaceholder(nomination)
+            articlePageNamePlaceholder(nomination)
         );
     }
     function relatedPageNamePlaceholder(nomination: any): string {
@@ -1149,10 +1126,13 @@ export function createNominationModel(services: DialogModelServices) {
                   : "pageName";
             issues.push({
                 field,
-                message:
+                message: msg(
                     target.code === "ambiguous-media-target"
-                        ? msg("enter_only_one_page_name")
-                        : authorTargetErrorMessage(target),
+                        ? "enter_only_one_page_name"
+                        : target.code === "missing-author-category"
+                          ? "choose_a_nomination_category"
+                          : "article_title_missing",
+                ),
             });
         }
         issues.push(
@@ -1215,11 +1195,8 @@ export function createNominationModel(services: DialogModelServices) {
         checkTokenRow,
         activeAuthorRuleStatus,
         recipientPlaceholder,
-        effectiveRecipient,
         articlePageNamePlaceholder,
-        effectiveArticlePageName,
-        mediaPageNamePlaceholder,
-        effectiveMediaPageName,
+        mediaPageNamePlaceholder: articlePageNamePlaceholder,
         relatedPageNamePlaceholder,
         effectiveOtherPageName,
         authorErrorRuleCategory,
@@ -1229,7 +1206,6 @@ export function createNominationModel(services: DialogModelServices) {
         editableCheckTokens,
         selectedActiveRuleStatus,
         nominationPayload,
-        collectAuthorValidationIssues,
         authorValidation,
         checkValidation,
     };

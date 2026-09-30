@@ -1,5 +1,5 @@
 import type { App, Component } from "vue";
-import type { BatchStatus, CheckOutcome } from "./check-batch.ts";
+import type { CheckOutcome } from "./check-batch.ts";
 
 import type { Translator } from "../../i18n/index.ts";
 import type { ExistingNomination } from "../../domain/existing-nominations.ts";
@@ -136,9 +136,8 @@ export interface NominationDialogs {
     showCheckNominationDialog(
         nomination: NominationData,
         target: NominationTarget,
-        batchStatus?: BatchStatus | null,
     ): Promise<CheckOutcome>;
-    showCheckBatchDialog?(entries: CheckBatchEntry[]): Promise<CheckOutcome>;
+    showCheckBatchDialog(entries: CheckBatchEntry[]): Promise<CheckOutcome>;
     showConfirmDialog(options: ConfirmationOptions): Promise<boolean>;
     dispose(): void;
 }

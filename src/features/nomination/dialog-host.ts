@@ -55,7 +55,6 @@ export function createDialogHost(
         "checkHistory",
         "checkHistoryIndex",
         "checkReasonDraft",
-        "checkReasonIdentity",
         "checkOriginalRequestReasonText",
         "queriedTarget",
         "error",
@@ -143,7 +142,6 @@ export function createDialogHost(
                 nominationDraftSyncPending: false,
                 submittedNominationIds: [] as string[],
                 activeNominationTableIndex: 0,
-                reviewedNominationTables: [],
                 nominationSummaryTables: [],
                 editingNomination: null,
                 editingNominationIndex: -1,
@@ -205,10 +203,8 @@ export function createDialogHost(
                 checkHistory: [] as any[],
                 checkHistoryIndex: -1,
                 checkReasonDraft: null,
-                checkReasonIdentity: null,
                 checkOriginalRequestReasonText: "",
                 queriedTarget: null,
-                batchStatus: null,
                 checkBatchEntries: [] as CheckBatchEntry[],
                 checkBatchDrafts: [] as any[],
                 checkBatchStatuses: [] as string[],
@@ -382,6 +378,14 @@ export function createDialogHost(
                     this.kind === "check" && this.checkBatchEntries.length > 0
                 );
             },
+            batchStatus() {
+                return this.isCheckBatch
+                    ? {
+                          current: this.checkBatchIndex + 1,
+                          total: this.checkBatchEntries.length,
+                      }
+                    : null;
+            },
             checkNavigationItems() {
                 return this.isCheckBatch
                     ? this.checkBatchEntries.map(
@@ -396,11 +400,9 @@ export function createDialogHost(
                 );
             },
             batchProgressValue() {
-                return this.isCheckBatch
-                    ? this.checkBatchStatuses.filter(
-                          (status: string) => status !== "pending",
-                      ).length
-                    : (this.batchStatus?.current ?? 0);
+                return this.checkBatchStatuses.filter(
+                    (status: string) => status !== "pending",
+                ).length;
             },
             activeNomination() {
                 if (this.kind !== "new") return this.currentNomination;
@@ -578,6 +580,15 @@ export function createDialogHost(
                     this.checkHistoryIndex < this.checkHistory.length - 1
                 );
             },
+            canEditCheck() {
+                return (
+                    !this.busy &&
+                    this.kind === "check" &&
+                    this.view === "main" &&
+                    !this.sourceFallbackActive &&
+                    Boolean(this.currentNomination)
+                );
+            },
             codePreviewResult() {
                 const nomination = this.activeNomination;
                 if (!nomination || this.view !== "main")
@@ -616,11 +627,6 @@ export function createDialogHost(
                     return msg(
                         this.checkBatchReadyToFinish ? "save_all" : "next",
                     );
-                if (this.kind === "check" && this.batchStatus) {
-                    return this.batchStatus.current === this.batchStatus.total
-                        ? msg("save_all")
-                        : msg("save_temporarily_and_continue");
-                }
                 return msg("save");
             },
             nominationSummaryColumns() {
@@ -781,7 +787,6 @@ export function createDialogHost(
                     this.nominationDraftSyncPending = false;
                     this.submittedNominationIds = [];
                     this.activeNominationTableIndex = 0;
-                    this.reviewedNominationTables = [];
                     this.nominationSummaryTables = [];
                     this.editingNomination = null;
                     this.editingNominationIndex = -1;
@@ -814,10 +819,8 @@ export function createDialogHost(
                     this.checkHistory = [];
                     this.checkHistoryIndex = -1;
                     this.checkReasonDraft = null;
-                    this.checkReasonIdentity = null;
                     this.checkOriginalRequestReasonText = "";
                     this.queriedTarget = null;
-                    this.batchStatus = null;
                     this.checkBatchEntries = [];
                     this.checkBatchDrafts = [];
                     this.checkBatchStatuses = [];
@@ -1152,12 +1155,9 @@ export function createDialogHost(
                     this.queriedTarget = cloneValue(queriedTarget);
                 });
             },
-            openCheck(nomData: any, queriedTarget: any, batchStatus: any) {
+            openCheck(nomData: any, queriedTarget: any) {
                 return this.beginSession("check", CHECK_OUTCOME.CANCEL, () => {
                     this.initializeCheckDraft(nomData, queriedTarget);
-                    this.batchStatus = batchStatus
-                        ? cloneValue(batchStatus)
-                        : null;
                 });
             },
             initializeCheckDraft(nomData: any, queriedTarget: any) {
@@ -1169,7 +1169,6 @@ export function createDialogHost(
                 this.checkHistory = [];
                 this.checkHistoryIndex = -1;
                 this.checkReasonDraft = null;
-                this.checkReasonIdentity = null;
                 this.checkOriginalRequestReasonText = "";
                 this.clearError();
                 const nomination = makeCheckNomination(
@@ -1185,10 +1184,6 @@ export function createDialogHost(
                         this.ruleNames,
                         this.ruleDict,
                     );
-                    this.checkReasonIdentity = {
-                        awarder: String(nomData?.awarder ?? ""),
-                        pageName: String(nomData?.pageName ?? ""),
-                    };
                     this.checkOriginalRequestReasonText = String(
                         nomData?.requestReasonText ??
                             nomData?.reasonParse?.rawReason ??
@@ -1210,18 +1205,11 @@ export function createDialogHost(
                                   this.ruleDict,
                               )
                             : draft;
-                    this.checkReasonIdentity = {
-                        awarder: String(nomData.awarder ?? ""),
-                        pageName: String(nomData.pageName ?? ""),
-                    };
                     this.checkOriginalRequestReasonText = String(
                         nomData.requestReasonText ?? "",
                     );
                     this.nominations = [nomination];
-                    this.checkSelectedRows = this.checkRules.flatMap(
-                        (item: any, index: number) =>
-                            item.status.selected ? [index] : [],
-                    );
+                    this.syncCheckSelection();
                     this.initialCheckNomination = cloneValue(nomination);
                     this.initializeCheckHistory();
                 }
@@ -1257,10 +1245,6 @@ export function createDialogHost(
                 const draft = this.checkBatchDrafts[index];
                 if (draft) Object.assign(this, draft);
                 else this.initializeCheckDraft(entry.nomination, entry.target);
-                this.batchStatus = {
-                    current: index + 1,
-                    total: this.checkBatchEntries.length,
-                };
                 void this.loadExistingNominations();
             },
             selectCheckBatchItem(value: string) {
@@ -1380,7 +1364,6 @@ export function createDialogHost(
                 this.nominationTables = [];
                 this.nominationDraftBaseline = null;
                 this.submittedNominationIds = [];
-                this.reviewedNominationTables = [];
                 this.nominationSummaryTables = [];
                 this.editingNomination = null;
                 this.initialCheckNomination = null;
@@ -1473,11 +1456,8 @@ export function createDialogHost(
                         number: index + 1,
                     });
                 }
-                const index = this.nominationTables
-                    .flatMap((table: any) => table.nominations)
-                    .findIndex((item: any) => item.id === nomination.id);
                 return msg("invalid_nomination_position", {
-                    number: index >= 0 ? index + 1 : 1,
+                    number: 1,
                 });
             },
             showAuthorValidationErrors(nominations: any[], editing = false) {
@@ -1527,24 +1507,6 @@ export function createDialogHost(
                 this.clearError();
                 this.invalidateCheckBatchResult();
             },
-            setCheckRuleCategory(value: string) {
-                if (
-                    this.busy ||
-                    this.checkRules.length ||
-                    !this.currentNomination
-                )
-                    return;
-                if (
-                    !this.nominationCategoryButtons.some(
-                        (button: { value: string }) => button.value === value,
-                    )
-                )
-                    return;
-                this.currentNomination.activeRuleCategory = value;
-                this.newCheckRuleCode = null;
-                this.clearError();
-                this.recordCheckEdit();
-            },
             rememberCheckItems() {
                 editableCheckTokens(this.currentNomination, this.ruleNames);
                 this.checkItemInitialStates = new Map(
@@ -1565,6 +1527,12 @@ export function createDialogHost(
                         this.checkItemInitialStates.get(item.status),
                     ),
                 });
+            },
+            syncCheckSelection() {
+                this.checkSelectedRows = this.checkRules.flatMap(
+                    (item: any, index: number) =>
+                        item.status.selected ? [index] : [],
+                );
             },
             initializeCheckHistory() {
                 this.rememberCheckItems();
@@ -1595,10 +1563,7 @@ export function createDialogHost(
             },
             restoreCheckHistory(index: number) {
                 if (
-                    this.busy ||
-                    this.kind !== "check" ||
-                    this.view !== "main" ||
-                    this.sourceFallbackActive ||
+                    !this.canEditCheck ||
                     index < 0 ||
                     index >= this.checkHistory.length
                 )
@@ -1615,10 +1580,7 @@ export function createDialogHost(
                         state.initialStatuses[position],
                     ]),
                 );
-                this.checkSelectedRows = this.checkRules.flatMap(
-                    (item: any, position: number) =>
-                        item.status.selected ? [position] : [],
-                );
+                this.syncCheckSelection();
                 this.checkHistoryIndex = index;
                 this.newCheckRuleCode = null;
                 this.clearError();
@@ -1631,59 +1593,31 @@ export function createDialogHost(
                 this.restoreCheckHistory(this.checkHistoryIndex + 1);
             },
             resetCheckItem(row: any) {
-                if (
-                    this.busy ||
-                    this.kind !== "check" ||
-                    this.view !== "main" ||
-                    this.sourceFallbackActive ||
-                    !this.checkRules.some(
-                        (item: any) => item.status === row.status,
-                    )
-                )
-                    return;
+                if (!this.canEditCheckRow(row)) return;
                 const initial = this.checkItemInitialStates.get(row.status);
                 if (!initial) return;
                 for (const key of Object.keys(row.status))
                     delete row.status[key];
                 Object.assign(row.status, cloneValue(initial));
-                this.checkSelectedRows = this.checkRules.flatMap(
-                    (item: any, index: number) =>
-                        item.status.selected ? [index] : [],
-                );
+                this.syncCheckSelection();
                 this.clearError();
                 this.recordCheckEdit();
             },
             resetCheckItems() {
-                if (
-                    this.busy ||
-                    this.kind !== "check" ||
-                    this.view !== "main" ||
-                    this.sourceFallbackActive ||
-                    !this.initialCheckNomination
-                )
-                    return;
+                if (!this.canEditCheck || !this.initialCheckNomination) return;
                 const restored = cloneValue(this.initialCheckNomination);
                 const nomination = this.currentNomination;
                 nomination.ruleStatus = restored.ruleStatus;
                 nomination.ruleTokens = restored.ruleTokens;
                 nomination.activeRuleCategory = restored.activeRuleCategory;
                 this.rememberCheckItems();
-                this.checkSelectedRows = this.checkRules.flatMap(
-                    (item: any, index: number) =>
-                        item.status.selected ? [index] : [],
-                );
+                this.syncCheckSelection();
                 this.newCheckRuleCode = null;
                 this.clearError();
                 this.recordCheckEdit();
             },
             updateCheckSelectedRows(rows: number[]) {
-                if (
-                    this.busy ||
-                    this.kind !== "check" ||
-                    this.view !== "main" ||
-                    this.sourceFallbackActive
-                )
-                    return;
+                if (!this.canEditCheck) return;
                 this.checkSelectedRows = rows.filter(
                     (index) =>
                         Number.isInteger(index) &&
@@ -1711,10 +1645,7 @@ export function createDialogHost(
             },
             canEditCheckRow(row: any) {
                 return (
-                    !this.busy &&
-                    this.kind === "check" &&
-                    this.view === "main" &&
-                    !this.sourceFallbackActive &&
+                    this.canEditCheck &&
                     this.checkRules.some(
                         (item: any) => item.status === row.status,
                     )
@@ -1729,11 +1660,7 @@ export function createDialogHost(
             },
             setCheckCode(row: any, code: string) {
                 if (
-                    this.busy ||
-                    this.kind !== "check" ||
-                    this.view !== "main" ||
-                    this.sourceFallbackActive ||
-                    !this.currentNomination ||
+                    !this.canEditCheck ||
                     !own(this.ruleDict, code) ||
                     nominationRuleGroup(code) !== this.checkRuleCategory
                 )
@@ -1761,11 +1688,7 @@ export function createDialogHost(
             addCheckItem(value?: string | null) {
                 const code = value ?? this.newCheckRuleCode;
                 if (
-                    this.busy ||
-                    this.kind !== "check" ||
-                    this.view !== "main" ||
-                    this.sourceFallbackActive ||
-                    !this.currentNomination ||
+                    !this.canEditCheck ||
                     !own(this.ruleDict, code) ||
                     (this.checkRules.length > 0 &&
                         nominationRuleGroup(code) !== this.checkRuleCategory)
@@ -1789,23 +1712,13 @@ export function createDialogHost(
                 );
                 tokens.push(status);
                 this.checkItemInitialStates.set(status, cloneValue(status));
-                this.checkSelectedRows = tokens.flatMap(
-                    (token: any, index: number) =>
-                        token.selected ? [index] : [],
-                );
+                this.syncCheckSelection();
                 this.newCheckRuleCode = null;
                 this.clearError();
                 this.recordCheckEdit();
             },
             moveCheckItem(row: any, direction: number) {
-                if (
-                    this.busy ||
-                    this.kind !== "check" ||
-                    this.view !== "main" ||
-                    this.sourceFallbackActive ||
-                    !this.currentNomination ||
-                    (direction !== -1 && direction !== 1)
-                )
+                if (!this.canEditCheck || (direction !== -1 && direction !== 1))
                     return;
                 const index = this.checkRules.findIndex(
                     (item: any) => item.status === row.status,
@@ -1823,22 +1736,12 @@ export function createDialogHost(
                 );
                 const [token] = tokens.splice(index, 1);
                 tokens.splice(destination, 0, token);
-                this.checkSelectedRows = tokens.flatMap(
-                    (item: any, position: number) =>
-                        item.selected ? [position] : [],
-                );
+                this.syncCheckSelection();
                 this.clearError();
                 this.recordCheckEdit();
             },
             removeCheckItem(row: any) {
-                if (
-                    this.busy ||
-                    this.kind !== "check" ||
-                    this.view !== "main" ||
-                    this.sourceFallbackActive ||
-                    !this.currentNomination
-                )
-                    return;
+                if (!this.canEditCheckRow(row)) return;
                 const index = this.checkRules.findIndex(
                     (item: any) => item.status === row.status,
                 );
@@ -1849,10 +1752,7 @@ export function createDialogHost(
                 );
                 tokens.splice(index, 1);
                 this.checkItemInitialStates.delete(row.status);
-                this.checkSelectedRows = tokens.flatMap(
-                    (item: any, position: number) =>
-                        item.selected ? [position] : [],
-                );
+                this.syncCheckSelection();
                 this.clearError();
                 this.recordCheckEdit();
             },
@@ -1900,12 +1800,7 @@ export function createDialogHost(
                 nomination.ruleStatus = cloneValue(ruleStatus);
                 nomination.replaceRequestReason = true;
                 this.nominations = [nomination];
-                this.checkSelectedRows = [
-                    ...getOrderedRuleStatus(
-                        this.ruleNames,
-                        nomination.ruleStatus,
-                    ).keys(),
-                ];
+                this.syncCheckSelection();
                 this.view = "main";
                 this.initialCheckNomination = cloneValue(nomination);
                 this.initializeCheckHistory();
@@ -2088,7 +1983,6 @@ export function createDialogHost(
                         this.nominationTables.indexOf(source),
                         1,
                     );
-                this.reviewedNominationTables = [];
                 this.nominationSummaryTables = [];
                 this.previewHtml = null;
                 this.previewRequestId++;
@@ -2380,26 +2274,14 @@ export function createDialogHost(
                 });
             },
             updateNominationSummary() {
-                const groups = this.nominationTables.map(
-                    (table: any, tableIndex: number) => ({
-                        index: tableIndex,
-                        entries: table.nominations.map(
-                            (nomination: any, index: number) => ({
-                                nomination,
-                                index,
-                                tableIndex,
-                            }),
-                        ),
-                    }),
-                );
-                const reviewedTables = [];
                 const summaryTables = [];
-                for (const group of groups) {
-                    const payloads = [];
+                for (const [
+                    tableIndex,
+                    table,
+                ] of this.nominationTables.entries()) {
                     const rows = [];
                     let includedNumber = 0;
-                    for (const [position, entry] of group.entries.entries()) {
-                        const source = entry.nomination;
+                    for (const [index, source] of table.nominations.entries()) {
                         const frozen = Boolean(source.frozen);
                         const payload = nominationPayload(source);
                         const serialized = serializeNominationReason(
@@ -2417,11 +2299,10 @@ export function createDialogHost(
                         const otherPlaceholder =
                             source.activeRuleCategory === "other" &&
                             !model.effectiveOtherPageName(source);
-                        if (!frozen) payloads.push(payload);
                         rows.push({
-                            index: entry.index,
-                            tableIndex: entry.tableIndex,
-                            position: position + 1,
+                            index,
+                            tableIndex,
+                            position: index + 1,
                             number: frozen ? "" : ++includedNumber,
                             frozen,
                             article: recommendation
@@ -2443,14 +2324,8 @@ export function createDialogHost(
                             codes: serialized.ok ? serialized.reasonText : "",
                         });
                     }
-                    if (payloads.length)
-                        reviewedTables.push({
-                            index: group.index,
-                            nominations: cloneValue(payloads),
-                        });
-                    summaryTables.push({ index: group.index, rows });
+                    summaryTables.push({ index: tableIndex, rows });
                 }
-                this.reviewedNominationTables = reviewedTables;
                 this.nominationSummaryTables = summaryTables;
                 return true;
             },
@@ -2725,10 +2600,19 @@ export function createDialogHost(
                 this.cancelNominationEdit();
             },
             nominationSubmissionTables() {
-                return this.reviewedNominationTables.map((table: any) => ({
-                    nominations: cloneValue(table.nominations),
-                    comment: this.nominationTableComment(table.index).trim(),
-                }));
+                return this.nominationTables
+                    .map((table: any) => ({
+                        nominations: table.nominations
+                            .filter(
+                                (nomination: NominationData) =>
+                                    !nomination.frozen,
+                            )
+                            .map((nomination: NominationData) =>
+                                nominationPayload(nomination),
+                            ),
+                        comment: table.comment.trim(),
+                    }))
+                    .filter((table: any) => table.nominations.length > 0);
             },
             async previewNominations() {
                 if (
@@ -2871,15 +2755,9 @@ export function createDialogHost(
                     }
                     return;
                 }
-                if (
-                    (this.kind === "new" &&
-                        this.view !== "nomination-summary") ||
-                    this.kind === "edit"
-                ) {
+                if (this.kind === "edit") {
                     const firstInvalid = authorValidation(this.nominations);
                     if (firstInvalid) {
-                        if (this.kind === "new")
-                            this.activeTab = firstInvalid.id;
                         firstInvalid.activeRuleCategory =
                             authorErrorRuleCategory(firstInvalid);
                         this.showAuthorValidationErrors(
@@ -2950,18 +2828,12 @@ export function createDialogHost(
                 }
             },
             async skip() {
-                if (!this.busy && this.kind === "check" && this.batchStatus) {
-                    if (this.isCheckBatch) {
-                        operations.discardNominationCheck?.(
-                            cloneValue(this.queriedTarget),
-                        );
-                        this.checkBatchStatuses[this.checkBatchIndex] =
-                            "skipped";
-                        await this.advanceCheckBatch();
-                        return;
-                    }
-                    this.finishSession(CHECK_OUTCOME.SKIP);
-                }
+                if (this.busy || !this.isCheckBatch) return;
+                operations.discardNominationCheck?.(
+                    cloneValue(this.queriedTarget),
+                );
+                this.checkBatchStatuses[this.checkBatchIndex] = "skipped";
+                await this.advanceCheckBatch();
             },
             confirmPrimary() {
                 if (!this.busy && this.kind === "confirm")

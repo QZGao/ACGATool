@@ -37,7 +37,6 @@ async function bundle(compact: boolean): Promise<string> {
         format: "iife",
         charset: "utf8",
         target: "es2024",
-        loader: { ".vue": "text" },
         plugins: [
             {
                 name: "embedded-assets",

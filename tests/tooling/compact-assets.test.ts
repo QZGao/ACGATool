@@ -17,6 +17,7 @@ test("compact message IDs preserve public data fields and rewrite catalog metada
     assert.equal(keys.has("media"), false);
     assert.equal(keys.has("score"), false);
     assert.equal(new Set(keys.values()).size, keys.size);
+    assert.ok(Array.from(keys.values()).every((key) => !(key in en)));
     const key = keys.get("nomination_additional_comment_help")!;
     assert.ok(key.length < 4);
     const source = `
@@ -37,6 +38,28 @@ test("compact message IDs preserve public data fields and rewrite catalog metada
         { media: "media", score: 3 },
     ]);
     assert.ok(shortened.includes(`labelKey: "${key}"`));
+});
+
+test("compact message IDs avoid existing plain IDs", () => {
+    const keys = compactMessageKeys([
+        "a",
+        "b",
+        "c",
+        "first_message",
+        "next_message",
+    ]);
+    assert.equal(keys.get("first_message"), "d");
+    assert.equal(keys.get("next_message"), "e");
+    const source = shortenMessageKeys(
+        `function fixture() { const catalog = { first_message: "First", next_message: "Next", b: "B", c: "C" }; return [catalog["first_message"], catalog["next_message"], catalog.b, catalog.c]; }`,
+        keys,
+    );
+    assert.deepEqual(new Function(`${source}; return fixture();`)(), [
+        "First",
+        "Next",
+        "B",
+        "C",
+    ]);
 });
 
 function render(source: string, context: Record<string, unknown>): any {

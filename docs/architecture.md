@@ -33,6 +33,9 @@ requires positive selected scores. The same validation governs summary review,
 preview, explicit draft saving and submission. Frozen items retain their drafts
 and are omitted from preview and submission.
 
+Summary rows and submission payloads derive from the editable tables. Submission
+validates first and copies the included payloads before starting any wiki request.
+
 An injected store persists one versioned nomination batch per user and origin.
 Stable table and item IDs let the dialog merge local changes with later saves,
 including edits and deletions. Browser notifications refresh open sessions while

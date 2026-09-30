@@ -47,6 +47,8 @@ import {
 } from "../features/nomination/check-batch.ts";
 import { normalizeDiscussionCommentId } from "../features/registry/identity.ts";
 import type { Feedback } from "../shared/ports.ts";
+import type { ScoreDelta } from "../domain/score-list.ts";
+export type { ScoreDelta } from "../domain/score-list.ts";
 import {
     getExistingNominations,
     getNominationCheckRestriction,
@@ -54,10 +56,6 @@ import {
 
 export const REGISTRY_PAGE = "WikiProject:ACG/維基ACG專題獎/登記處";
 
-export interface ScoreDelta {
-    userName: string;
-    score: number;
-}
 interface NominationApi {
     parseWikitext?(text: string, title: string): Promise<string>;
     getPageSnapshot(title?: string): Promise<PageSnapshot>;
@@ -672,56 +670,34 @@ export function createNominationService(services: NominationServices) {
                 (left, right) =>
                     Number(left.target.start) - Number(right.target.start),
             );
-            if (dialogs.showCheckBatchDialog) {
-                const tableKeys = new Map<string, number>();
-                const entries: CheckBatchEntry[] = eligible.map(
-                    ({ target, data }) => {
-                        const tableKey = `${target.date}:${target.sectionOccurrence}:${target.tableIndex}`;
-                        if (!tableKeys.has(tableKey))
-                            tableKeys.set(tableKey, tableKeys.size);
-                        return {
-                            nomination: data,
-                            target,
-                            tableKey,
-                            tableIndex: tableKeys.get(tableKey)!,
-                        };
-                    },
-                );
-                const outcome = normalizeCheckOutcome(
-                    await dialogs.showCheckBatchDialog(entries),
-                );
-                if (outcome === CHECK_OUTCOME.SAVE) {
-                    return !(await completeNominationCheckBatch());
-                }
-                if (outcome === CHECK_OUTCOME.QUIT && batchCommitted)
-                    return true;
-                if (!batchCommitted)
-                    notify(
-                        msg(
-                            "the_temporary_results_of_this_batch_have_been_discarded",
-                        ),
-                        { type: "info" },
-                    );
-                return batchCommitted;
+            const tableKeys = new Map<string, number>();
+            const entries: CheckBatchEntry[] = eligible.map(
+                ({ target, data }) => {
+                    const tableKey = `${target.date}:${target.sectionOccurrence}:${target.tableIndex}`;
+                    if (!tableKeys.has(tableKey))
+                        tableKeys.set(tableKey, tableKeys.size);
+                    return {
+                        nomination: data,
+                        target,
+                        tableKey,
+                        tableIndex: tableKeys.get(tableKey)!,
+                    };
+                },
+            );
+            const outcome = normalizeCheckOutcome(
+                await dialogs.showCheckBatchDialog(entries),
+            );
+            if (outcome === CHECK_OUTCOME.SAVE) {
+                return !(await completeNominationCheckBatch());
             }
-            for (const [index, { target, data }] of eligible.entries()) {
-                const outcome = await dialogs.showCheckNominationDialog(
-                    data,
-                    target,
-                    { current: index + 1, total: eligible.length },
+            if (!batchCommitted)
+                notify(
+                    msg(
+                        "the_temporary_results_of_this_batch_have_been_discarded",
+                    ),
+                    { type: "info" },
                 );
-                if (outcome !== "save" && outcome !== "skip") {
-                    notify(
-                        msg(
-                            "the_temporary_results_of_this_batch_have_been_discarded",
-                        ),
-                        { type: "info" },
-                    );
-                    return false;
-                }
-            }
-            const keepOpen = await completeNominationCheckBatch();
-            return !keepOpen;
+            return batchCommitted;
         } catch (cause) {
             reportError(cause, "Batch checking");
             error(

@@ -276,7 +276,7 @@ test("disposing a confirmation resolves false and failed mounts release owned DO
 test("the grouped check dialog wrapper opens its controller and disposal cancels the batch", async () => {
     const fixture = harness();
     const dialogs = fixture.create();
-    const pending = dialogs.showCheckBatchDialog!([
+    const pending = dialogs.showCheckBatchDialog([
         {
             nomination: {
                 awarder: "Recipient",
@@ -292,7 +292,7 @@ test("the grouped check dialog wrapper opens its controller and disposal cancels
     assert.equal(fixture.controllers[0].currentNomination.pageName, "Article");
     dialogs.dispose();
     assert.equal(await pending, "cancel");
-    assert.equal(await dialogs.showCheckBatchDialog!([]), "cancel");
+    assert.equal(await dialogs.showCheckBatchDialog([]), "cancel");
     assert.deepEqual(fixture.counts(), {
         removed: 1,
         stylesRemoved: 1,
@@ -350,7 +350,7 @@ test("a synchronous initial recipient lookup failure clears loading after the di
     vm.reviewNominations();
     assert.equal(vm.view, "nomination-summary");
     assert.equal(
-        vm.reviewedNominationTables[0].nominations[0].awarder,
+        vm.nominationSubmissionTables()[0].nominations[0].awarder,
         "Example",
     );
     assert.equal(writes, 0);

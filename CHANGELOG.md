@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Remove obsolete batch-checking paths, unreachable forms and duplicate state;
+  simplify rule metadata and form setup, and shorten compact message IDs.
+
 ## [2.0.0-alpha.1] - 2026-10-01
 
 - Save nomination batches across pages and browser sessions, synchronize open tabs,

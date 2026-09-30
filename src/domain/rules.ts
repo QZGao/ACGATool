@@ -36,10 +36,10 @@ export function NominationRules(
         type: group.type,
         group: msg(group.groupKey),
         explanation: group.explanationKey ? msg(group.explanationKey) : "",
-        rules: group.rules.map((rule) => ({
-            rule: rule.rule,
-            label: msg(rule.labelKey),
-            score: rule.score,
+        rules: group.rules.map(([rule, labelKey, score]) => ({
+            rule,
+            label: msg(labelKey),
+            score,
         })),
     }));
 }
@@ -71,16 +71,18 @@ export function NominationRuleAliases(): Record<string, string> {
  * 提名規則集合。
  * @returns 包含規則名稱和規則對象的對象。
  */
-export function NominationRuleSet(translate?: RuleTranslator): {
+export function NominationRuleSet(
+    translate: RuleTranslator = canonicalRuleMessage,
+): {
     ruleNames: string[];
     ruleDict: Record<string, NominationRule>;
 } {
     const ruleNames: string[] = [];
     const ruleDict: Record<string, NominationRule> = {};
-    for (const ruleGroup of NominationRules(translate)) {
-        for (const ruleSet of ruleGroup.rules) {
-            ruleNames.push(ruleSet.rule);
-            ruleDict[ruleSet.rule] = ruleSet;
+    for (const ruleGroup of RULE_GROUPS) {
+        for (const [rule, labelKey, score] of ruleGroup.rules) {
+            ruleNames.push(rule);
+            ruleDict[rule] = { rule, label: translate(labelKey), score };
         }
     }
     return {
@@ -957,7 +959,6 @@ export const QUALITY_RULES = ["2-c", "2-b", "2-ga", "2-fa"];
 
 export const ACTIVITY_RULES = ["4", "4-req", "4-dyk", "4-req-game", "4-req-ac"];
 export const ACTIVITY_DEFAULT_RULES = ["4-dyk"];
-export const ACTIVITY_ADDABLE_RULES = [...ACTIVITY_RULES];
 
 export const REVIEW_TIERS = [
     { value: "none", suffix: "" },
@@ -968,7 +969,6 @@ export const REVIEW_TIERS = [
 ];
 
 export const REVIEW_ASPECT_ROWS = ["writing", "coverage", "source"];
-export const REVIEW_ROWS = ["general", ...REVIEW_ASPECT_ROWS];
 export const REVIEW_APPLY_MODE = Object.freeze({
     GENERAL: "general",
     ASPECTS: "aspects",
@@ -1533,10 +1533,6 @@ export function reviewCode(row: any, tierValue: any, quick: boolean) {
     return `${prefix}${tier.suffix}${quick && row !== "complete" ? "-half" : ""}`;
 }
 
-function completeReviewCode(tierValue: any) {
-    return `5x${reviewTier(tierValue).suffix}`;
-}
-
 function reviewRuleSet(rule: string, ruleDict: Record<string, NominationRule>) {
     const ruleSet = ruleDict?.[rule] ?? defaultsForCode(rule, ruleDict);
     if (!ruleSet)
@@ -1553,40 +1549,6 @@ export function getReviewDefaultScore(
     const rule = reviewCode(row, tierValue, quick);
     return Number(reviewRuleSet(rule, ruleDict).score);
 }
-
-function reviewVariantLookup() {
-    const lookup: Record<
-        string,
-        { row: string; tier: string; quick: boolean }
-    > = {};
-    for (const row of REVIEW_ROWS) {
-        for (const tier of REVIEW_TIERS) {
-            for (const quick of [false, true]) {
-                lookup[reviewCode(row, tier.value, quick)] = {
-                    row,
-                    tier: tier.value,
-                    quick,
-                };
-            }
-        }
-    }
-    for (const tier of REVIEW_TIERS) {
-        const rule = completeReviewCode(tier.value);
-        lookup[rule] = {
-            row: "complete",
-            tier: tier.value,
-            quick: false,
-        };
-        lookup[`${rule}-half`] = {
-            row: "complete",
-            tier: tier.value,
-            quick: true,
-        };
-    }
-    return lookup;
-}
-
-const REVIEW_VARIANTS = reviewVariantLookup();
 
 interface ReviewRowDraft {
     selected: boolean;
@@ -1639,20 +1601,21 @@ export function getReviewDraft(
     const seenRows = new Set();
 
     for (const [rule, status] of selected) {
-        const variant = REVIEW_VARIANTS[rule];
+        const variant = classifyRule5Code(rule);
         const ruleSet = reviewRuleSet(rule, ruleDict);
         if (!variant) throw new SyntaxError(`Unknown review rule: ${rule}`);
-        if (seenRows.has(variant.row)) {
-            throw new SyntaxError(`Duplicate review row: ${variant.row}`);
+        const row = variant.aspect ?? variant.kind;
+        if (seenRows.has(row)) {
+            throw new SyntaxError(`Duplicate review row: ${row}`);
         }
-        seenRows.add(variant.row);
+        seenRows.add(row);
         const score =
             status.score == null ? Number(ruleSet.score) : Number(status.score);
         if (!Number.isFinite(score) || score < 0) {
             throw new TypeError(`Invalid review score: ${rule}`);
         }
 
-        if (variant.row === "complete") {
+        if (row === "complete") {
             if (selected.length !== 1) {
                 throw new SyntaxError(
                     "A complete review cannot be combined with other Rule 5 codes",
@@ -1663,18 +1626,18 @@ export function getReviewDraft(
         const rowDraft = {
             selected: true,
             tier: variant.tier,
-            quick: variant.row !== "complete" && variant.quick,
+            quick: row !== "complete" && variant.quick,
             score,
             ...(!isDefaultDescription(status, ruleSet)
                 ? { description: String(status.desc) }
                 : {}),
         };
-        if (variant.row === "general") {
+        if (row === "general") {
             Object.assign(general, rowDraft);
-        } else if (variant.row === "complete") {
+        } else if (row === "complete") {
             Object.assign(complete, rowDraft);
         } else {
-            aspects[variant.row] = rowDraft;
+            aspects[row] = rowDraft;
         }
     }
 
@@ -2243,7 +2206,7 @@ export type NominationGroupResult =
       };
 
 const CANONICAL_RULE_CODES = new Set<string>(
-    RULE_GROUPS.flatMap((group) => group.rules.map((rule) => rule.rule)),
+    RULE_GROUPS.flatMap((group) => group.rules.map(([rule]) => rule)),
 );
 
 /** Every nomination belongs to exactly one family: rules 1–4, 5, 6, 7, or 8. */

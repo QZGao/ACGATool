@@ -11,7 +11,6 @@ import type {
     NominationDialogs,
     NominationTarget,
 } from "./contracts.ts";
-import type { BatchStatus } from "./check-batch.ts";
 
 interface DialogController {
     openNew(): Promise<string>;
@@ -22,7 +21,6 @@ interface DialogController {
     openCheck(
         nomination: NominationData,
         target: NominationTarget,
-        batchStatus: BatchStatus | null,
     ): Promise<unknown>;
     openCheckBatch(entries: CheckBatchEntry[]): Promise<unknown>;
     openConfirmation(options: ConfirmationOptions): Promise<boolean>;
@@ -64,11 +62,11 @@ export function createNominationDialogs(
             disposed
                 ? Promise.resolve("cancel")
                 : controller.openEdit(nomination, target),
-        showCheckNominationDialog: (nomination, target, batchStatus = null) =>
+        showCheckNominationDialog: (nomination, target) =>
             disposed
                 ? Promise.resolve(CHECK_OUTCOME.CANCEL)
                 : controller
-                      .openCheck(nomination, target, batchStatus)
+                      .openCheck(nomination, target)
                       .then(normalizeCheckOutcome),
         showCheckBatchDialog: (entries) =>
             disposed
