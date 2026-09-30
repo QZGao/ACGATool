@@ -2,6 +2,7 @@ import dialogTemplateSource from "./dialog.vue";
 
 const DIALOG_TEMPLATE_NAMES = [
     "dialog-host",
+    "article-status",
     "author-form",
     "rule-groups",
     "rule-editor",
@@ -33,6 +34,7 @@ export function extractDialogTemplates(source: string): Record<string, string> {
 
 export const {
     "activity-editor": activityEditorTemplate,
+    "article-status": articleStatusTemplate,
     "author-form": authorFormTemplate,
     "content-expansion-editor": contentExpansionEditorTemplate,
     "dialog-host": dialogHostTemplate,

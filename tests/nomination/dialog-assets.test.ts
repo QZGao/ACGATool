@@ -20,7 +20,7 @@ test("nomination templates remain template-only and compile as Vue markup", () =
     assert.equal(descriptor.scriptSetup, null);
     assert.deepEqual(descriptor.styles, []);
     const templates = extractDialogTemplates(source);
-    assert.equal(Object.keys(templates).length, 9);
+    assert.equal(Object.keys(templates).length, 10);
     for (const [name, template] of Object.entries(templates)) {
         assert.ok(template.trim(), name);
         const compiled = compileTemplate({

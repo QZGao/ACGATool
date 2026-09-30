@@ -299,18 +299,6 @@ export function createNominationModel(services: DialogModelServices) {
             ...(token.pending ? { pending: true } : {}),
         };
     }
-    function replaceRule5Tokens(tokens: any[], decomposition: any) {
-        const replacements = new Map();
-        for (const token of decomposition.tokens) {
-            if (!replacements.has(token.sourceIndex))
-                replacements.set(token.sourceIndex, []);
-            replacements.get(token.sourceIndex).push(token);
-        }
-        return tokens.flatMap((token: any) => {
-            if (classifyRule5Code(token.code) === null) return [token];
-            return replacements.get(token.sourceIndex) || [];
-        });
-    }
     function validateAuthorTokenShape(tokens: any[]) {
         const rule1 = tokens.filter((token: any) =>
             CONTENT_EXPANSION_RULES.includes(token.code),
@@ -386,9 +374,6 @@ export function createNominationModel(services: DialogModelServices) {
         const detail = error.rule ? `${error.code}: ${error.rule}` : error.code;
         return String(detail || "unrepresentable-source");
     }
-    function authorRuleCategory(rule: string): string | null {
-        return nominationRuleGroup(rule);
-    }
     function initialRuleCategory(ruleStatus: any): string {
         const selectedCategories = new Set<string>();
         for (const [rule, value] of Object.entries(ruleStatus || {})) {
@@ -396,7 +381,7 @@ export function createNominationModel(services: DialogModelServices) {
                 (status) => status?.selected,
             );
             if (!selected) continue;
-            const category = authorRuleCategory(rule);
+            const category = nominationRuleGroup(rule);
             if (category !== null) selectedCategories.add(category);
         }
         if (selectedCategories.size === 1) return [...selectedCategories][0];
@@ -415,7 +400,7 @@ export function createNominationModel(services: DialogModelServices) {
         if (!AUTHOR_RULE_CATEGORIES.has(activeCategory)) return {};
         return Object.fromEntries(
             Object.entries(ruleStatus).filter(
-                ([rule]) => authorRuleCategory(rule) === activeCategory,
+                ([rule]) => nominationRuleGroup(rule) === activeCategory,
             ),
         );
     }
@@ -1138,9 +1123,6 @@ export function createNominationModel(services: DialogModelServices) {
             issues.push(msg("nomination_score_must_be_positive"));
         return issues;
     }
-    function authorRulesError(nomination: any) {
-        return authorRuleIssues(nomination).join("\n");
-    }
     type AuthorIssue = {
         field: "awarder" | "pageName" | "media" | "other" | "rules";
         message: string;
@@ -1194,14 +1176,6 @@ export function createNominationModel(services: DialogModelServices) {
                 `${nomination.errors[field] ? "\n" : ""}${message}`;
         nomination.validationIssues = issues.map(({ message }) => message);
     }
-    function authorRulesValidation(nomination: any) {
-        const issues = authorRuleIssues(nomination).map((message) => ({
-            field: "rules" as const,
-            message,
-        }));
-        applyAuthorIssues(nomination, issues);
-        return issues.length === 0;
-    }
     function authorValidation(nominations: any[]) {
         let firstInvalid = null;
         for (const nomination of nominations) {
@@ -1231,28 +1205,15 @@ export function createNominationModel(services: DialogModelServices) {
             : "";
     }
     return {
-        authorTargetErrorMessage,
         authorCodePreviewResult,
         checkCodePreviewResult,
         cloneValue,
-        editableSourceValues,
-        editableSourceState,
         editableNumber,
         displayNumber,
         isHalfPointScore,
-        isEditablePendingRule,
-        hydrateRuleStatus,
         own,
-        tokenStatus,
-        replaceRule5Tokens,
-        validateAuthorTokenShape,
-        ruleStatusFromTokens,
         checkTokenRow,
-        parseErrorLabel,
-        authorRuleCategory,
-        initialRuleCategory,
         activeAuthorRuleStatus,
-        activeAuthorNomination,
         recipientPlaceholder,
         effectiveRecipient,
         articlePageNamePlaceholder,
@@ -1268,9 +1229,7 @@ export function createNominationModel(services: DialogModelServices) {
         editableCheckTokens,
         selectedActiveRuleStatus,
         nominationPayload,
-        authorRulesError,
         collectAuthorValidationIssues,
-        authorRulesValidation,
         authorValidation,
         checkValidation,
     };

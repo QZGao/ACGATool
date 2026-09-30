@@ -2167,51 +2167,28 @@ export function formatNominationCheckWikitext(
     ruleDict: Record<string, any> = NominationRuleSet().ruleDict,
 ): any {
     const message = String(nomination?.message ?? "");
-    const signature = "~" + "~" + "~" + "~";
-
-    if (Array.isArray(nomination?.ruleTokens)) {
-        if (!nomination.ruleTokens.some((row: any) => row?.selected)) {
-            return {
-                ok: true,
-                wikitext: `{{ACG提名2/check|ver=1|0}}${message}--${signature}`,
-                reasonScore: 0,
-            };
-        }
-
-        const serialized: any = serializeCheckTokenRows(
-            nomination.ruleTokens,
-            ruleDict,
-        );
-        if (!serialized.ok) return serialized;
-
-        const rejected =
-            serialized.unselectedReasonText === ""
-                ? ""
-                : `|no=${serialized.unselectedReasonText}`;
-        return {
-            ok: true,
-            wikitext: `{{ACG提名2/check|ver=1|${serialized.reasonText}${rejected}}}${message}--${signature}`,
-            reasonScore: serialized.reasonScore,
-        };
-    }
-
-    const hasSelectedRule = getOrderedRuleOccurrences(
-        ruleNames,
-        nomination?.ruleStatus,
-    ).some(({ status }) => status?.selected);
+    const tokenRows = Array.isArray(nomination?.ruleTokens)
+        ? nomination.ruleTokens
+        : null;
+    const hasSelectedRule = tokenRows
+        ? tokenRows.some((row: any) => row?.selected)
+        : getOrderedRuleOccurrences(ruleNames, nomination?.ruleStatus).some(
+              ({ status }) => status?.selected,
+          );
     if (!hasSelectedRule) {
         return {
             ok: true,
-            wikitext: `{{ACG提名2/check|ver=1|0}}${message}--${signature}`,
+            wikitext: `{{ACG提名2/check|ver=1|0}}${message}--~~~~`,
             reasonScore: 0,
         };
     }
 
-    const serialized = serializeNominationReason(
-        nomination?.ruleStatus,
-        ruleNames,
-        { includeUnselected: true, includePending: false },
-    );
+    const serialized = tokenRows
+        ? serializeCheckTokenRows(tokenRows, ruleDict)
+        : serializeNominationReason(nomination?.ruleStatus, ruleNames, {
+              includeUnselected: true,
+              includePending: false,
+          });
     if (!serialized.ok) return serialized;
 
     const rejected =
@@ -2220,7 +2197,7 @@ export function formatNominationCheckWikitext(
             : `|no=${serialized.unselectedReasonText}`;
     return {
         ok: true,
-        wikitext: `{{ACG提名2/check|ver=1|${serialized.reasonText}${rejected}}}${message}--${signature}`,
+        wikitext: `{{ACG提名2/check|ver=1|${serialized.reasonText}${rejected}}}${message}--~~~~`,
         reasonScore: serialized.reasonScore,
     };
 }
@@ -2265,13 +2242,17 @@ export type NominationGroupResult =
           };
       };
 
+const CANONICAL_RULE_CODES = new Set<string>(
+    RULE_GROUPS.flatMap((group) => group.rules.map((rule) => rule.rule)),
+);
+
 /** Every nomination belongs to exactly one family: rules 1–4, 5, 6, 7, or 8. */
 export function nominationRuleGroup(code: string): NominationGroup | null {
     const canonical =
         NominationRuleAliases()[String(code).toLowerCase()] ??
         String(code).toLowerCase();
     if (
-        !NominationRuleSet().ruleDict[canonical] &&
+        !CANONICAL_RULE_CODES.has(canonical) &&
         !/^5x(?:-(?:bcr|gan|acr|fac))?-half$/u.test(canonical)
     )
         return null;

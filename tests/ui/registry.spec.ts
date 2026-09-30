@@ -33,8 +33,14 @@ test.beforeAll(async () => {
                             if (options.deferredLookup) return new Promise(resolve => { resolveEligibility = resolve; });
                             return options.nominations;
                         } : undefined,
-                        newNomination: async () => {},
-                        editNomination: async value => { effects.edits.push(value); },
+                        editNomination: value => {
+                            effects.edits.push(value);
+                            if (options.failEditOnce) {
+                                options.failEditOnce = false;
+                                throw new Error('edit offline');
+                            }
+                            return Promise.resolve();
+                        },
                         checkNomination: async value => { effects.checks.push(value); },
                         checkBatch: async values => {
                             effects.batches.push(values);
@@ -45,8 +51,9 @@ test.beforeAll(async () => {
                         },
                         archiveChapter: async (...values) => { effects.archives.push(values); },
                     }, {
-                        msg: createTranslator('zh-Hant').msg,
+                        msg: createTranslator(options.language ?? 'zh-Hant').msg,
                         revisionId: 42,
+                        now: () => new Date(options.now ?? '2026-09-30T12:00:00Z'),
                         getUserName: () => options.userName ?? null,
                         notify: message => effects.notices.push(message),
                         reportError: error => effects.errors.push(String(error)),
@@ -99,12 +106,12 @@ test("registry keeps repeated sections distinct and sends a selected batch once"
                     <tr><td class="mw-notalk">Not a nomination</td></tr>
                 </tbody></table>
             </td></tr>
-            <tr><td><span class="mw-notalk">Unchecked</span></td></tr>
+            <tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
         </tbody></table>
         <div class="mw-heading mw-heading3"><h3><span class="mw-headline">9月27日</span></h3></div>
         <table class="acgnom-table" id="second"><tbody>
             <tr><th scope="row" rowspan="2">Second</th><td>Request two</td></tr>
-            <tr><td><span class="mw-notalk">Unchecked</span></td></tr>
+            <tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
         </tbody></table>
         <h2>Other content</h2>
         <table class="acgnom-table" id="unrelated"><tbody><tr><th scope="row">No date</th><td>Unrelated</td></tr></tbody></table>
@@ -127,20 +134,20 @@ test("registry keeps repeated sections distinct and sends a selected batch once"
         page.getByRole("button", { name: "核對", exact: true }),
     ).toHaveCount(2);
     await expect(
-        page.getByRole("button", { name: "批次核對", exact: true }),
+        page.getByRole("button", { name: "批量核對", exact: true }),
     ).toHaveCount(0);
     await expect(
         page.getByRole("button", { name: "開始核對", exact: true }),
     ).toHaveCount(0);
-    const choices = page.getByRole("button", {
-        name: "加入批次核對",
+    const choices = page.getByRole("checkbox", {
+        name: "加入批量核對",
         exact: true,
     });
     await expect(choices).toHaveCount(2);
     await expect(choices.nth(0)).toBeVisible();
     await expect(choices.nth(1)).toBeVisible();
-    await expect(choices.nth(0)).toHaveAttribute("aria-pressed", "false");
-    await expect(choices.nth(1)).toHaveAttribute("aria-pressed", "false");
+    await expect(choices.nth(0)).not.toBeChecked();
+    await expect(choices.nth(1)).not.toBeChecked();
     await expect(page.locator("#nested button, #unrelated button")).toHaveCount(
         0,
     );
@@ -161,7 +168,7 @@ test("registry keeps repeated sections distinct and sends a selected batch once"
         page.getByRole("button", { name: "核對", exact: true }),
     ).toHaveCount(0);
     const batches = page.getByRole("button", {
-        name: "批次核對",
+        name: "批量核對",
         exact: true,
     });
     await expect(batches).toHaveCount(2);
@@ -184,8 +191,8 @@ test("registry keeps repeated sections distinct and sends a selected batch once"
     await expect(
         page.getByRole("button", { name: "核對", exact: true }),
     ).toHaveCount(2);
-    await expect(choices.nth(0)).toHaveAttribute("aria-pressed", "false");
-    await expect(choices.nth(1)).toHaveAttribute("aria-pressed", "false");
+    await expect(choices.nth(0)).not.toBeChecked();
+    await expect(choices.nth(1)).not.toBeChecked();
     await expect(page.getByRole("status")).toBeEmpty();
     const effects = await page.evaluate(
         () => (window as any).registryFixture.effects,
@@ -229,13 +236,57 @@ test("registry keeps repeated sections distinct and sends a selected batch once"
     await expect(page.getByRole("status")).toHaveCount(1);
 });
 
+test("registry releases controls after a synchronous action failure and permits retry", async ({
+    page,
+}) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.setContent(`<!doctype html><html><body><main id="registry"><h3>9月27日</h3>
+        <table class="acgnom-table"><tbody>
+            <tr><th scope="row" rowspan="2">One</th><td>Request</td></tr>
+            <tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+        </tbody></table>
+    </main></body></html>`);
+    await loadRegistryRuntime(page);
+    await page.evaluate(() => {
+        const global = window as any;
+        global.registryFixture = global.AcgaRegistryUI.mount(
+            document.getElementById("registry"),
+            { failEditOnce: true },
+        );
+    });
+    const edit = page.getByRole("button", { name: "修改提名", exact: true });
+    await edit.click();
+    await expect(edit).toBeEnabled();
+    await expect(page.getByRole("checkbox")).toBeEnabled();
+    await expect(page.getByRole("status")).toBeEmpty();
+    expect(
+        await page.evaluate(
+            () => (window as any).registryFixture.effects.errors,
+        ),
+    ).toEqual(["Error: edit offline"]);
+    expect(
+        await page.evaluate(
+            () => (window as any).registryFixture.effects.notices,
+        ),
+    ).toHaveLength(1);
+    await edit.click();
+    await expect(edit).toBeEnabled();
+    expect(
+        await page.evaluate(
+            () => (window as any).registryFixture.effects.edits,
+        ),
+    ).toHaveLength(2);
+    expect(errors).toEqual([]);
+});
+
 test("registry row batch actions use only selections and preserve them after failure", async ({
     page,
 }) => {
     await page.setContent(`<!doctype html><html><body><main id="registry"><h3>9月27日</h3>
         <table class="acgnom-table"><tbody>
-            <tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr>
-            <tr><th scope="row" rowspan="2">Two</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr>
+            <tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+            <tr><th scope="row" rowspan="2">Two</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
         </tbody></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
@@ -246,15 +297,30 @@ test("registry row batch actions use only selections and preserve them after fai
             { deferredBatch: true },
         );
     });
-    const choices = page.getByRole("button", {
-        name: "加入批次核對",
+    const choices = page.getByRole("checkbox", {
+        name: "加入批量核對",
         exact: true,
     });
-    await page.getByText("加入批次核對", { exact: true }).first().click();
-    await expect(choices.nth(0)).toHaveAttribute("aria-pressed", "true");
-    await expect(choices.nth(1)).toHaveAttribute("aria-pressed", "false");
+    const cells = page.locator(".mw-notalk").locator("xpath=parent::td");
+    const originalBackgrounds = await cells.evaluateAll((elements) =>
+        elements.map((element) => getComputedStyle(element).backgroundColor),
+    );
+    await page.getByText("加入批量核對", { exact: true }).first().click();
+    await expect(choices.nth(0)).toBeChecked();
+    await expect(choices.nth(1)).not.toBeChecked();
+    await expect(cells.nth(0)).not.toHaveCSS(
+        "background-color",
+        originalBackgrounds[0]!,
+    );
+    await expect(cells.nth(1)).toHaveCSS(
+        "background-color",
+        originalBackgrounds[1]!,
+    );
+    const selectedBackground = await cells
+        .nth(0)
+        .evaluate((element) => getComputedStyle(element).backgroundColor);
     const batches = page.getByRole("button", {
-        name: "批次核對",
+        name: "批量核對",
         exact: true,
     });
     await expect(batches).toHaveCount(2);
@@ -264,7 +330,7 @@ test("registry row batch actions use only selections and preserve them after fai
     await expect(choices.nth(0)).toBeDisabled();
     await expect(choices.nth(1)).toBeDisabled();
     await choices.nth(0).dispatchEvent("click");
-    await expect(choices.nth(0)).toHaveAttribute("aria-pressed", "true");
+    await expect(choices.nth(0)).toBeChecked();
     await batches.nth(0).dispatchEvent("click");
     expect(
         await page.evaluate(
@@ -280,8 +346,12 @@ test("registry row batch actions use only selections and preserve them after fai
     await page.evaluate(() => (window as any).registryFixture.rejectBatch());
     await expect(batches.nth(1)).toBeEnabled();
     await expect(choices.nth(0)).toBeEnabled();
-    await expect(choices.nth(0)).toHaveAttribute("aria-pressed", "true");
-    await expect(choices.nth(1)).toHaveAttribute("aria-pressed", "false");
+    await expect(choices.nth(0)).toBeChecked();
+    await expect(choices.nth(1)).not.toBeChecked();
+    await expect(cells.nth(0)).toHaveCSS(
+        "background-color",
+        selectedBackground,
+    );
     await expect(page.getByRole("status")).toHaveText("已選擇 1 項");
     expect(
         await page.evaluate(
@@ -300,8 +370,14 @@ test("registry row batch actions use only selections and preserve them after fai
     await expect(
         page.getByRole("button", { name: "核對", exact: true }),
     ).toHaveCount(2);
-    await expect(choices.nth(0)).toHaveAttribute("aria-pressed", "false");
-    await expect(choices.nth(1)).toHaveAttribute("aria-pressed", "false");
+    await expect(choices.nth(0)).not.toBeChecked();
+    await expect(choices.nth(1)).not.toBeChecked();
+    for (const [index, background] of originalBackgrounds.entries()) {
+        await expect(cells.nth(index)).toHaveCSS(
+            "background-color",
+            background,
+        );
+    }
     await expect(page.getByRole("status")).toBeEmpty();
     expect(
         await page.evaluate(
@@ -323,14 +399,20 @@ test("registry row batch actions use only selections and preserve them after fai
         0,
     );
     await expect(page.locator("style[data-registry-fixture]")).toHaveCount(0);
+    for (const [index, background] of originalBackgrounds.entries()) {
+        await expect(cells.nth(index)).toHaveCSS(
+            "background-color",
+            background,
+        );
+    }
 });
 
-test("registry buttons expose batch state and support keyboard actions with Codex sizing", async ({
+test("registry compact buttons and batch checkboxes support keyboard actions and cell highlighting", async ({
     page,
 }) => {
     await page.setContent(`<!doctype html><html lang="zh-Hant"><body><main id="registry"><h3>9月27日</h3>
         <table class="acgnom-table"><tbody>
-            <tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr>
+            <tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td style="background-color: rgb(255, 244, 204)"><span class="mw-notalk">此提名尚未核對。</span></td></tr>
         </tbody></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
@@ -342,14 +424,15 @@ test("registry buttons expose batch state and support keyboard actions with Code
     });
     const edit = page.getByRole("button", { name: "修改提名", exact: true });
     const check = page.getByRole("button", { name: "核對", exact: true });
-    const choice = page.getByRole("button", {
-        name: "加入批次核對",
+    const choice = page.getByRole("checkbox", {
+        name: "加入批量核對",
         exact: true,
     });
-    for (const button of [edit, check, choice]) {
+    for (const button of [edit, check]) {
         const box = await button.boundingBox();
-        expect(box!.height).toBeGreaterThanOrEqual(32);
-        await expect(button).toHaveCSS("font-size", "16px");
+        expect(box!.height).toBe(23);
+        await expect(button).toHaveCSS("min-height", "23px");
+        await expect(button).toHaveCSS("font-size", "12px");
         await expect(button).toHaveCSS("border-style", "solid");
         expect(
             await button.evaluate(
@@ -368,6 +451,27 @@ test("registry buttons expose batch state and support keyboard actions with Code
     const editControl = page.locator(".acga-registry-edit-control");
     await expect(editControl).toHaveCSS("display", "block");
     await expect(editControl).toHaveCSS("text-align", "center");
+    await expect(editControl).toHaveCSS("margin-top", "0px");
+    const checkboxIcon = page.locator(".cdx-checkbox__icon");
+    for (const fontSize of [null, "14px", "18px", "12px"]) {
+        await page.evaluate((fontSize) => {
+            const style = document.documentElement.style;
+            if (fontSize) style.setProperty("--font-size-medium", fontSize);
+            else style.removeProperty("--font-size-medium");
+        }, fontSize);
+        const [buttonBox, checkboxBox] = await Promise.all([
+            check.boundingBox(),
+            checkboxIcon.boundingBox(),
+        ]);
+        expect(buttonBox!.height).toBe(23);
+        expect(buttonBox!.y + buttonBox!.height / 2).toBeCloseTo(
+            checkboxBox!.y + checkboxBox!.height / 2,
+            1,
+        );
+    }
+    await page.evaluate(() =>
+        document.documentElement.style.removeProperty("--font-size-medium"),
+    );
     const editPosition = await edit.evaluate((element) => {
         const heading = element.closest("th")!;
         const text = document.createRange();
@@ -390,7 +494,8 @@ test("registry buttons expose batch state and support keyboard actions with Code
     expect(
         await check.evaluate((element) => getComputedStyle(element).color),
     ).not.toBe(neutralColor);
-    const unselectedBackground = await choice.evaluate(
+    const cell = page.locator(".mw-notalk").locator("xpath=parent::td");
+    const unselectedBackground = await cell.evaluate(
         (element) => getComputedStyle(element).backgroundColor,
     );
 
@@ -399,21 +504,20 @@ test("registry buttons expose batch state and support keyboard actions with Code
     await expect(edit).toBeEnabled();
     await choice.focus();
     await choice.press("Space");
-    await expect(choice).toHaveAttribute("aria-pressed", "true");
+    await expect(choice).toBeChecked();
     await expect(page.getByRole("status")).toHaveText("已選擇 1 項");
-    await expect(choice).not.toHaveCSS(
-        "background-color",
-        unselectedBackground,
-    );
-    await choice.press("Enter");
-    await expect(choice).toHaveAttribute("aria-pressed", "false");
+    await expect(cell).not.toHaveCSS("background-color", unselectedBackground);
+    await choice.press("Space");
+    await expect(choice).not.toBeChecked();
     await expect(page.getByRole("status")).toBeEmpty();
-    await choice.press("Enter");
-    await expect(choice).toHaveAttribute("aria-pressed", "true");
+    await expect(cell).toHaveCSS("background-color", unselectedBackground);
+    await choice.press("Space");
+    await expect(choice).toBeChecked();
     await page
-        .getByRole("button", { name: "批次核對", exact: true })
+        .getByRole("button", { name: "批量核對", exact: true })
         .press("Space");
-    await expect(choice).toHaveAttribute("aria-pressed", "false");
+    await expect(choice).not.toBeChecked();
+    await expect(cell).toHaveCSS("background-color", unselectedBackground);
     await expect(check).toBeEnabled();
     await check.press("Enter");
     await expect(check).toBeEnabled();
@@ -430,6 +534,15 @@ test("registry buttons expose batch state and support keyboard actions with Code
     expect(effects.checks).toEqual([
         expect.objectContaining({ index: 1, sectionOccurrence: 0 }),
     ]);
+    await choice.check();
+    await expect(cell).not.toHaveCSS("background-color", unselectedBackground);
+    await page.evaluate(() => (window as any).registryFixture.dispose());
+    await expect(cell).toHaveCSS("background-color", unselectedBackground);
+    await expect(cell).not.toHaveClass(/acga-registry-selected/u);
+    await expect(cell).toHaveAttribute(
+        "style",
+        "background-color: rgb(255, 244, 204)",
+    );
 });
 
 test("registry omits repeated recipient-target notices from the page", async ({
@@ -437,10 +550,10 @@ test("registry omits repeated recipient-target notices from the page", async ({
 }) => {
     await page.setContent(`<!doctype html><html><body><main id="registry">
         <h3>9月27日</h3>
-        <table class="acgnom-table" id="one"><tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr></table>
+        <table class="acgnom-table" id="one"><tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
         <h3>9月27日</h3>
-        <table class="acgnom-table" id="two"><tr><th scope="row" rowspan="2">Two</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr></table>
-        <table class="acgnom-table" id="other"><tr><th scope="row" rowspan="2">Other recipient</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr></table>
+        <table class="acgnom-table" id="two"><tr><th scope="row" rowspan="2">Two</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
+        <table class="acgnom-table" id="other"><tr><th scope="row" rowspan="2">Other recipient</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
     await page.evaluate(() => {
@@ -501,10 +614,10 @@ test("registry disables self checks with reason tooltips and excludes them from 
 }) => {
     await page.setContent(`<!doctype html><html><body><main id="registry"><h3>9月27日</h3>
         <table class="acgnom-table"><tbody>
-            <tr><th scope="row" rowspan="2">Own nomination</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr>
-            <tr><th scope="row" rowspan="2">Own score</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr>
-            <tr><th scope="row" rowspan="2">Own nomination and score</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr>
-            <tr><th scope="row" rowspan="2">Other editors</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr>
+            <tr><th scope="row" rowspan="2">Own nomination</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+            <tr><th scope="row" rowspan="2">Own score</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+            <tr><th scope="row" rowspan="2">Own nomination and score</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
+            <tr><th scope="row" rowspan="2">Other editors</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr>
         </tbody></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
@@ -576,20 +689,23 @@ test("registry disables self checks with reason tooltips and excludes them from 
     await checks.nth(3).click();
     await expect(checks.nth(3)).toBeEnabled();
     await expect(checks.nth(0)).toBeDisabled();
-    const choices = page.getByRole("button", {
-        name: "加入批次核對",
+    const choices = page.getByRole("checkbox", {
+        name: "加入批量核對",
         exact: true,
     });
     for (const [index, reason] of reasons.entries()) {
         await expect(choices.nth(index)).toBeDisabled();
         await expect(choices.nth(index)).toHaveAttribute("title", reason);
+        await expect(
+            choices.nth(index).locator("xpath=ancestor::label"),
+        ).toHaveAttribute("title", reason);
     }
     await choices.nth(0).dispatchEvent("click");
-    await expect(choices.nth(0)).toHaveAttribute("aria-pressed", "false");
+    await expect(choices.nth(0)).not.toBeChecked();
     await expect(page.getByRole("status")).toBeEmpty();
     await choices.nth(3).click();
     const batches = page.getByRole("button", {
-        name: "批次核對",
+        name: "批量核對",
         exact: true,
     });
     await expect(batches).toHaveCount(4);
@@ -620,6 +736,139 @@ test("registry disables self checks with reason tooltips and excludes them from 
     await expect(
         page.getByRole("button", { name: "修改提名", exact: true }).first(),
     ).toBeEnabled();
+});
+
+test("registry initializes check labels from rendered results before the source lookup", async ({
+    page,
+}) => {
+    await page.setContent(`<!doctype html><html lang="zh-Hant"><body><main id="registry"><h3>9月27日</h3>
+        <table class="acgnom-table"><tbody>
+            <tr><th scope="row" rowspan="2">Reviewed</th><td>Request</td></tr>
+            <tr><td><div class="mw-notalk"><img alt="✓">符合要求，<b>得1分</b>。此前顯示「此提名尚未核对。」--Reviewer</div></td></tr>
+            <tr><th scope="row" rowspan="2">Pending simplified</th><td>Request</td></tr>
+            <tr><td><div class="mw-notalk"><img alt="🕒">此提名尚未核对。
+                <table class="acgnom-table"><tr><td><div class="mw-notalk"><img alt="✓">Nested review example</div></td></tr></table>
+            </div></td></tr>
+            <tr><th scope="row" rowspan="2">Pending traditional</th><td>Request</td></tr>
+            <tr><td><div class="mw-notalk"> 此提名<span>尚未</span> 核對。 </div></td></tr>
+            <tr><th scope="row" rowspan="2" style="background: #ffffb999">Pending variant</th><td>Request</td></tr>
+            <tr><td><div class="mw-notalk">待核查。</div></td></tr>
+            <tr><th scope="row" rowspan="2">Rejected</th><td>Request</td></tr>
+            <tr><td><div class="mw-notalk"><img alt="✗">不符合要求，不得分。--Reviewer</div></td></tr>
+            <tr><th scope="row" rowspan="2">Manual result</th><td>Request</td></tr>
+            <tr><td>已核對，細節見討論。--Reviewer</td></tr>
+            <tr><th scope="row" rowspan="2">Empty</th><td>Request</td></tr>
+            <tr><td><div class="mw-notalk"> </div></td></tr>
+        </tbody></table>
+    </main></body></html>`);
+    await loadRegistryRuntime(page);
+    const initial = await page.evaluate(() => {
+        const global = window as any;
+        global.registryFixture = global.AcgaRegistryUI.mount(
+            document.getElementById("registry"),
+            { deferredLookup: true },
+        );
+        return Array.from(
+            document.querySelectorAll<HTMLButtonElement>(
+                ".acga-registry-controls > button",
+            ),
+            (button) => ({
+                label: button.textContent,
+                progressive: button.classList.contains(
+                    "cdx-button--action-progressive",
+                ),
+                disabled: button.disabled,
+                hasCheckbox: Boolean(
+                    button.parentElement?.querySelector(
+                        'input[type="checkbox"]',
+                    ),
+                ),
+            }),
+        );
+    });
+    expect(initial).toEqual(
+        [true, false, false, false, true, true, false].map((checked) => ({
+            label: checked ? "複核" : "核對",
+            progressive: !checked,
+            disabled: true,
+            hasCheckbox: !checked,
+        })),
+    );
+    await page
+        .getByRole("button", { name: "複核", exact: true })
+        .first()
+        .dispatchEvent("click");
+    expect(
+        await page.evaluate(
+            () => (window as any).registryFixture.effects.checks,
+        ),
+    ).toEqual([]);
+
+    // The source remains authoritative if rendered results disagree with it.
+    await page.evaluate(() => {
+        (window as any).registryFixture.resolveEligibility(
+            [false, false, true, false, true, true, false].map(
+                (checked, index) => ({
+                    pageName: "Example",
+                    awarder: "Recipient",
+                    nominator: "Nominator",
+                    date: "9月27日",
+                    index: index + 1,
+                    sectionOccurrence: 0,
+                    checked,
+                }),
+            ),
+        );
+    });
+    const buttons = page.locator(".acga-registry-controls > button");
+    const controls = page.locator(".acga-registry-controls");
+    await expect(buttons).toHaveText([
+        "核對",
+        "核對",
+        "複核",
+        "核對",
+        "複核",
+        "複核",
+        "核對",
+    ]);
+    for (const [index, checked] of [
+        false,
+        false,
+        true,
+        false,
+        true,
+        true,
+        false,
+    ].entries()) {
+        await expect(buttons.nth(index)).toBeEnabled();
+        const choice = controls.nth(index).locator('input[type="checkbox"]');
+        await expect(choice).toHaveCount(checked ? 0 : 1);
+        if (checked)
+            await expect(buttons.nth(index)).not.toHaveClass(
+                /cdx-button--action-progressive/u,
+            );
+        else {
+            await expect(buttons.nth(index)).toHaveClass(
+                /cdx-button--action-progressive/u,
+            );
+            await expect(choice).toHaveAccessibleName("加入批量核對");
+            await expect(choice).toBeEnabled();
+        }
+    }
+    await controls.nth(0).getByRole("checkbox").check();
+    await buttons.nth(0).click();
+    await expect(buttons.nth(2)).toBeEnabled();
+    await buttons.nth(2).click();
+    await expect(buttons.nth(2)).toBeEnabled();
+    const effects = await page.evaluate(
+        () => (window as any).registryFixture.effects,
+    );
+    expect(effects.batches).toEqual([
+        [expect.objectContaining({ index: 1, sectionOccurrence: 0 })],
+    ]);
+    expect(effects.checks).toEqual([
+        expect.objectContaining({ index: 3, sectionOccurrence: 0 }),
+    ]);
 });
 
 test("registry labels reviewed entries as rechecks and keeps their eligibility restrictions", async ({
@@ -686,6 +935,19 @@ test("registry labels reviewed entries as rechecks and keeps their eligibility r
     await expect(firstControls.locator("xpath=parent::td")).toContainText(
         "Previous review and signature",
     );
+    const reviewCell = firstControls.locator("xpath=parent::td");
+    const reviewBackground = await reviewCell.evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+    );
+    const recheckHeight = (await rechecks.nth(0).boundingBox())!.height;
+    expect(recheckHeight).toBe(23);
+    await expect(rechecks.nth(0)).toHaveCSS("min-height", "23px");
+    await expect(rechecks.nth(0)).toHaveCSS("font-size", "12px");
+    const neutralColor = await page
+        .getByRole("button", { name: "修改提名", exact: true })
+        .first()
+        .evaluate((element) => getComputedStyle(element).color);
+    await expect(rechecks.nth(0)).toHaveCSS("color", neutralColor);
     const controlsPosition = await firstControls.evaluate((element) => {
         const text = document.createRange();
         text.selectNode(element.previousSibling!);
@@ -703,28 +965,87 @@ test("registry labels reviewed entries as rechecks and keeps their eligibility r
     expect(controlsPosition.left).toBeGreaterThan(controlsPosition.rightOfText);
     expect(controlsPosition.top).toBeLessThan(controlsPosition.textBottom);
     expect(controlsPosition.bottom).toBeGreaterThan(controlsPosition.textTop);
+    const controls = page.locator(".acga-registry-controls");
+    for (const index of [0, 1, 2])
+        await expect(
+            controls.nth(index).locator('input[type="checkbox"], label'),
+        ).toHaveCount(0);
+    const choice = page.getByRole("checkbox", {
+        name: "加入批量核對",
+        exact: true,
+    });
+    await expect(choice).toHaveCount(1);
+    await choice.check();
+    const batch = page.getByRole("button", {
+        name: "批量核對",
+        exact: true,
+    });
+    await expect(batch).toBeEnabled();
+    await expect(rechecks.nth(0)).toBeDisabled();
+    await expect(rechecks.nth(0)).toHaveAttribute(
+        "title",
+        "批量核對期間無法複核，請先取消所有勾選。",
+    );
+    await expect(rechecks.nth(1)).toBeDisabled();
+    await expect(rechecks.nth(2)).toBeDisabled();
+    await expect(rechecks.nth(0)).not.toHaveClass(
+        /cdx-button--action-progressive/u,
+    );
+    await expect(rechecks.nth(1)).toHaveAttribute(
+        "title",
+        "提名者為本人，無法核對",
+    );
+    for (const index of [0, 1, 2])
+        await rechecks.nth(index).dispatchEvent("click");
+    expect(
+        await page.evaluate(
+            () => (window as any).registryFixture.effects.checks,
+        ),
+    ).toEqual([]);
+    await choice.uncheck();
+    await expect(rechecks.nth(0)).toBeEnabled();
+    await expect(rechecks.nth(0)).toHaveCSS("color", neutralColor);
+    await expect(rechecks.nth(0)).not.toHaveAttribute("title");
+    await expect(rechecks.nth(1)).toBeDisabled();
+    await expect(rechecks.nth(1)).toHaveAttribute(
+        "title",
+        "提名者為本人，無法核對",
+    );
+    await expect(rechecks.nth(2)).toBeDisabled();
+    await expect(rechecks.nth(2)).toHaveAttribute(
+        "title",
+        "得分者為本人，無法核對",
+    );
     await rechecks.nth(0).click();
-    const choices = page.getByRole("button", {
-        name: "加入批次核對",
-        exact: true,
-    });
-    await expect(choices.nth(0)).toBeEnabled();
-    await expect(choices.nth(1)).toBeDisabled();
-    await expect(choices.nth(2)).toBeDisabled();
-    await choices.nth(0).click();
-    await choices.nth(3).click();
-    await expect(page.getByRole("status")).toHaveText("已選擇 2 項");
-    const batches = page.getByRole("button", {
-        name: "批次核對",
-        exact: true,
-    });
-    await expect(batches.nth(1)).toBeDisabled();
-    await expect(batches.nth(2)).toBeDisabled();
+    await expect(rechecks.nth(0)).toBeEnabled();
+    await expect(choice).not.toBeChecked();
+    await expect(page.getByRole("status")).toBeEmpty();
+    await expect(reviewCell).toHaveCSS("background-color", reviewBackground);
     await capture(page, "registry-recheck-inline");
-    await batches.nth(0).click();
+    await choice.check();
+    await batch.click();
     await expect(rechecks).toHaveCount(3);
+    await expect(rechecks.nth(0)).toBeEnabled();
+    await expect(rechecks.nth(1)).toBeDisabled();
+    await expect(rechecks.nth(1)).toHaveAttribute(
+        "title",
+        "提名者為本人，無法核對",
+    );
+    await expect(rechecks.nth(2)).toBeDisabled();
+    await expect(rechecks.nth(2)).toHaveAttribute(
+        "title",
+        "得分者為本人，無法核對",
+    );
+    await expect(rechecks.nth(0)).not.toHaveClass(
+        /cdx-button--action-progressive/u,
+    );
+    await expect(rechecks.nth(0)).toHaveCSS("color", neutralColor);
     await expect(check).toBeEnabled();
-    await expect(choices.nth(0)).toHaveAttribute("aria-pressed", "false");
+    await expect(choice).toBeEnabled();
+    await expect(check).not.toHaveAttribute("title");
+    await expect(choice).not.toBeChecked();
+    await expect(page.getByRole("status")).toBeEmpty();
+    await expect(reviewCell).toHaveCSS("background-color", reviewBackground);
     const effects = await page.evaluate(
         () => (window as any).registryFixture.effects,
     );
@@ -732,20 +1053,230 @@ test("registry labels reviewed entries as rechecks and keeps their eligibility r
         expect.objectContaining({ index: 1, sectionOccurrence: 0 }),
     ]);
     expect(effects.batches).toEqual([
-        [
-            expect.objectContaining({ index: 1, sectionOccurrence: 0 }),
-            expect.objectContaining({ index: 4, sectionOccurrence: 0 }),
-        ],
+        [expect.objectContaining({ index: 4, sectionOccurrence: 0 })],
     ]);
     expect(effects.errors).toEqual([]);
     expect(errors).toEqual([]);
+});
+
+test("registry disables single rechecks during pending batch selection and restores controls", async ({
+    page,
+}) => {
+    await page.setContent(`<!doctype html><html lang="zh-Hans"><body><main id="registry"><h3>9月27日</h3>
+        <table class="acgnom-table"><tbody>
+            <tr><th scope="row" rowspan="2">Pending one</th><td>Request</td></tr><tr><td><div class="mw-notalk"><img alt="🕒">此提名尚未核对。</div></td></tr>
+            <tr><th scope="row" rowspan="2">Pending two</th><td>Request</td></tr><tr><td><div class="mw-notalk"><img alt="🕒">此提名尚未核对。</div></td></tr>
+            <tr><th scope="row" rowspan="2">Reviewed one</th><td>Request</td></tr><tr><td><div class="mw-notalk"><img alt="✓">符合要求，得1分。--Reviewer</div></td></tr>
+            <tr><th scope="row" rowspan="2">Reviewed two</th><td>Request</td></tr><tr><td><div class="mw-notalk"><img alt="✗">不得分。--Reviewer</div></td></tr>
+        </tbody></table>
+    </main></body></html>`);
+    await loadRegistryRuntime(page);
+    await page.evaluate(() => {
+        const global = window as any;
+        global.registryFixture = global.AcgaRegistryUI.mount(
+            document.getElementById("registry"),
+            { language: "zh-Hans", deferredBatch: true },
+        );
+    });
+    const buttons = page.locator(".acga-registry-controls > button");
+    const choices = page.locator(".acga-registry-select");
+    const controls = page.locator(".acga-registry-controls");
+    const status = page.getByRole("status");
+    const tooltip = "批量核对期间无法复核，请先取消所有勾选。";
+    const neutralColor = await page
+        .getByRole("button", { name: "修改提名", exact: true })
+        .first()
+        .evaluate((element) => getComputedStyle(element).color);
+    await expect(buttons).toHaveText(["核对", "核对", "复核", "复核"]);
+    await expect(choices).toHaveCount(2);
+    for (const index of [0, 1])
+        await expect(choices.nth(index)).toHaveAccessibleName("加入批量核对");
+    for (const index of [2, 3]) {
+        await expect(
+            controls.nth(index).locator('input[type="checkbox"], label'),
+        ).toHaveCount(0);
+        await expect(buttons.nth(index)).toHaveCSS("color", neutralColor);
+    }
+    await buttons.nth(2).click();
+    await expect(buttons.nth(2)).toBeEnabled();
+
+    await choices.nth(0).check();
+    await expect(buttons).toHaveText(["批量核对", "批量核对", "复核", "复核"]);
+    for (const index of [2, 3]) {
+        await expect(buttons.nth(index)).toBeDisabled();
+        await expect(buttons.nth(index)).toHaveAttribute("title", tooltip);
+        await expect(buttons.nth(index)).not.toHaveClass(
+            /cdx-button--action-progressive/u,
+        );
+        await buttons.nth(index).dispatchEvent("click");
+    }
+    await choices.nth(1).check();
+    await expect(status).toHaveText("已选择 2 项");
+    await expect(buttons.nth(0)).toHaveClass(/cdx-button--action-progressive/u);
+    await choices.nth(0).uncheck();
+    await expect(buttons.nth(2)).toBeDisabled();
+    await choices.nth(1).uncheck();
+    for (const index of [0, 1, 2, 3]) {
+        await expect(buttons.nth(index)).toBeEnabled();
+        await expect(buttons.nth(index)).not.toHaveAttribute("title");
+    }
+    for (const index of [0, 1]) {
+        await expect(choices.nth(index)).toBeEnabled();
+        await expect(choices.nth(index)).not.toHaveAttribute("title");
+    }
+
+    await choices.nth(0).check();
+    await choices.nth(1).check();
+    await buttons.nth(0).click();
+    await expect(buttons.nth(1)).toBeDisabled();
+    await expect(buttons.nth(3)).toBeDisabled();
+    for (const index of [0, 1]) await expect(choices.nth(index)).toBeDisabled();
+    await page.evaluate(() => (window as any).registryFixture.rejectBatch());
+    for (const index of [0, 1]) {
+        await expect(buttons.nth(index)).toBeEnabled();
+        await expect(choices.nth(index)).toBeEnabled();
+        await expect(choices.nth(index)).toBeChecked();
+    }
+    for (const index of [2, 3]) {
+        await expect(buttons.nth(index)).toBeDisabled();
+        await expect(buttons.nth(index)).toHaveAttribute("title", tooltip);
+        await buttons.nth(index).dispatchEvent("click");
+    }
+    await expect(status).toHaveText("已选择 2 项");
+    await capture(page, "registry-batch-disabled-rechecks");
+    await buttons.nth(1).click();
+    await page.evaluate(() => (window as any).registryFixture.resolveBatch());
+    await expect(buttons).toHaveText(["核对", "核对", "复核", "复核"]);
+    for (const index of [0, 1])
+        await expect(choices.nth(index)).not.toBeChecked();
+    for (const index of [0, 1, 2, 3]) {
+        await expect(buttons.nth(index)).toBeEnabled();
+        await expect(buttons.nth(index)).not.toHaveAttribute("title");
+    }
+    await expect(status).toBeEmpty();
+    await buttons.nth(3).click();
+    await expect(buttons.nth(3)).toBeEnabled();
+    const effects = await page.evaluate(
+        () => (window as any).registryFixture.effects,
+    );
+    expect(effects.checks).toEqual([
+        expect.objectContaining({ index: 3, sectionOccurrence: 0 }),
+        expect.objectContaining({ index: 4, sectionOccurrence: 0 }),
+    ]);
+    expect(
+        effects.batches.map((batch: any[]) =>
+            batch.map((item: any) => item.index),
+        ),
+    ).toEqual([
+        [1, 2],
+        [1, 2],
+    ]);
+    expect(effects.errors).toEqual(["Error: batch offline"]);
+});
+
+test("registry archive buttons follow header colors, check age and physical discussion sections", async ({
+    page,
+}) => {
+    const oldCheck =
+        "符合要求，得1分。--Reviewer 2026年9月20日 (日) 12:00 (UTC)";
+    const recentCheck =
+        "符合要求，得1分。--Reviewer 2026年9月25日 (五) 12:00 (UTC)";
+    const entry = (result: string, color = "inherit") => `
+        <tr><th scope="row" rowspan="2" style="background: ${color}">Article</th><td>Request</td></tr>
+        <tr><td><div class="mw-notalk">${result}</div></td></tr>`;
+    const chapter = (id: string, rows: string, discussion = "") => `
+        <section id="${id}"><div class="mw-heading mw-heading3"><h3>9月20日</h3></div>
+            <table class="acgnom-table"><tbody>${rows}</tbody></table>${discussion}
+        </section>`;
+    await page.setContent(`<!doctype html><html lang="zh-Hans"><body><main id="registry">
+        ${chapter("ready", entry(oldCheck), "<p>Comment 2026年9月21日 (一) 12:00 (UTC)</p>")}
+        ${chapter("recent-discussion", entry(oldCheck), "<dl><dd>Comment 2026年9月29日 (二) 12:00 (UTC)</dd></dl>")}
+        ${chapter("recent-check", entry(oldCheck) + entry(recentCheck))}
+        ${chapter("boundary", entry("Checked --Reviewer 2026年9月23日 (三) 12:00 (UTC)"))}
+        ${chapter("pending", entry(oldCheck, "#ffffb999"))}
+        ${chapter("rechecking", entry(oldCheck, "#ffb9ff99"))}
+        ${chapter("unknown", entry("Checked with no readable timestamp"))}
+        ${chapter("future", entry("Checked --Reviewer 2026年10月1日 (四) 12:00 (UTC)"))}
+        ${chapter("replacement", entry(`<b>[已撤销]</b>${oldCheck}<dl><dd>${recentCheck}</dd></dl>`))}
+        ${chapter("nested-example", entry(`${oldCheck}<table><tr><td>${recentCheck}</td></tr></table>`), "<pre>Comment 2026年9月29日 (二) 12:00 (UTC)</pre>")}
+        ${chapter("empty", "")}
+        <h2>Other content</h2><p>Outside comment 2026年9月30日 (三) 12:00 (UTC)</p>
+    </main></body></html>`);
+    await loadRegistryRuntime(page);
+    await page.evaluate(() => {
+        const global = window as any;
+        global.registryFixture = global.AcgaRegistryUI.mount(
+            document.getElementById("registry"),
+            { language: "zh-Hans" },
+        );
+    });
+    const archive = (id: string) =>
+        page
+            .locator(`#${id}`)
+            .getByRole("button", { name: "归档", exact: true });
+    for (const id of ["ready", "nested-example"]) {
+        await expect(archive(id)).toBeEnabled();
+        await expect(archive(id)).toHaveClass(/cdx-button--weight-primary/u);
+        await expect(archive(id)).toHaveClass(
+            /cdx-button--action-progressive/u,
+        );
+    }
+    await expect(archive("recent-discussion")).toBeEnabled();
+    await expect(archive("recent-discussion")).toHaveClass(
+        /cdx-button--weight-primary/u,
+    );
+    await expect(archive("recent-discussion")).not.toHaveClass(
+        /cdx-button--action-progressive/u,
+    );
+    await expect(archive("recent-discussion")).toHaveAttribute(
+        "title",
+        "所有核对结果已超过七天，但此章节仍有近期讨论。",
+    );
+    const blocked = {
+        "recent-check": "所有核对结果须已超过七天。",
+        boundary: "所有核对结果须已超过七天。",
+        pending: "仍有尚未核对的提名。",
+        rechecking: "仍有正在复核的提名。",
+        unknown: "无法读取核对时间。",
+        future: "所有核对结果须已超过七天。",
+        replacement: "所有核对结果须已超过七天。",
+        empty: "此章节没有可归档的提名。",
+    };
+    for (const [id, reason] of Object.entries(blocked)) {
+        await expect(archive(id)).toBeDisabled();
+        await expect(archive(id)).toHaveAttribute("title", reason);
+        await archive(id).dispatchEvent("click");
+    }
+    await expect(
+        page
+            .locator("#pending")
+            .getByRole("button", { name: "核对", exact: true }),
+    ).toBeEnabled();
+    await expect(
+        page
+            .locator("#rechecking")
+            .getByRole("button", { name: "复核", exact: true }),
+    ).toBeEnabled();
+    await capture(page, "registry-archive-eligibility");
+    await archive("ready").click();
+    await expect(archive("ready")).toBeEnabled();
+    await archive("recent-discussion").click();
+    await expect(archive("recent-discussion")).toBeEnabled();
+    const effects = await page.evaluate(
+        () => (window as any).registryFixture.effects,
+    );
+    expect(effects.archives).toEqual([
+        ["9月20日", 0, 42],
+        ["9月20日", 1, 42],
+    ]);
+    expect(effects.errors).toEqual([]);
 });
 
 test("registry keeps checks disabled after an eligibility lookup fails", async ({
     page,
 }) => {
     await page.setContent(`<!doctype html><html><body><main id="registry"><h3>9月27日</h3>
-        <table class="acgnom-table"><tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr></table>
+        <table class="acgnom-table"><tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
     await page.evaluate(() => {
@@ -773,7 +1304,7 @@ test("registry blocks checks during eligibility loading and ignores responses af
     page,
 }) => {
     await page.setContent(`<!doctype html><html><body><main id="registry"><h3>9月27日</h3>
-        <table class="acgnom-table"><tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">Unchecked</span></td></tr></table>
+        <table class="acgnom-table"><tr><th scope="row" rowspan="2">One</th><td>Request</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></table>
     </main></body></html>`);
     await loadRegistryRuntime(page);
     await page.evaluate(() => {

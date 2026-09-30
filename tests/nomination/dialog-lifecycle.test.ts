@@ -4,9 +4,11 @@ import type { ComponentOptions } from "vue";
 import { createNominationDialogs } from "../../src/features/nomination/dialog.ts";
 import { createDialogHost } from "../../src/features/nomination/dialog-host.ts";
 import { createNominationModel } from "../../src/features/nomination/model.ts";
+import type { DykStatus } from "../../src/domain/dyk-status.ts";
 import type {
     DialogOperations,
     DialogRuntime,
+    DialogServices,
 } from "../../src/features/nomination/contracts.ts";
 import { dialogRuntime, dialogServices, instantiateHost } from "./fixture.ts";
 
@@ -83,6 +85,177 @@ test("dialog instances own independent drafts and disposing settles open request
         stylesRemoved: 2,
         unmounted: 2,
     });
+});
+
+function dykFixture(lookup: NonNullable<DialogServices["getDykStatus"]>) {
+    const errors: Array<{ error: unknown; operation: string }> = [];
+    const vm = instantiateHost(
+        createDialogHost(dialogRuntime, operations, {
+            ...dialogServices,
+            getDykStatus: lookup,
+            reportError(error, operation) {
+                errors.push({ error, operation });
+            },
+        }),
+    );
+    const entry = (pageName: string, index = 0) => ({
+        nomination: {
+            awarder: "Recipient",
+            pageName,
+            ruleStatus: { "4-dyk": { selected: true, score: 1 } },
+        },
+        target: { type: "acg2", position: index + 1 },
+        tableKey: "table-1",
+        tableIndex: 0,
+    });
+    return { vm, errors, entry };
+}
+
+function deferredDyk() {
+    let resolve!: (status: DykStatus) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<DykStatus>((done, fail) => {
+        resolve = done;
+        reject = fail;
+    });
+    return { promise, resolve, reject };
+}
+
+test("DYK lookups reuse completed records and missing records across navigation and repair within one opening", async () => {
+    const calls: string[] = [];
+    const passed = { passed: true, date: "2026-09-29" };
+    const missing = { passed: false, date: null };
+    const { vm, entry } = dykFixture(async (pageName) => {
+        calls.push(pageName);
+        return pageName === "Other article" ? missing : passed;
+    });
+    const closed = vm.openCheckBatch([
+        entry(":example   article#Section"),
+        entry("Other article", 1),
+        entry("Example_article", 2),
+    ]);
+    await vm.refreshDykStatus();
+    assert.deepEqual(vm.dykStatus, passed);
+    assert.equal(vm.dykTalkUrl, "/wiki/Talk%3AExample%20article");
+    vm.view = "reason-builder";
+    await vm.refreshDykStatus();
+    assert.equal(vm.dykStatus, null);
+    vm.view = "main";
+    await vm.refreshDykStatus();
+    assert.deepEqual(vm.dykStatus, passed);
+    vm.activateCheckBatchItem(1);
+    await vm.refreshDykStatus();
+    assert.deepEqual(vm.dykStatus, missing);
+    vm.activateCheckBatchItem(2);
+    await vm.refreshDykStatus();
+    assert.deepEqual(vm.dykStatus, passed);
+    vm.activateCheckBatchItem(1);
+    await vm.refreshDykStatus();
+    assert.deepEqual(vm.dykStatus, missing);
+    assert.deepEqual(calls, ["Example article", "Other article"]);
+    await vm.finishSession("cancel");
+    assert.equal(await closed, "cancel");
+    assert.equal(vm.dykStatusRequests.size, 0);
+    assert.equal(vm.dykStatus, null);
+});
+
+test("DYK lookups share in-flight requests and retain offscreen results without changing the active result", async () => {
+    const first = deferredDyk();
+    const second = deferredDyk();
+    const calls: string[] = [];
+    const { vm, entry } = dykFixture((pageName) => {
+        calls.push(pageName);
+        return pageName === "Other article" ? second.promise : first.promise;
+    });
+    const closed = vm.openCheckBatch([
+        entry("Example_article"),
+        entry("Other article", 1),
+        entry("example article", 2),
+    ]);
+    const original = vm.refreshDykStatus();
+    vm.activateCheckBatchItem(1);
+    const offscreen = vm.refreshDykStatus();
+    vm.activateCheckBatchItem(2);
+    const active = vm.refreshDykStatus();
+    await Promise.resolve();
+    assert.deepEqual(calls, ["Example article", "Other article"]);
+    const missing = { passed: false, date: null };
+    second.resolve(missing);
+    await offscreen;
+    assert.equal(vm.dykStatus, null);
+    assert.equal(vm.dykLoading, true);
+    const passed = { passed: true, date: "2026-09-29" };
+    first.resolve(passed);
+    await Promise.all([original, active]);
+    assert.deepEqual(vm.dykStatus, passed);
+    assert.equal(vm.dykLoading, false);
+    vm.activateCheckBatchItem(1);
+    await vm.refreshDykStatus();
+    assert.deepEqual(vm.dykStatus, missing);
+    assert.equal(calls.length, 2);
+    await vm.finishSession("cancel");
+    assert.equal(await closed, "cancel");
+});
+
+test("closing and reopening a check starts a fresh DYK cache and ignores the prior opening's pending response", async () => {
+    const oldLookup = deferredDyk();
+    const newLookup = deferredDyk();
+    let calls = 0;
+    const { vm, entry } = dykFixture(() =>
+        ++calls === 1 ? oldLookup.promise : newLookup.promise,
+    );
+    const firstClosed = vm.openCheckBatch([entry("Example article")]);
+    const oldRequest = vm.refreshDykStatus();
+    await Promise.resolve();
+    await vm.finishSession("cancel");
+    assert.equal(await firstClosed, "cancel");
+    assert.equal(vm.dykStatusRequests.size, 0);
+    const secondClosed = vm.openCheckBatch([entry("Example article")]);
+    const newRequest = vm.refreshDykStatus();
+    await Promise.resolve();
+    assert.equal(calls, 2);
+    oldLookup.resolve({ passed: true, date: "2026-09-29" });
+    await oldRequest;
+    assert.equal(vm.dykStatus, null);
+    assert.equal(vm.dykLoading, true);
+    const current = { passed: false, date: "2026-09-30" };
+    newLookup.resolve(current);
+    await newRequest;
+    assert.deepEqual(vm.dykStatus, current);
+    assert.equal(vm.dykLoading, false);
+    await vm.finishSession("cancel");
+    assert.equal(await secondClosed, "cancel");
+});
+
+test("a failed DYK request is shared, reported once, and can be retried during the same opening", async () => {
+    const pending = deferredDyk();
+    const failure = new Error("DYK lookup unavailable");
+    const status = { passed: true, date: "2026-09-29" };
+    let calls = 0;
+    const { vm, entry, errors } = dykFixture(() =>
+        ++calls === 1 ? pending.promise : Promise.resolve(status),
+    );
+    const closed = vm.openCheckBatch([entry("Example article")]);
+    const first = vm.refreshDykStatus();
+    const repeated = vm.refreshDykStatus();
+    await Promise.resolve();
+    assert.equal(calls, 1);
+    pending.reject(failure);
+    await Promise.all([first, repeated]);
+    assert.equal(vm.dykError, true);
+    assert.equal(vm.dykLoading, false);
+    assert.equal(vm.dykStatusRequests.size, 0);
+    assert.deepEqual(errors, [
+        { error: failure, operation: "lookup-dyk-status" },
+    ]);
+    await vm.refreshDykStatus();
+    assert.equal(calls, 2);
+    assert.equal(vm.dykError, false);
+    assert.deepEqual(vm.dykStatus, status);
+    await vm.refreshDykStatus();
+    assert.equal(calls, 2);
+    await vm.finishSession("cancel");
+    assert.equal(await closed, "cancel");
 });
 
 test("disposing a confirmation resolves false and failed mounts release owned DOM and styles", async () => {

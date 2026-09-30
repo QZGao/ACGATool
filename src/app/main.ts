@@ -1,5 +1,6 @@
 /** Composition root; importing it does not initialize a MediaWiki page. */
 import { createMediaWikiApi } from "../platform/mediawiki/api.ts";
+import { createBrowserNominationDraftStore } from "../platform/browser/nomination-draft-storage.ts";
 import { createNominationDialogs } from "../features/nomination/dialog.ts";
 import { mountRegistry } from "../features/registry/integration.ts";
 import {
@@ -36,11 +37,10 @@ export interface StartupHost extends Feedback {
 }
 
 const active = new WeakMap<Document, Promise<() => void>>();
-const TARGET_PAGES = new Set(["WikiProject:ACG/維基ACG專題獎", REGISTRY_PAGE]);
 
 export function start(host: StartupHost): Promise<() => void> {
     if (
-        (!TARGET_PAGES.has(host.pageName.replaceAll("_", " ")) &&
+        (host.pageName.replaceAll("_", " ") !== REGISTRY_PAGE &&
             ![0, 1, 6].includes(host.namespaceNumber ?? -1)) ||
         host.action !== "view"
     )
@@ -72,6 +72,7 @@ async function initialize(host: StartupHost): Promise<() => void> {
         );
     }
     const { msg } = createTranslator(host.language);
+    const now = () => new Date();
     const readNominationContext = (): NominationPageContext =>
         host.getNominationContext?.() ?? {
             pageName: host.articleTitle ?? "",
@@ -87,7 +88,7 @@ async function initialize(host: StartupHost): Promise<() => void> {
     const service = createNominationService({
         api,
         msg,
-        now: () => new Date(),
+        now,
         getUserName: host.getUserName,
         reload: host.reload,
         notify: host.notify,
@@ -109,6 +110,19 @@ async function initialize(host: StartupHost): Promise<() => void> {
         service,
         {
             document: host.document,
+            nominationDraftStore: host.document.defaultView
+                ? createBrowserNominationDraftStore({
+                      window: host.document.defaultView,
+                      getStorage: () => {
+                          const storage =
+                              host.document.defaultView?.localStorage;
+                          if (!storage)
+                              throw new Error("Browser storage is unavailable");
+                          return storage;
+                      },
+                      getUserName: host.getUserName,
+                  })
+                : undefined,
             msg,
             getUserName: host.getUserName,
             getPageName: () => nominationContext.pageName,
@@ -128,6 +142,7 @@ async function initialize(host: StartupHost): Promise<() => void> {
                   }
                 : undefined,
             getDykStatus: api.getDykStatus,
+            getPageAssessments: api.getPageAssessments,
             getExistingNominations: async (pageName, expectedRevisionId) =>
                 (
                     await service.getExistingNominations(
@@ -159,7 +174,7 @@ async function initialize(host: StartupHost): Promise<() => void> {
     let disposeRegistry = () => {};
     function mount() {
         disposeRegistry();
-        if (!TARGET_PAGES.has(host.pageName.replaceAll("_", " "))) return;
+        if (host.pageName.replaceAll("_", " ") !== REGISTRY_PAGE) return;
         const root =
             host.document.querySelector<HTMLElement>(
                 "#mw-content-text .mw-parser-output",
@@ -167,6 +182,7 @@ async function initialize(host: StartupHost): Promise<() => void> {
         if (root)
             disposeRegistry = mountRegistry(root, service, {
                 msg,
+                now,
                 getUserName: host.getUserName,
                 revisionId: host.revisionId,
                 addStyles: host.addStyles,

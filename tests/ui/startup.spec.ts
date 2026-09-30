@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { capture, expect, test } from "./fixtures.ts";
 import { mountStartup } from "./startup-fixture.ts";
+import zhHans from "../../src/i18n/zh-Hans.json" with { type: "json" };
+import zhHant from "../../src/i18n/zh-Hant.json" with { type: "json" };
 
 let runtime: string;
 let bundle: string;
@@ -44,6 +46,128 @@ test.beforeAll(async () => {
         ),
     ]);
 });
+
+for (const [language, catalog] of [
+    ["zh-Hans", zhHans],
+    ["zh-Hant", zhHant],
+] as const) {
+    test(`production compact message IDs preserve ${language} labels and rule metadata`, async ({
+        page,
+    }) => {
+        const errors = await mountStartup(
+            page,
+            { runtime, bundle, styles },
+            { language },
+        );
+        await page
+            .getByRole("link", { name: catalog.nominate_for_acga, exact: true })
+            .click();
+        const dialog = page.getByRole("dialog", {
+            name: catalog.new_nomination_acg_award_tool,
+        });
+        await expect(dialog).toBeVisible();
+        const length = dialog.getByRole("checkbox", {
+            name: catalog["1_length"],
+            exact: true,
+        });
+        await length.check();
+        await expect(
+            dialog.getByRole("button", { name: catalog.preview, exact: true }),
+        ).toBeEnabled();
+        await expect(
+            dialog.locator(".acga-code-preview-text textarea"),
+        ).toHaveValue(/\{\{ACG提名2\/request\|ver=1\|1c\}\}/u);
+        expect(errors).toEqual([]);
+    });
+}
+
+for (const fixture of [
+    {
+        name: "award main page",
+        pageName: "WikiProject:ACG/維基ACG專題獎",
+        inject: false,
+    },
+    {
+        name: "registration subpage",
+        pageName: "WikiProject:ACG/維基ACG專題獎/登記處",
+        inject: true,
+    },
+    {
+        name: "other award subpage",
+        pageName: "WikiProject:ACG/維基ACG專題獎/存檔/2026年9月",
+        inject: false,
+    },
+]) {
+    test(`production bundle ${fixture.inject ? "injects" : "ignores"} rendered nominations on the ${fixture.name}`, async ({
+        page,
+    }) => {
+        const errors = await mountStartup(
+            page,
+            { runtime, bundle, styles },
+            {
+                namespaceNumber: 102,
+                pageName: fixture.pageName,
+                renderedNominations: true,
+            },
+        );
+        await expect(page.locator("table.acgnom-table")).toHaveCount(1);
+        const link = page.getByRole("link", {
+            name: "Nominate to ACGA",
+            exact: true,
+        });
+        const edit = page.getByRole("button", {
+            name: "Edit nomination",
+            exact: true,
+        });
+        const check = page.getByRole("button", {
+            name: "Check",
+            exact: true,
+        });
+        const choice = page.getByRole("checkbox", {
+            name: "Add to batch",
+            exact: true,
+        });
+        if (fixture.inject) {
+            await expect(link).toBeVisible();
+            await expect(edit).toBeEnabled();
+            await expect(check).toBeEnabled();
+            await expect(choice).toBeEnabled();
+            await expect(
+                page.getByRole("button", { name: "Archive", exact: true }),
+            ).toBeVisible();
+        } else {
+            await expect(link).toHaveCount(0);
+            await expect(
+                page.locator("#mw-content-text button, #mw-content-text input"),
+            ).toHaveCount(0);
+            await expect(page.locator(".acga-registry-status")).toHaveCount(0);
+        }
+        const effects = await page.evaluate(
+            () => (window as any).startupEffects,
+        );
+        expect(effects.portlets).toEqual(fixture.inject ? ["p-tb"] : []);
+        expect(effects.modules).toEqual(
+            fixture.inject
+                ? ["mediawiki.api", "mediawiki.util", "vue", "@wikimedia/codex"]
+                : [],
+        );
+        expect(effects.apiCalls).toEqual(
+            fixture.inject
+                ? [
+                      expect.objectContaining({
+                          action: "query",
+                          titles: "WikiProject:ACG/維基ACG專題獎/登記處",
+                          prop: "revisions",
+                          rvprop: "ids|content",
+                      }),
+                  ]
+                : [],
+        );
+        expect(effects.apiWrites).toEqual([]);
+        expect(effects.notices).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+}
 
 for (const namespace of [0, 1]) {
     test(`production bundle opens Tools nomination with article context in namespace ${namespace}`, async ({
@@ -144,16 +268,12 @@ for (const namespace of [0, 1]) {
             ).toHaveValue(/\{\{ACG提名2\/request\|ver=1\|6\}\}/u);
             await capture(page, "media-en");
             await dialog.getByRole("button", { name: /^\(8\)/u }).click();
-            const nominee = dialog.getByRole("textbox", {
-                name: "Nominee",
-                exact: true,
-            });
             const relatedPage = dialog.getByRole("textbox", {
                 name: "Related page",
                 exact: true,
             });
-            await expect(nominee).toHaveValue("");
-            await expect(nominee).toHaveAttribute("placeholder", "Example");
+            await expect(recipient).toHaveValue("");
+            await expect(recipient).toHaveAttribute("placeholder", "Example");
             await expect(relatedPage).toHaveValue("");
             await expect(relatedPage).toHaveAttribute(
                 "placeholder",
@@ -248,7 +368,7 @@ for (const fixture of [
             .click();
         const dialog = page.getByRole("dialog");
         const recipient = () =>
-            dialog.getByRole("textbox", { name: /^(?:Recipient|Nominee)$/u });
+            dialog.getByRole("textbox", { name: "Recipient", exact: true });
         await expect(recipient()).toHaveValue("");
         await expect(recipient()).toHaveAttribute(
             "placeholder",

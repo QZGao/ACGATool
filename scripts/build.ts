@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 import { Script } from "node:vm";
 import { build, transform } from "esbuild";
 import { minify } from "terser";
+import {
+    compactMessageKeys,
+    compactTemplate,
+    shortenMessageKeys,
+} from "./compact-assets.ts";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const manifest = JSON.parse(
@@ -18,6 +23,11 @@ const license = (await readFile(join(root, "LICENSE"), "utf8")).trim();
 if (!license.startsWith("MIT License") || license.includes("*/")) {
     throw new Error("The MIT license cannot be embedded safely.");
 }
+const messageKeys = compactMessageKeys(
+    Object.keys(
+        JSON.parse(await readFile(join(root, "src/i18n/en.json"), "utf8")),
+    ),
+);
 
 async function bundle(compact: boolean): Promise<string> {
     const result = await build({
@@ -30,8 +40,17 @@ async function bundle(compact: boolean): Promise<string> {
         loader: { ".vue": "text" },
         plugins: [
             {
-                name: "text-styles",
+                name: "embedded-assets",
                 setup(context) {
+                    context.onLoad({ filter: /\.vue$/ }, async ({ path }) => {
+                        const source = await readFile(path, "utf8");
+                        return {
+                            contents: compact
+                                ? compactTemplate(source, messageKeys)
+                                : source,
+                            loader: "text",
+                        };
+                    });
                     context.onLoad({ filter: /\.css$/ }, async ({ path }) => {
                         const source = await readFile(path, "utf8");
                         const contents = compact
@@ -40,10 +59,36 @@ async function bundle(compact: boolean): Promise<string> {
                                       loader: "css",
                                       minify: true,
                                   })
-                              ).code
+                              ).code.trim()
                             : source;
                         return { contents, loader: "text" };
                     });
+                    if (!compact) return;
+                    context.onLoad({ filter: /\.ts$/ }, async ({ path }) => ({
+                        contents: shortenMessageKeys(
+                            await readFile(path, "utf8"),
+                            messageKeys,
+                        ),
+                        loader: "ts",
+                    }));
+                    context.onLoad(
+                        { filter: /\/i18n\/[^/]+\.json$/ },
+                        async ({ path }) => ({
+                            contents: JSON.stringify(
+                                Object.fromEntries(
+                                    Object.entries(
+                                        JSON.parse(
+                                            await readFile(path, "utf8"),
+                                        ),
+                                    ).map(([key, value]) => [
+                                        messageKeys.get(key) ?? key,
+                                        value,
+                                    ]),
+                                ),
+                            ),
+                            loader: "json",
+                        }),
+                    );
                 },
             },
         ],

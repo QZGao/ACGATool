@@ -17,11 +17,31 @@
     margin-inline-start: var(--spacing-75, 0.75rem);
     vertical-align: middle;
 }
+.acga-registry-controls .cdx-button,
+.acga-registry-edit-control .cdx-button {
+    min-height: 23px;
+    height: 23px;
+    padding: 0 4px;
+    font-size: 12px;
+    line-height: 1;
+}
+.acga-registry-controls .cdx-checkbox__icon,
+.acga-registry-controls .cdx-checkbox__input {
+    top: 50%;
+    margin-top: 0;
+    transform: translateY(-50%);
+}
 .acga-registry-edit-control {
     display: block;
-    margin-block-start: var(--spacing-75, 0.75rem);
     text-align: center;
 }
 .acga-registry-action {
     margin-inline-start: var(--spacing-75, 0.75rem);
+}
+.acgnom-table td.acga-registry-selected {
+    /* Selected cells take precedence over the template's inline background. */
+    background-color: var(
+        --background-color-progressive-subtle,
+        #e8eeff
+    ) !important;
 }

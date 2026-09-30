@@ -1,7 +1,7 @@
 # Contributing
 
-Use Node.js 24.14.1 or newer. Install the exact dependency tree with `npm ci`;
-install Chromium with `npx playwright install chromium` for browser tests.
+Use Node.js 24.14.1 or newer. Install the locked dependency tree with `npm ci`
+and Chromium with `npx playwright install chromium` for browser tests.
 
 | Command           | Purpose                                              |
 | ----------------- | ---------------------------------------------------- |
@@ -13,39 +13,37 @@ install Chromium with `npx playwright install chromium` for browser tests.
 | `npm run verify`  | Run all checks and tests.                            |
 
 Read [the architecture](docs/architecture.md) before changing module ownership.
-Keep deterministic rules independent of MediaWiki and DOM globals. Inject APIs
-into application services, and keep feature state private to each dialog session.
-Preserve local staging: a batch produces one registration-page edit and one
-score-list edit after submission, and cancel discards the unsubmitted draft.
+Keep scoring and wikitext rules pure, inject external operations, and give each
+dialog session ownership of its state and asynchronous work. Preserve the five
+exclusive nomination categories and local batch staging.
 
-Automated checks must use local fixtures and must not edit live wiki pages.
-Cover meaningful changes in scoring, wikitext transformation, API failure handling,
-and submission behavior. UI tests exercise actual Vue and Codex components with
-mocked MediaWiki operations. `scripts/test-ui.ts` keeps reports in a temporary
-directory and removes them when the test process exits.
+Use TypeScript for source, tests and executable tools. Generated `dist/` files
+come from the build. The ESLint configuration uses its conventional `.mjs`
+extension. Keep translated content as text, align message catalogs, release
+mounted hosts and listeners, and discard stale responses.
 
-All source, tests, and executable scripts use TypeScript. Node executes test and
-tool scripts directly, with a small source loader for imported CSS/Vue text.
-The ESLint configuration uses the conventional `.mjs` extension. Generated
-JavaScript in `dist/` is an installation artifact, never hand-edited source.
+For material changes, run `npm run verify` and review the generated artifacts.
+Cover meaningful scoring, parsing, API failure and submission behavior with
+local fixtures. Browser tests exercise real Vue/Codex components with mocked
+MediaWiki operations; `scripts/test-ui.ts` removes temporary reports on exit.
+Production runtime dependencies come from ResourceLoader, while locked npm
+packages keep builds and tests independent of live wiki access.
 
-Keep translated content as text, keep message catalogs aligned, release event
-listeners and mounted applications, and ignore obsolete asynchronous results.
-Vue and Codex are supplied by MediaWiki ResourceLoader in production; their npm
-packages provide development types and offline test fixtures. Do not add build
-steps that fetch scripts from a live wiki.
+Keep README focused on major features, operational guidance in `docs/`, and
+release notes in `CHANGELOG.md`. Consolidate related changes into major items,
+with each changelog bullet occupying at most two lines.
 
 ## Releases
 
-1. Update `package.json` and `package-lock.json` to the release version.
+1. Update `package.json` and both project version fields in `package-lock.json`.
 2. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md`.
 3. Run `npm run verify` and review the generated installation files.
 4. Commit the release on `main`, create the matching `vX.Y.Z` tag, and push it.
 
-Publishing the tag triggers the release workflow. It verifies the exact package
-and lockfile versions, checks that the tagged commit belongs to `origin/main`,
-runs the full validation pipeline, and publishes the verified artifacts.
-Versions containing a prerelease suffix create a GitHub prerelease.
+The tag workflow verifies package and lockfile versions and membership in
+`origin/main`, then runs validation and publishes the verified artifacts.
+Prerelease versions create a GitHub prerelease.
 
-Credit SuperGrey and preserve the MIT notice in `LICENSE` and all generated
-artifacts. AI-assisted maintenance does not erase original authorship or licensing.
+Credit SuperGrey and preserve the MIT notice in `LICENSE` and generated files.
+AI-assisted maintenance retains the original authorship and licensing without
+an additional maintainer copyright claim.

@@ -4,6 +4,7 @@ import type { BatchStatus, CheckOutcome } from "./check-batch.ts";
 import type { Translator } from "../../i18n/index.ts";
 import type { ExistingNomination } from "../../domain/existing-nominations.ts";
 import type { DykStatus } from "../../domain/dyk-status.ts";
+import type { PageAssessment } from "../../domain/page-assessments.ts";
 
 export interface DialogModelServices {
     msg: Translator;
@@ -16,7 +17,9 @@ export interface DialogModelServices {
 
 export interface DialogServices extends DialogModelServices {
     document: Document;
+    nominationDraftStore?: NominationDraftStore;
     getDykStatus?(pageName: string): Promise<DykStatus>;
+    getPageAssessments?(pageName: string): Promise<PageAssessment[]>;
     getExistingNominations?(
         pageName: string,
         expectedRevisionId?: string | number | null,
@@ -54,6 +57,21 @@ export interface NominationData extends NominationIdentity {
 export interface NewNominationTable {
     nominations: NominationData[];
     comment: string;
+}
+
+export interface SavedNominationDraft {
+    version: 1;
+    tables: Array<NewNominationTable & { id?: string; activeTab: string }>;
+    activeTableIndex: number;
+    view: "main" | "nomination-summary";
+}
+
+/** Explicit browser saves are independent of wiki submission. */
+export interface NominationDraftStore {
+    load(): SavedNominationDraft | null;
+    save(draft: SavedNominationDraft): void;
+    remove(submittedIds?: readonly string[]): void;
+    subscribe?(listener: () => void): () => void;
 }
 
 /** Flat nominations remain accepted for existing one-table callers. */

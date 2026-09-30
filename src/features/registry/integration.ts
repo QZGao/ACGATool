@@ -7,6 +7,15 @@ import {
     type ExistingNomination,
 } from "../../domain/existing-nominations.ts";
 import type { Feedback } from "../../shared/ports.ts";
+import {
+    getArchiveEligibility,
+    type ArchiveEntryState,
+} from "../../domain/archive-eligibility.ts";
+import {
+    getRenderedDiscussionTimestamp,
+    getRenderedHeaderState,
+    getRenderedReviewTimestamp,
+} from "./archive-state.ts";
 import { findPrecedingDiscussionCommentId } from "./identity.ts";
 import styles from "./registry.css";
 
@@ -29,6 +38,21 @@ export interface RegistryOptions extends Feedback {
     revisionId: string | number | null;
     addStyles(css: string): () => void;
     getUserName?(): string | null;
+    now?(): Date;
+}
+
+function hasRenderedCheckResult(
+    anchor: HTMLElement,
+    heading: HTMLTableCellElement,
+): boolean {
+    const headerState = getRenderedHeaderState(heading);
+    if (headerState) return headerState === "rechecking";
+    // The template uses .mw-notalk for both its placeholder and saved results.
+    const result = anchor.cloneNode(true) as HTMLElement;
+    for (const nestedTable of result.querySelectorAll("table"))
+        nestedTable.remove();
+    const text = (result.textContent ?? "").replace(/\s+/gu, "");
+    return Boolean(text) && !/^此提名尚未核[对對][。.]?$/u.test(text);
 }
 
 export function mountRegistry(
@@ -39,15 +63,29 @@ export function mountRegistry(
     const doc = root.ownerDocument;
     const controller = new AbortController();
     const inserted: Element[] = [];
-    const selected = new Map<HTMLButtonElement, EntrySelection>();
+    const editButtons: HTMLButtonElement[] = [];
+    const selected = new Set<EntrySelection>();
     const nominationRows: Array<{
         selection: EntrySelection;
         check: HTMLButtonElement;
-        select: HTMLButtonElement;
+        controls: HTMLSpanElement;
+        batchControl: {
+            input: HTMLInputElement;
+            label: HTMLLabelElement;
+        } | null;
+        cell: HTMLTableCellElement;
         checked: boolean;
+        restriction: string | null;
+        archiveEntry: ArchiveEntryState;
     }> = [];
-    const restrictions = new Map<Element, string>();
+    const archiveSections: Array<{
+        heading: Element;
+        nextHeading: Element | null;
+        button: HTMLButtonElement;
+        entries: ArchiveEntryState[];
+    }> = [];
     const msg = options.msg;
+    const now = options.now ?? (() => new Date());
     const removeStyles = options.addStyles(styles);
     let busy = false;
     let disposed = false;
@@ -56,18 +94,8 @@ export function mountRegistry(
         row: (typeof nominationRows)[number],
         reason: string | null,
     ) {
-        for (const element of [row.check, row.select]) {
-            if (reason) {
-                restrictions.set(element, reason);
-                element.title = reason;
-            } else {
-                restrictions.delete(element);
-                element.removeAttribute("title");
-            }
-        }
-        if (reason) {
-            selected.delete(row.select);
-        }
+        row.restriction = reason;
+        if (reason) selected.delete(row.selection);
     }
 
     const status = doc.createElement("span");
@@ -78,7 +106,8 @@ export function mountRegistry(
         if (busy || disposed) return;
         busy = true;
         sync();
-        void callback()
+        void Promise.resolve()
+            .then(callback)
             .catch((cause) => {
                 options.reportError(cause, "Registry action");
                 options.notify(
@@ -115,35 +144,110 @@ export function mountRegistry(
                 await actions.checkNomination(selection);
                 return;
             }
-            await actions.checkBatch([...selected.values()]);
+            await actions.checkBatch([...selected]);
             selected.clear();
         });
     }
+    function createBatchControl(selection: EntrySelection) {
+        const label = doc.createElement("label");
+        label.className = "cdx-checkbox cdx-checkbox--inline";
+        const wrapper = doc.createElement("span");
+        wrapper.className = "cdx-checkbox__wrapper";
+        const input = doc.createElement("input");
+        input.type = "checkbox";
+        input.className = "cdx-checkbox__input acga-registry-select";
+        const icon = doc.createElement("span");
+        icon.className = "cdx-checkbox__icon";
+        icon.setAttribute("aria-hidden", "true");
+        const text = doc.createElement("span");
+        text.className = "cdx-checkbox__label";
+        text.textContent = msg("add_to_batch");
+        wrapper.append(input, icon, text);
+        label.append(wrapper);
+        input.addEventListener(
+            "change",
+            () => {
+                if (!busy && !disposed && !input.disabled) {
+                    if (input.checked) selected.add(selection);
+                    else selected.delete(selection);
+                }
+                sync();
+            },
+            { signal: controller.signal },
+        );
+        return { input, label };
+    }
     function sync() {
-        for (const element of inserted.flatMap((item) => [
-            item,
-            ...item.querySelectorAll("button"),
-        ])) {
-            if (element instanceof doc.defaultView!.HTMLButtonElement)
-                element.disabled = busy || restrictions.has(element);
-        }
+        for (const edit of editButtons) edit.disabled = busy;
         for (const row of nominationRows) {
+            row.archiveEntry.checked = row.checked;
+            if (row.checked) {
+                selected.delete(row.selection);
+                row.batchControl?.label.remove();
+                row.batchControl = null;
+            } else if (!row.batchControl) {
+                row.batchControl = createBatchControl(row.selection);
+                row.controls.append(row.batchControl.label);
+            }
             row.check.textContent = msg(
-                selected.size
-                    ? "batch_checking"
-                    : row.checked
-                      ? "recheck"
+                row.checked
+                    ? "recheck"
+                    : selected.size
+                      ? "batch_checking"
                       : "check",
             );
-            const pressed = selected.has(row.select);
-            row.select.setAttribute("aria-pressed", String(pressed));
-            row.select.classList.toggle(
-                "cdx-toggle-button--toggled-on",
-                pressed,
+            row.check.classList.toggle(
+                "cdx-button--action-progressive",
+                !row.checked,
             );
-            row.select.classList.toggle(
-                "cdx-toggle-button--toggled-off",
-                !pressed,
+            const reason =
+                row.restriction ??
+                (row.checked && selected.size
+                    ? msg("recheck_disabled_during_batch")
+                    : null);
+            row.check.disabled = busy || Boolean(reason);
+            if (row.batchControl)
+                row.batchControl.input.disabled = row.check.disabled;
+            const elements = row.batchControl
+                ? [row.check, row.batchControl.input, row.batchControl.label]
+                : [row.check];
+            for (const element of elements) {
+                if (reason) element.title = reason;
+                else element.removeAttribute("title");
+            }
+            const included = selected.has(row.selection);
+            if (row.batchControl) row.batchControl.input.checked = included;
+            row.cell.classList.toggle("acga-registry-selected", included);
+        }
+        const currentTime = now();
+        const archiveReasons = {
+            unreviewed: "archive_disabled_unreviewed",
+            rechecking: "archive_disabled_rechecking",
+            recent: "archive_disabled_recent_check",
+            unknown: "archive_disabled_unknown_time",
+            empty: "archive_disabled_empty",
+        } as const;
+        for (const chapter of archiveSections) {
+            const eligibility = getArchiveEligibility(
+                chapter.entries,
+                getRenderedDiscussionTimestamp(
+                    root,
+                    chapter.heading,
+                    chapter.nextHeading,
+                ),
+                currentTime,
+            );
+            chapter.button.disabled = busy || !eligibility.available;
+            chapter.button.classList.toggle(
+                "cdx-button--action-progressive",
+                eligibility.available && eligibility.emphasized,
+            );
+            chapter.button.title = msg(
+                eligibility.reason
+                    ? archiveReasons[eligibility.reason]
+                    : eligibility.emphasized
+                      ? "archive_ready"
+                      : "archive_recent_discussion",
             );
         }
         status.textContent = busy
@@ -153,11 +257,20 @@ export function mountRegistry(
               : "";
     }
     const occurrences = new Map<string, number>();
-    let section: { date: string; occurrence: number; index: number } | null =
-        null;
+    let section: {
+        date: string;
+        occurrence: number;
+        index: number;
+        archive: (typeof archiveSections)[number];
+    } | null = null;
     for (const node of root.querySelectorAll("h2, h3, table.acgnom-table")) {
         // Nested tables/headings in comments or nomination content are never independent nominations.
         if (node.parentElement?.closest("table.acgnom-table")) continue;
+        const slot = node.closest(".mw-heading") ?? node;
+        if (node.tagName === "H2" || node.tagName === "H3") {
+            const previous = archiveSections.at(-1);
+            if (previous && !previous.nextHeading) previous.nextHeading = slot;
+        }
         if (node.tagName === "H2") {
             section = null;
             continue;
@@ -174,7 +287,6 @@ export function mountRegistry(
             }
             const occurrence = occurrences.get(date) ?? 0;
             occurrences.set(date, occurrence + 1);
-            section = { date, occurrence, index: 0 };
             const archive = button(
                 msg("archive"),
                 () =>
@@ -185,9 +297,16 @@ export function mountRegistry(
                             options.revisionId,
                         ),
                     ),
-                "cdx-button--weight-quiet acga-registry-action",
+                "cdx-button--weight-primary acga-registry-action",
             );
-            const slot = node.closest(".mw-heading") ?? node;
+            const chapter = {
+                heading: slot,
+                nextHeading: null,
+                button: archive,
+                entries: [],
+            };
+            archiveSections.push(chapter);
+            section = { date, occurrence, index: 0, archive: chapter };
             slot.append(archive);
             inserted.push(archive);
             continue;
@@ -204,6 +323,12 @@ export function mountRegistry(
             );
             if (!heading) continue;
             section.index++;
+            const archiveEntry: ArchiveEntryState = {
+                checked: false,
+                rechecking: getRenderedHeaderState(heading) === "rechecking",
+                latestCheckTimestamp: null,
+            };
+            section.archive.entries.push(archiveEntry);
             const selection: EntrySelection = {
                 date: section.date,
                 index: section.index,
@@ -214,12 +339,13 @@ export function mountRegistry(
             const edit = button(
                 msg("edit_nomination"),
                 () => invoke(() => actions.editNomination(selection)),
-                "acga-registry-edit",
+                "cdx-button--size-small acga-registry-edit",
             );
             const editControl = doc.createElement("div");
             editControl.className = "acga-registry-edit-control";
             editControl.append(edit);
             heading.append(editControl);
+            editButtons.push(edit);
             inserted.push(editControl);
             const checkRow = row.nextElementSibling;
             if (
@@ -235,23 +361,31 @@ export function mountRegistry(
                     (cell) => cell.tagName === "TD",
                 );
             if (!anchor || anchor.closest("table") !== table) continue;
+            const cell = anchor.closest("td");
+            if (!cell) continue;
+            const checked = hasRenderedCheckResult(anchor, heading);
+            archiveEntry.checked = checked;
+            archiveEntry.latestCheckTimestamp =
+                getRenderedReviewTimestamp(anchor);
             const controls = doc.createElement("span");
             controls.className = "acga-registry-controls";
             const check = button(
-                msg("check"),
+                msg(checked ? "recheck" : "check"),
                 () => checkSelection(selection),
-                "cdx-button--action-progressive",
+                "cdx-button--size-small",
             );
-            const select = button(msg("add_to_batch"), () => {
-                if (selected.has(select)) selected.delete(select);
-                else selected.set(select, selection);
-                sync();
-            });
-            select.className =
-                "cdx-toggle-button cdx-toggle-button--framed cdx-toggle-button--size-medium acga-registry-select";
-            controls.append(check, select);
+            controls.append(check);
             anchor.append(controls);
-            nominationRows.push({ selection, check, select, checked: false });
+            nominationRows.push({
+                selection,
+                check,
+                controls,
+                batchControl: null,
+                cell,
+                checked,
+                restriction: null,
+                archiveEntry,
+            });
             inserted.push(controls);
         }
     }
@@ -290,6 +424,8 @@ export function mountRegistry(
         if (disposed) return;
         disposed = true;
         controller.abort();
+        for (const row of nominationRows)
+            row.cell.classList.remove("acga-registry-selected");
         for (const element of inserted) element.remove();
         selected.clear();
         removeStyles();

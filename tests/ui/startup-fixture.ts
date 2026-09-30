@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 
 export interface StartupFixtureOptions {
+    language?: string;
     namespaceNumber?: number;
     pageName?: string;
     title?: string;
@@ -10,6 +11,7 @@ export interface StartupFixtureOptions {
     mediaHash?: string;
     sharedFile?: boolean;
     deferredRecipient?: boolean;
+    renderedNominations?: boolean;
 }
 
 /** Exercise the built entry point with real Vue/Codex and read-only host fixtures. */
@@ -20,8 +22,16 @@ export async function mountStartup(
 ): Promise<string[]> {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    const fixtureUrl = "https://acga-startup.test/wiki/Fixture";
+    await page.route(fixtureUrl, (route) =>
+        route.fulfill({ contentType: "text/html", body: "<!doctype html>" }),
+    );
+    await page.goto(fixtureUrl);
+    const content = options.renderedNominations
+        ? '<h2>2026</h2><h3>9月27日</h3><table class="acgnom-table"><tbody><tr><th scope="row" rowspan="2">Example article</th><td>Nomination by another editor</td></tr><tr><td><span class="mw-notalk">此提名尚未核對。</span></td></tr></tbody></table>'
+        : "<h1>Example article</h1><p>Offline article fixture.</p>";
     await page.setContent(
-        '<!doctype html><html lang="en"><body><nav id="p-tb" aria-label="Tools"><ul></ul></nav><main id="mw-content-text"><div class="mw-parser-output"><h1>Example article</h1><p>Offline article fixture.</p></div></main></body></html>',
+        `<!doctype html><html lang="en"><body><nav id="p-tb" aria-label="Tools"><ul></ul></nav><main id="mw-content-text"><div class="mw-parser-output">${content}</div></main></body></html>`,
     );
     await page.addStyleTag({
         content: `body { font-family: sans-serif; } ${assets.styles}`,
@@ -38,6 +48,9 @@ export async function mountStartup(
             errors: [],
         };
         const namespaceNumber = options.namespaceNumber ?? 0;
+        const nominationSource = options.renderedNominations
+            ? "=== 9月27日 ===\n{{ACG提名2\n|條目名稱1=Example article\n|用戶名稱1=Recipient\n|提名理由1={{ACG提名2/request|ver=1|1c}}\n|核對用1=\n}}\n'''提名人：''' [[User:Nominator|Nominator]]\n"
+            : "";
         const configuration: Record<string, unknown> = {
             wgPageName:
                 options.pageName ??
@@ -50,7 +63,7 @@ export async function mountStartup(
             wgRevisionId: options.revisionId ?? 42,
             wgCurRevisionId: options.currentRevisionId ?? 42,
             wgDiffNewId: options.diffNewId,
-            wgUserLanguage: "en",
+            wgUserLanguage: options.language ?? "en",
             wgUserVariant: "",
             wgUserName: "Example",
         };
@@ -145,9 +158,14 @@ export async function mountStartup(
                                         pageid: 1,
                                         revisions: [
                                             {
-                                                revid: 1,
+                                                revid: options.renderedNominations
+                                                    ? (options.revisionId ?? 42)
+                                                    : 1,
                                                 slots: {
-                                                    main: { content: "" },
+                                                    main: {
+                                                        content:
+                                                            nominationSource,
+                                                    },
                                                 },
                                             },
                                         ],

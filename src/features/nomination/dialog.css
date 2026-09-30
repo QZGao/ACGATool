@@ -4,6 +4,10 @@
     max-width: var(--acga-dialog-width);
 }
 
+.acga-codex-dialog .cdx-table__table thead th {
+    text-align: center;
+}
+
 .acga-dialog-footer {
     display: flex;
     align-items: center;
@@ -51,15 +55,52 @@
 .acga-nomination-tabs-scroll {
     display: flex;
     align-items: flex-end;
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
 }
 
 .acga-nomination-tab {
+    position: relative;
     display: flex;
     align-items: center;
 }
 
 .acga-nomination-tab-label.cdx-tabs__list__item {
     padding-inline: 12px;
+}
+
+.acga-nomination-tab-label[draggable="true"] {
+    cursor: grab;
+}
+
+.acga-nomination-tab-dragging {
+    opacity: 0.55;
+}
+
+.acga-nomination-tab-drop-before::before,
+.acga-nomination-tab-drop-after::after {
+    position: absolute;
+    inset-block: 4px;
+    width: 2px;
+    background-color: var(--border-color-progressive, #36c);
+    content: "";
+    pointer-events: none;
+}
+
+.acga-nomination-tab-drop-before::before {
+    inset-inline-start: 0;
+}
+
+.acga-nomination-tab-drop-after::after {
+    inset-inline-end: 0;
+}
+
+.acga-nomination-drop-target,
+.acga-nomination-table-drop-target {
+    outline: 2px solid var(--border-color-progressive, #36c);
+    outline-offset: -2px;
+    background-color: var(--background-color-progressive-subtle, #eaf3ff);
 }
 
 .acga-nomination-tab-remove.cdx-button {
@@ -69,12 +110,6 @@
 
 .acga-existing-nomination {
     margin-block: 12px;
-}
-
-.acga-nomination-tabs-scroll {
-    flex: 1;
-    min-width: 0;
-    overflow-x: auto;
 }
 
 .acga-nomination-tab-list,
@@ -233,15 +268,6 @@
 
 .acga-rule-row,
 .acga-content-expansion-row,
-.acga-quality-row,
-.acga-review-row {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-}
-
-.acga-content-expansion-row,
 .acga-quality-row {
     display: flex;
     align-items: center;
@@ -253,8 +279,7 @@
 .acga-rule-row,
 .acga-content-expansion-row,
 .acga-quality-row,
-.acga-review-item-controls,
-.acga-target-fields label {
+.acga-review-item-controls {
     box-sizing: border-box;
     min-height: 36px;
 }
@@ -431,25 +456,6 @@
     min-width: 0;
 }
 
-.acga-target-fields {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px 16px;
-    margin-bottom: 10px;
-}
-
-.acga-target-fields-single {
-    grid-template-columns: minmax(0, 32em);
-}
-
-.acga-target-fields label {
-    display: grid;
-    grid-template-columns: max-content minmax(0, 1fr);
-    align-items: center;
-    gap: 8px;
-    font-weight: 700;
-}
-
 .acga-media-rule-list {
     flex-direction: column;
     align-items: flex-start;
@@ -556,7 +562,6 @@
     border: 0;
 }
 
-.acga-check-table-tabs > .cdx-tabs__content,
 .acga-check-item-tabs > .cdx-tabs__content {
     padding: 0;
 }
@@ -592,6 +597,16 @@
     gap: 4px;
 }
 
+.acga-nomination-summary-actions > .cdx-button,
+.acga-check-actions > .cdx-button,
+.acga-check-header-actions > .cdx-button--icon-only {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0;
+}
+
 .acga-code-preview {
     margin-top: 16px;
 }
@@ -623,6 +638,16 @@
 .acga-check-summary dd {
     margin: 0;
     min-width: 0;
+}
+
+.acga-article-status {
+    display: grid;
+    gap: 2px;
+    margin-top: 4px;
+    color: var(--color-subtle, #54595d);
+    font-size: 0.875em;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
 }
 
 .acga-confirm-message {
@@ -694,10 +719,6 @@
         min-width: 0;
     }
 
-    .acga-target-fields {
-        grid-template-columns: 1fr;
-    }
-
     .acga-dialog-footer {
         align-items: flex-end;
         flex-direction: column;
@@ -717,21 +738,6 @@
     }
 }
 
-.acga-review-summary {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 12px;
-    margin-block: 0 4px;
-}
-
 .acga-dyk-nomination {
-    display: inline-block;
-    margin-inline: 0.25rem;
-    padding: 0.125rem 0.375rem;
-    border: 1px solid var(--border-color-progressive, #36c);
-    border-radius: 2px;
-    background: var(--background-color-progressive-subtle, #eaf3ff);
-    color: var(--color-progressive, #36c);
-    font-size: 0.875rem;
+    margin-inline-start: 0.25rem;
 }

@@ -78,8 +78,8 @@ test("checking excludes itself and warns only when both page and recipient match
     await settle();
     assert.equal(vm.existingNominationNotices.length, 1);
     assert.deepEqual(
-        vm.existingNominationNotices.map((item: any) => item.sameRecipient),
-        [true],
+        vm.existingNominationNotices.map((item: any) => item.awarder),
+        ["Example"],
     );
     assert.equal(vm.existingNominationNotices[0].index, 2);
     assert.equal(vm.existingNominationNotices[0].url, entry.url);
@@ -96,7 +96,7 @@ test("duplicate notices follow explicit recipients and contextual title defaults
     });
     vm.openNew();
     await settle();
-    assert.equal(vm.existingNominationNotices[0].sameRecipient, true);
+    assert.equal(vm.existingNominationNotices[0].awarder, "Example");
     vm.currentNomination.awarder = "Other";
     assert.equal(vm.existingNominationNotices.length, 0);
     vm.currentNomination.awarder = "User:example";

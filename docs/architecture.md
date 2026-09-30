@@ -1,147 +1,86 @@
 # Architecture
 
-ACGATool follows wikEd Lite's module ownership and verification conventions while
-retaining SuperGrey's nomination, scoring, and wikitext behavior.
+ACGATool separates deterministic nomination rules from browser state and wiki
+effects. [Usage](usage.md) describes workflows; [wiki contracts](wiki-contracts.md)
+describe the page formats and host assumptions.
 
-| Path                       | Responsibility                                                                   |
-| -------------------------- | -------------------------------------------------------------------------------- |
-| `src/app/`                 | Browser startup, composition, service contracts, and nomination orchestration.   |
-| `src/domain/`              | Nomination models, deterministic scoring, parsing, and wikitext transformations. |
-| `src/platform/mediawiki/`  | Page context, API requests, and ResourceLoader contracts.                        |
-| `src/features/nomination/` | Nomination form, draft state, Codex dialogs, templates, and layout.              |
-| `src/features/registry/`   | Registration-page controls and integration with native page content.             |
-| `src/shared/`              | Small independent capabilities.                                                  |
-| `src/i18n/`                | Interface translations and language selection.                                   |
-| `src/types/`               | MediaWiki, build, and imported text-asset declarations.                          |
-| `tests/`                   | Offline unit and service tests; browser scenarios are under `tests/ui/`.         |
-| `scripts/`                 | TypeScript build, test, and release tools.                                       |
-| `dist/`                    | Generated installation artifacts, excluded from Git.                             |
+| Path                                     | Responsibility                                                         |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
+| `src/app/`                               | Startup, composition, service contracts, and nomination orchestration. |
+| `src/domain/`                            | Nomination models, scoring, parsing, and wikitext transformations.     |
+| `src/platform/`                          | MediaWiki APIs, page context, runtime adapters, and browser storage.   |
+| `src/features/nomination/`               | Forms, dialog lifecycle, drafts, templates, and layout.                |
+| `src/features/registry/`                 | Registration controls and native page integration.                     |
+| `src/shared/`, `src/i18n/`, `src/types/` | Independent utilities, translations, and host declarations.            |
+| `tests/`, `scripts/`                     | Offline fixtures and verification; TypeScript build and release tools. |
+| `dist/`                                  | Generated installation artifacts.                                      |
 
-Use lowercase kebab-case names. Reserve `index.ts` for deliberate public exports.
-`src/index.ts` is side-effect free; the actual browser entry is
-`src/app/browser.ts`. Domain rules do not read `window`, `document`, `mw`, storage,
-or the network. The composition root wires concrete host operations into services
-and UI, so the same rules and workflows can run against local test fixtures.
+Use lowercase kebab-case filenames and deliberate public exports. `src/index.ts`
+is side-effect free; `src/app/browser.ts` starts the browser application. Domain
+rules operate on supplied values. The composition root injects APIs, storage and
+host capabilities into services and UI.
 
-## Submission and state
+## Nomination state
 
-The nomination dialog owns its draft and author/reason edits. Nomination
-rules use five exclusive categories: 1–4, 5, 6, 7, and 8. One nomination belongs
-to one category; forms, checking, and reason rebuilding share these boundaries.
-Review nominations have exclusive general (`5`), specialist (`5a`/`5b`/`5c`),
-and comprehensive (`5x`) modes. The tier preset only fills row controls; emitted
-codes and scores come from the active mode's rows. Each row retains its own tier,
-custom description, and editable score when modes change. General and specialist
-rows also support quick reviews; comprehensive rows have no quick-review control.
-Existing comprehensive custom totals remain editable without dividing them across
-the specialist rows.
-New nominations start with one template group. Framed outer table tabs and an
-add-table button are always visible, with unframed nomination-item tabs inside
-each table. Navigation retains each group's drafts and active nomination. Each
-table is submitted as its own group; removing its last item removes that empty
-group, while the batch must retain at least one nomination. Adding an item or
-table first validates the active nomination;
-blank values resolve through their context defaults, and selected scores must
-total more than zero. All groups pass validation before opening the batch summary. The summary
-shows validated recipients, targets, scores, and detail codes. Editing a summary
-row uses a separate local draft; accepting that edit updates the reviewed row.
-Summary rows can be frozen without deleting their drafts. Frozen rows remain
-visible with no number, while included rows are numbered continuously. Preview
-and submission omit frozen rows and empty groups, retaining each included
-group's comment. Freezing every row disables preview and submission until a row
-is restored. Frozen state survives item edits and switching tabs.
-Each group's optional comment is entered in its summary-table footer and saved below its
-nominator signature, outside the nomination tables. A group exceeding the
-template's 25-item limit is automatically split while retaining its comment.
-Preview parses the same batch source through the injected MediaWiki API without
-editing a page. Parser output is shown in a sandboxed iframe with scripts and
-forms disabled; closing the preview invalidates pending responses.
-Batch checking stages each accepted result locally for the current session.
-One batch dialog groups entries by their physical registration template, with
-outer table tabs and inner item tabs. Navigation retains each item's form,
-selection, repair draft, reset origins, and undo/redo history. Row and table
-resets are undoable; the table footer's checker comment shares that history.
-Changing an accepted result removes its staged version until it is accepted
-again. Staging replaces entries by stable source identity, so cloned targets and
-revisits cannot duplicate scoring. Skip removes any staged result for that item.
-Cancel discards the whole batch; Quit submits only accepted results. Completion
-keeps the dialog open after a pre-commit failure and closes after a registration
-write, including a reported score-list partial failure, to prevent duplicate edits.
-Editing a draft must not write a wiki page. Completing the batch prepares the
-final registration text and score text, then performs one edit of each affected
-page. Cancelling discards the unsubmitted batch. Service logic validates and prepares a batch before
-issuing edits, reports failures, and protects existing page content.
+Each nomination belongs to one of five exclusive categories: 1–4, 5, 6, 7, or 8.
+Forms, checking and reason rebuilding use the same boundaries. Review scoring
+uses general (`5`), specialist (`5a`/`5b`/`5c`), or comprehensive (`5x`) mode;
+the active rows determine emitted codes and scores.
 
-MediaWiki does not expose an atomic transaction covering two pages. The UI must
-therefore report a partial failure accurately, preserve enough state to recover,
-and avoid claiming that both pages were saved when only the first edit succeeded.
+A dialog owns its editable batch, table comments, selected item and pending
+lookups. Validation resolves blank fields through their contextual defaults and
+requires positive selected scores. The same validation governs summary review,
+preview, explicit draft saving and submission. Frozen items retain their drafts
+and are omitted from preview and submission.
 
-## Interface and build
+An injected store persists one versioned nomination batch per user and origin.
+Stable table and item IDs let the dialog merge local changes with later saves,
+including edits and deletions. Browser notifications refresh open sessions while
+preserving unfinished inputs, reordered items and navigation. Synchronization waits during
+a tab drag, summary-row edit or wiki submission; a changed reviewed batch returns to its
+updated summary and invalidates its parsed preview.
 
-The feature owns its `.ts` component logic, `.vue` template text, and scoped CSS.
-The host wiki supplies Vue and Codex using ResourceLoader. A typed `msg(key, values)`
-capability selects matching English, Simplified Chinese, and Traditional Chinese
-JSON catalogs. Named placeholders carry dynamic values; translation keys are
-independent of displayed prose. Templates interpolate
-untrusted source as text; native integration uses DOM APIs. HanAssist is not
-downloaded or bundled; local language selection keeps tests and builds offline.
+Successful submission removes only included items whose stored versions still
+match the submitted snapshot. Frozen items and newer saves survive. Cancel
+discards the current unsaved changes while retaining the last explicit snapshot;
+failed submission retains that snapshot for recovery.
 
-The build uses esbuild and Terser, embeds imported CSS and Vue text, checks that no
-package runtime slipped into the production bundle, and parses the complete
-deliverables before replacing `dist/`. Both installation formats embed the full
-MIT notice and credit SuperGrey. The userscript waits briefly for the MediaWiki
-runtime, then starts the same application entry.
+## Checks and wiki writes
 
-Article-context nominations can suggest a recipient from the year of revision
-history leading up to the lookup. The platform reads every history page and the parent
-revision sizes; the domain ranks editors by cumulative positive byte additions.
-New drafts show recipient and contextual page defaults as placeholders. Article-creation drafts for
-the sidebar's article use the suggested contributor; other categories use the
-current user. File pages and MediaViewer previews start in category 6 and suggest
-the latest uploader, including files held on Commons. Permalink and diff views
-suggest the displayed revision's editor for every category except category 7,
-which uses the tool's current user. Pending lookups display an ellipsis; that
-display text is never saved as a recipient. Explicit input takes priority, and a
-blank field resolves to its context default in validation, previews, summaries,
-and saving. Late responses cannot change reviewed or closed drafts.
+Checking drafts remain local until batch completion. Each source nomination has
+a stable identity; accepting replaces its staged result, editing invalidates it,
+and skipping removes it. Item forms, comments and undo/redo histories survive
+navigation. Cancel discards staged results; Quit submits accepted results.
 
-Forms for categories 1–4, 5, and 6 look up existing nominations in the active
-registration source. A possible duplicate notice links to the matching date
-section only when both the target page and score recipient match, excluding the
-row being edited or checked. Categories 7 and 8 do not show these notices.
-Matching normalizes page and recipient spelling, including spaces and namespace
-aliases, without treating two requests as proof that the same work is awarded.
-Lookup errors remain visible in the supported categories, and obsolete responses
-are discarded.
-Registry checks compare the current user with the nomination's signed submitter
-and score recipient. Either match disables the check button and batch selection,
-with a tooltip explaining the reason. The service enforces the same restriction
-when opening and saving checks; batch progress counts eligible entries only.
-Checked entries use a recheck action and distinct edit summaries. Rechecks load
-the saved scoring rows, selections and comment while retaining the original
-request; unsupported saved results use the source editor. A recheck
-adjusts the score list by the difference from its previous saved result,
-including a negative difference when the accepted score decreases.
+Services resolve and validate the entire batch against a current source snapshot
+before preparing one registration-page edit and one score-list edit. Rechecks
+apply the difference from the previous recognized score. The service also
+enforces submitter/recipient checking restrictions and archive eligibility.
 
-Score checking reads the target's talk page only when the ACGA nomination requests
-the DYK scoring item. The check summary adds a DYK status row showing the latest
-archived nomination's main author, closing date, and `result` outcome (`+` for
-passed, `-` for not passed). Finalized `DYKEntry/archive` outcomes take precedence
-over older appearance banners. Without archive outcomes, the parser recognizes
-the documented [DYKtalk banner](https://zh.wikipedia.org/wiki/Template:DYKtalk/doc)
-and [Article history DYK dates](https://zh.wikipedia.org/wiki/Template:Article_history/doc).
-Comments and literal wikitext examples are ignored. A missing record and a failed
-lookup have distinct messages; the talk-page link supports manual checking, and
-the result does not change the score selection.
-An actual `DYK_Invite` or `DYK Invite` banner also shows a current-nomination tag,
-independent of any earlier archived outcome or appearance record.
+MediaWiki's two page edits are sequential. A registration write followed by a
+score-list failure is a partial success, and the dialog reports the committed
+page and required recovery. A pre-commit failure leaves the draft open; a
+committed registration closes the checking session to prevent duplicate scoring.
 
-Edit summaries fit within 255 UTF-8 bytes, including the tool credit. Nomination
-summaries try linked recipients, targets, scoring codes and scores first, then
-omit codes, omit targets and group item scores by recipient, remove recipient
-links, and collapse score sums. If recipient totals still do not fit, the summary
-uses the batch total, then recipient and item counts. Other edit summaries remove
-links before shortening text without splitting Unicode characters.
+## Host, lifecycle and build
 
-Formatting, linting, type checking, unused-code checks, unit tests, and offline
-browser tests make up `npm run verify`. CI and releases use that same pipeline.
+Production obtains Vue and Codex from MediaWiki ResourceLoader. Feature components
+own TypeScript logic, Vue templates and CSS. Typed message catalogs provide
+English, Simplified Chinese and Traditional Chinese text with named placeholders.
+
+Wiki content enters the UI as text or through DOM APIs. Parsed batch previews use
+a sandboxed iframe. Closing dialogs releases hosts, applications and listeners;
+session and request identities discard obsolete responses. Successful display
+lookups and in-flight requests are cached within a dialog session, with failures
+available for retry.
+
+The compact gadget minifies CSS and Vue template whitespace and expressions,
+and shortens internal message IDs across code, templates and catalogs. Source
+catalogs and the readable userscript retain descriptive IDs. The build rejects
+bundled package runtimes, validates both installation formats, and embeds
+SuperGrey's credit and the full MIT notice.
+
+Production runtimes stay with ResourceLoader; locked npm packages supply
+development types, tooling and offline fixtures. `npm run verify` combines
+formatting, lint, type and unused-code checks with unit and Chromium tests.
+CI and releases use the same pipeline.

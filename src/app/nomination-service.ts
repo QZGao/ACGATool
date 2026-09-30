@@ -26,6 +26,7 @@ import {
     insertArchiveSection,
     insertNominationIntoRegistry,
 } from "../domain/registry.ts";
+import { getWikitextArchiveEligibility } from "../domain/archive-eligibility.ts";
 import type {
     PageSnapshot,
     EditPageOptions,
@@ -91,7 +92,6 @@ export interface NominationServices extends Feedback {
 interface PendingChange {
     target: NominationTarget;
     fields: Record<string, string>;
-    pageName: string;
     summaryItem: NominationSummaryItem;
     score?: number;
     manualScore?: boolean;
@@ -513,7 +513,6 @@ export function createNominationService(services: NominationServices) {
         return queueOrCommit(
             {
                 target,
-                pageName: nomination.pageName,
                 summaryItem: nomination,
                 fields: {
                     條目名稱: nomination.pageName.trim(),
@@ -567,7 +566,6 @@ export function createNominationService(services: NominationServices) {
             {
                 target,
                 fields,
-                pageName: nomination.pageName,
                 score: formatted.reasonScore,
                 check: true,
                 summaryItem: { ...nomination, score: formatted.reasonScore },
@@ -607,7 +605,6 @@ export function createNominationService(services: NominationServices) {
             {
                 target,
                 fields,
-                pageName: fields.條目名稱,
                 summaryItem: {
                     pageName: fields.條目名稱,
                     awarder: fields.用戶名稱,
@@ -765,6 +762,10 @@ export function createNominationService(services: NominationServices) {
                 return true;
             }
             const body = source.text.slice(section.start, section.end);
+            if (!getWikitextArchiveEligibility(body, now()).available) {
+                error("archive_not_ready");
+                return true;
+            }
             const stamp = body.match(
                 /提名人：[\s\S]*?(\d{4})年(\d{1,2})月(\d{1,2})日[^\n]*?\(UTC\)/u,
             );

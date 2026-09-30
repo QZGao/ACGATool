@@ -151,7 +151,7 @@ function state(vm: any) {
     };
 }
 
-test("batch navigation groups tables and preserves each item's edits, history, selection, and origins", () => {
+test("flat batch navigation preserves each item's edits, history, selection, and origins across tables", () => {
     const { vm, events } = fixture();
     vm.openCheckBatch([
         entry("4-dyk?(首項)[2] 4-dyk(末項)[0.5]", 1),
@@ -159,27 +159,16 @@ test("batch navigation groups tables and preserves each item's edits, history, s
         entry("6", 3, "second-table", 1),
     ]);
     assert.equal(vm.checkBatchIndex, 0);
+    assert.deepEqual(vm.checkNavigationItems, [0, 1, 2]);
     assert.deepEqual(
-        vm.checkNavigationTables.map((table: any) => ({
-            key: table.key,
-            index: table.index,
-            items: table.items,
-        })),
-        [
-            {
-                key: "first-table",
-                index: 0,
-                items: [
-                    { index: 0, position: 0 },
-                    { index: 1, position: 1 },
-                ],
-            },
-            {
-                key: "second-table",
-                index: 1,
-                items: [{ index: 2, position: 0 }],
-            },
-        ],
+        vm.checkNavigationItems.map((index: number) =>
+            vm.checkBatchItemLabel(index),
+        ),
+        ["項目1 · 待核對", "項目2 · 待核對", "項目3 · 待核對"],
+    );
+    assert.deepEqual(
+        vm.checkBatchEntries.map((item: CheckBatchEntry) => item.tableKey),
+        ["first-table", "first-table", "second-table"],
     );
     vm.setCheckCode(vm.checkTableRows[0], "4-req");
     vm.setCheckScore(vm.checkTableRows[0], "4.5");
@@ -206,8 +195,12 @@ test("batch navigation groups tables and preserves each item's edits, history, s
     const second = state(vm);
     vm.selectCheckBatchItem("2");
     assert.equal(vm.checkBatchIndex, 2);
+    assert.equal(vm.currentNomination.pageName, "Article 3");
     assert.equal(vm.checkTableRows[0].rule, "6");
     assert.equal(vm.canUndoCheckEdit, false);
+    vm.setCheckScore(vm.checkTableRows[0], "2.5");
+    vm.setCheckMessage("第三項核對說明");
+    const third = state(vm);
 
     vm.selectCheckBatchItem("0");
     assert.deepEqual(state(vm), first);
@@ -233,6 +226,13 @@ test("batch navigation groups tables and preserves each item's edits, history, s
     assert.equal(vm.checkBatchIndex, 0);
     assert.equal(vm.currentNomination.message, "第一項核對說明");
     assert.equal(vm.checkTableRows[1].code, "4-req");
+    vm.selectCheckBatchItem("2");
+    assert.deepEqual(state(vm), third);
+    vm.undoCheckEdit();
+    assert.equal(vm.currentNomination.message, "");
+    assert.equal(vm.checkTableRows[0].score, "2.5");
+    vm.redoCheckEdit();
+    assert.deepEqual(state(vm), third);
     assert.deepEqual(events, []);
 });
 

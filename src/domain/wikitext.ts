@@ -1,11 +1,8 @@
-import {
-    NominationRuleAliases,
-    NominationRuleSet,
-    parseReasonTokens,
-} from "./rules.ts";
+import { NominationRuleSet, parseReasonTokens } from "./rules.ts";
 import { boundedToolSummary } from "./edit-summary.ts";
 
 type SourceLocation = { start: number; end: number };
+type SourceToken = SourceLocation & { text: string };
 type TemplateParameter = {
     value: string;
     fullLocation: SourceLocation;
@@ -18,9 +15,10 @@ type ParsedTemplate = {
     nameLocation: SourceLocation;
     params: Record<string, TemplateParameter>;
     location: SourceLocation;
-    entries?: Array<
-        Record<string, TemplateParameter> & { fullLocation: SourceLocation }
-    >;
+    entries?: Array<{
+        fullLocation: SourceLocation;
+        [key: string]: TemplateParameter | SourceLocation;
+    }>;
 };
 
 /** Keep source offsets stable while ignoring comments and literal wikitext examples. */
@@ -31,11 +29,9 @@ function structuralWikitext(text: string): string {
     );
 }
 
-function trimToken(token: any): any {
-    const leadingMatch = token.text.match(/^\s*/);
-    const trailingMatch = token.text.match(/\s*$/);
-    const leading = leadingMatch ? leadingMatch[0].length : 0;
-    const trailing = trailingMatch ? trailingMatch[0].length : 0;
+function trimToken(token: SourceToken): SourceToken {
+    const leading = token.text.length - token.text.trimStart().length;
+    const trailing = token.text.length - token.text.trimEnd().length;
     return {
         text: token.text.trim(),
         start: token.start + leading,
@@ -50,7 +46,7 @@ function trimToken(token: any): any {
  * @param offset innerContent 在維基文字中的絕對起始位置。
  * @returns 詞元陣列；每個詞元都是 { text, start, end } 物件。
  */
-function splitParameters(innerContent: string, offset: number): Array<any> {
+function splitParameters(innerContent: string, offset: number): SourceToken[] {
     const structure = structuralWikitext(innerContent);
     const tokens = [];
     let lastIndex = 0;
@@ -150,116 +146,76 @@ function parseTemplate(
         },
     };
 
-    if (templateObj.name.startsWith("ACG提名2")) {
-        const kvGroups: Record<string, any> = {};
-        for (let j = 1; j < tokens.length; j++) {
-            const token = tokens[j];
-            const tokenTrim = trimToken(token);
-            if (tokenTrim.text === "") continue;
-            const eqIndex = tokenTrim.text.indexOf("=");
-            if (eqIndex === -1) continue;
-            const rawKey = tokenTrim.text.substring(0, eqIndex);
-            const rawValue = tokenTrim.text.substring(eqIndex + 1);
-            const keyText = rawKey.trim();
-            const valueText = rawValue.trim();
-            const keyLeading = rawKey.match(/^\s*/)[0].length;
-            const keyLocation = {
-                start: tokenTrim.start + keyLeading,
-                end: tokenTrim.start + keyLeading + keyText.length,
-            };
-            const valueLeading = rawValue.match(/^\s*/)[0].length;
-            const valueLocation = {
-                start: tokenTrim.start + eqIndex + 1 + valueLeading,
-                end: tokenTrim.end,
-            };
-            const m = keyText.match(/^(.+?)(\d+)$/);
-            if (m) {
-                const prefix = m[1].trim();
-                const num = parseInt(m[2], 10);
-                if (!kvGroups[num]) kvGroups[num] = {};
-                kvGroups[num][prefix] = {
-                    value: valueText,
-                    keyLocation: keyLocation,
-                    valueLocation: valueLocation,
-                    fullLocation: {
-                        start: token.start,
-                        end: token.end,
-                    },
-                };
-            } else {
-                if (!kvGroups["0"]) kvGroups["0"] = {};
-                kvGroups["0"][keyText] = {
-                    value: valueText,
-                    keyLocation: keyLocation,
-                    valueLocation: valueLocation,
-                    fullLocation: {
-                        start: token.start,
-                        end: token.end,
-                    },
-                };
-            }
-        }
-        const entries = [];
-        const groupNums = Object.keys(kvGroups)
-            .filter((k: any) => k !== "0")
-            .map(Number)
-            .sort((a: any, b: any) => a - b);
-        for (const num of groupNums) {
-            const group = kvGroups[num];
-            const allTokens = Object.values(group) as TemplateParameter[];
-            const startPos = Math.min(
-                ...allTokens.map((t: any) => t.fullLocation.start),
-            );
-            const endPos = Math.max(
-                ...allTokens.map((t: any) => t.fullLocation.end),
-            );
-            group.fullLocation = {
-                start: startPos,
-                end: endPos,
-            };
-            entries.push(group);
-        }
-        templateObj.entries = entries;
-    } else {
-        for (let j = 1; j < tokens.length; j++) {
-            const token = tokens[j];
-            const tokenTrim = trimToken(token);
-            if (tokenTrim.text === "") continue;
-            const eqIndex = tokenTrim.text.indexOf("=");
-            if (eqIndex !== -1) {
-                const rawKey = tokenTrim.text.substring(0, eqIndex);
-                const rawValue = tokenTrim.text.substring(eqIndex + 1);
-                const keyText = rawKey.trim();
-                const valueText = rawValue.trim();
-                const keyLeading = rawKey.match(/^\s*/)[0].length;
-                const keyLocation = {
-                    start: tokenTrim.start + keyLeading,
-                    end: tokenTrim.start + keyLeading + keyText.length,
-                };
-                const valueLeading = rawValue.match(/^\s*/)[0].length;
-                const valueLocation = {
-                    start: tokenTrim.start + eqIndex + 1 + valueLeading,
-                    end: tokenTrim.end,
-                };
-                templateObj.params[keyText] = {
-                    value: valueText,
-                    keyLocation: keyLocation,
-                    valueLocation: valueLocation,
-                    fullLocation: {
-                        start: token.start,
-                        end: token.end,
-                    },
-                };
-            } else {
+    const numbered = templateObj.name.startsWith("ACG提名2");
+    const groups: Record<string, Record<string, TemplateParameter>> = {};
+    for (let j = 1; j < tokens.length; j++) {
+        const token = tokens[j];
+        const trimmed = trimToken(token);
+        if (trimmed.text === "") continue;
+        const equal = trimmed.text.indexOf("=");
+        if (equal < 0) {
+            if (!numbered) {
                 templateObj.params[j] = {
-                    value: tokenTrim.text,
+                    value: trimmed.text,
                     fullLocation: {
                         start: token.start,
                         end: token.end,
                     },
                 };
             }
+            continue;
         }
+        const rawKey = trimmed.text.slice(0, equal);
+        const rawValue = trimmed.text.slice(equal + 1);
+        const key = rawKey.trim();
+        const value = rawValue.trim();
+        const valueLeading = rawValue.length - rawValue.trimStart().length;
+        const parameter: TemplateParameter = {
+            value,
+            keyLocation: {
+                start: trimmed.start,
+                end: trimmed.start + key.length,
+            },
+            valueLocation: {
+                start: trimmed.start + equal + 1 + valueLeading,
+                end: trimmed.end,
+            },
+            fullLocation: { start: token.start, end: token.end },
+        };
+        if (numbered) {
+            const suffix = key.match(/^(.+?)(\d+)$/);
+            const groupNumber = suffix ? Number(suffix[2]) : 0;
+            const groupKey = suffix ? suffix[1].trim() : key;
+            (groups[groupNumber] ??= {})[groupKey] = parameter;
+        } else {
+            templateObj.params[key] = parameter;
+        }
+    }
+    if (numbered) {
+        templateObj.entries = Object.keys(groups)
+            .filter((number) => number !== "0")
+            .map(Number)
+            .sort((left, right) => left - right)
+            .map((number) => {
+                const group = groups[number];
+                const parameters = Object.values(group);
+                return {
+                    ...group,
+                    fullLocation: {
+                        start: Math.min(
+                            ...parameters.map(
+                                (param) => param.fullLocation.start,
+                            ),
+                        ),
+                        end: Math.max(
+                            ...parameters.map(
+                                (param) => param.fullLocation.end,
+                            ),
+                        ),
+                    },
+                };
+            });
+    } else {
         const extraParam = templateObj.params["額外提名"];
         if (extraParam?.valueLocation) {
             extraParam.nestedTemplates = parseMultipleTemplates(
@@ -621,7 +577,7 @@ function removeComments(text: string): string {
  */
 export function parseUserReason(reason: string): any {
     const { ruleDict } = NominationRuleSet();
-    return parseReasonTokens(reason, ruleDict, NominationRuleAliases());
+    return parseReasonTokens(reason, ruleDict);
 }
 
 /**
@@ -1005,11 +961,7 @@ export function parseNominationCheckWikitext(
         [source.rejected, false],
     ] as const) {
         if (expression === "" || expression === "0") continue;
-        const parsed = parseReasonTokens(
-            expression,
-            ruleDict,
-            NominationRuleAliases(),
-        );
+        const parsed = parseReasonTokens(expression, ruleDict);
         if (!parsed.ok)
             return { ok: false, error: { code: "unrecognized-check-rules" } };
         for (const token of parsed.tokens) {
@@ -1040,11 +992,7 @@ export function getCheckedScore(checkWikitext: string): CheckedScoreResult {
     const expression = source.accepted;
     if (expression === "" || expression === "0") return { ok: true, score: 0 };
     const { ruleDict } = NominationRuleSet();
-    const parsed = parseReasonTokens(
-        expression,
-        ruleDict,
-        NominationRuleAliases(),
-    );
+    const parsed = parseReasonTokens(expression, ruleDict);
     if (!parsed.ok)
         return { ok: false, error: { code: "unrecognized-check-rules" } };
     let score = 0;

@@ -1,5 +1,3 @@
-import type { MessageKey } from "../../i18n/index.ts";
-import type { MessageValues } from "../../shared/i18n.ts";
 import { nominationRuleGroup } from "../../domain/rules.ts";
 import type { ComponentOptions } from "vue";
 import {
@@ -16,17 +14,29 @@ import {
 } from "../../domain/existing-nominations.ts";
 import type { ExistingNomination } from "../../domain/existing-nominations.ts";
 import type { DykStatus } from "../../domain/dyk-status.ts";
-import { dialogHostTemplate } from "./templates.ts";
+import {
+    groupPageAssessments,
+    type PageAssessment,
+} from "../../domain/page-assessments.ts";
+import { articleStatusTemplate, dialogHostTemplate } from "./templates.ts";
 import { createNominationModel, getSelectedScoreTotal } from "./model.ts";
 import { createRuleFormComponents } from "./rule-forms.ts";
 import { createScoreInput } from "./score-input.ts";
 import { createPreviewDocument } from "./preview-document.ts";
+import { createDykMessage } from "./dyk-message.ts";
+import {
+    captureNominationDraft,
+    restoreNominationDraft,
+} from "./draft-state.ts";
+import { mergeNominationDrafts } from "./draft-batch.ts";
 import { CHECK_OUTCOME } from "./check-batch.ts";
 import type {
     DialogRuntime,
     DialogOperations,
     DialogServices,
     CheckBatchEntry,
+    NominationData,
+    SavedNominationDraft,
 } from "./contracts.ts";
 export function createDialogHost(
     runtime: DialogRuntime,
@@ -52,6 +62,7 @@ export function createDialogHost(
         "errorDetails",
     ] as const;
     const dialogId = "acga-dialog-" + Math.random().toString(36).slice(2);
+    const nominationDragType = "application/x-acga-nomination";
     const getQueryRoot = () =>
         services.queryRoot ??
         services.document.querySelector(
@@ -59,12 +70,11 @@ export function createDialogHost(
         ) ??
         services.document;
     const model = createNominationModel(services);
+    let unsubscribeNominationDraft: (() => void) | null = null;
+    let nominationDraftSynchronizationVersion = 0;
     const { ruleNames, ruleDict } = NominationRuleSet(msg);
     const ruleGroups = NominationRules(msg);
-    const { RuleEditor, ActivityEditor, AuthorForm } = createRuleFormComponents(
-        Codex,
-        model,
-    );
+    const { AuthorForm } = createRuleFormComponents(Codex, model);
     const {
         authorCodePreviewResult,
         checkCodePreviewResult,
@@ -87,12 +97,24 @@ export function createDialogHost(
     return {
         name: "AcgaDialogHost",
         components: {
+            AcgaArticleStatus: {
+                props: {
+                    status: { type: Object, required: true },
+                    compact: { type: Boolean, default: false },
+                },
+                computed: {
+                    dykMessage() {
+                        return this.compact
+                            ? this.status.compactDykMessage
+                            : this.status.dykMessage;
+                    },
+                },
+                methods: { msg },
+                template: articleStatusTemplate,
+            },
             AcgaAuthorForm: AuthorForm,
-            AcgaActivityEditor: ActivityEditor,
-            AcgaRuleEditor: RuleEditor,
             AcgaScoreInput: createScoreInput(Codex),
             CdxButton: Codex.CdxButton,
-            CdxCheckbox: Codex.CdxCheckbox,
             CdxDialog: Codex.CdxDialog,
             CdxField: Codex.CdxField,
             CdxIcon: Codex.CdxIcon,
@@ -102,7 +124,6 @@ export function createDialogHost(
             CdxTab: Codex.CdxTab,
             CdxTable: Codex.CdxTable,
             CdxTabs: Codex.CdxTabs,
-            CdxToggleButtonGroup: Codex.CdxToggleButtonGroup,
             CdxTextArea: Codex.CdxTextArea,
             CdxTextInput: Codex.CdxTextInput,
         },
@@ -118,6 +139,9 @@ export function createDialogHost(
                 errorDetails: [],
                 nominations: [],
                 nominationTables: [],
+                nominationDraftBaseline: null as SavedNominationDraft | null,
+                nominationDraftSyncPending: false,
+                submittedNominationIds: [] as string[],
                 activeNominationTableIndex: 0,
                 reviewedNominationTables: [],
                 nominationSummaryTables: [],
@@ -138,15 +162,25 @@ export function createDialogHost(
                     string,
                     {
                         items: Array<ExistingNomination & { url: string }>;
-                        loading: boolean;
                         failed: boolean;
                     }
                 >,
                 dykRequestId: 0,
+                dykStatusRequests: new Map<string, Promise<DykStatus>>(),
                 dykStatus: null,
                 dykLoading: false,
                 dykError: false,
+                assessmentRequestId: 0,
+                assessmentRequests: new Map<
+                    string,
+                    Promise<PageAssessment[]>
+                >(),
+                pageAssessments: [] as PageAssessment[],
+                assessmentLoading: false,
+                assessmentError: false,
                 activeTab: "",
+                draggedNominationId: "",
+                nominationDropTarget: "",
                 addIcon: '<path d="M9 2h2v7h7v2h-7v7H9v-7H2V9h7z"/>',
                 removeIcon:
                     '<path d="M7 1h6v2h4v2H3V3h4zm-3 5h12l-1 13H5zm3 2v9h2V8zm4 0v9h2V8z"/>',
@@ -179,7 +213,6 @@ export function createDialogHost(
                 checkBatchDrafts: [] as any[],
                 checkBatchStatuses: [] as string[],
                 checkBatchIndex: -1,
-                checkBatchTableItems: {} as Record<string, number>,
                 confirmData: null,
                 sessionResolve: null,
                 ruleGroups: ruleGroups,
@@ -227,7 +260,6 @@ export function createDialogHost(
                     this.queriedTarget,
                 ).map((item) => ({
                     ...item,
-                    sameRecipient: true,
                     key: `${item.date}:${item.sectionOccurrence}:${item.index}`,
                     description: msg("existing_nomination_details", {
                         date: item.dateLabel,
@@ -244,62 +276,72 @@ export function createDialogHost(
             dykTalkUrl() {
                 return services.getUrl("Talk:" + this.dykTarget);
             },
-            dykTarget() {
+            articleStatusTarget() {
                 if (
                     !this.open ||
-                    this.kind !== "check" ||
-                    this.view !== "main" ||
-                    !services.getDykStatus
+                    this.kind === "confirm" ||
+                    this.previewOpen ||
+                    (!this.editingNomination && this.view !== "main")
                 )
                     return "";
-                const nomination = this.activeNomination;
+                const nomination =
+                    this.editingNomination ?? this.activeNomination;
                 if (
                     !nomination ||
-                    !this.checkRules.some(
-                        (item: { rule: string }) => item.rule === "4-dyk",
-                    )
+                    !["article", "review"].includes(
+                        nomination.activeRuleCategory,
+                    ) ||
+                    ["他薦", "他荐"].includes(nomination.pageName)
                 )
                     return "";
-                return (
+                const title = normalizeNominationPageName(
                     String(nomination.pageName ?? "").trim() ||
-                    articlePageNamePlaceholder(nomination)
+                        articlePageNamePlaceholder(nomination),
                 );
+                return title.startsWith("File:") ? "" : title;
             },
-            dykLatestRecord() {
-                const records: NonNullable<DykStatus["records"]> =
-                    this.dykStatus?.records ?? [];
-                return records.at(-1) ?? null;
+            dykTarget() {
+                return services.getDykStatus ? this.articleStatusTarget : "";
+            },
+            assessmentTarget() {
+                return services.getPageAssessments
+                    ? this.articleStatusTarget
+                    : "";
+            },
+            assessmentGroups() {
+                return groupPageAssessments(this.pageAssessments);
+            },
+            articleStatus() {
+                return {
+                    assessmentTarget: this.assessmentTarget,
+                    assessmentGroups: this.assessmentGroups,
+                    assessmentLoading: this.assessmentLoading,
+                    assessmentError: this.assessmentError,
+                    dykTarget: this.dykTarget,
+                    dykMessage: this.dykMessage,
+                    compactDykMessage: createDykMessage(
+                        this.dykStatus,
+                        this.dykLoading,
+                        this.dykError,
+                        msg,
+                        Date.now(),
+                        true,
+                    ),
+                    dykTalkUrl: this.dykTalkUrl,
+                    dykNominationUrl: services.getUrl(
+                        "Wikipedia:新条目推荐/候选#" + this.dykTarget,
+                    ),
+                    dykStatus: this.dykStatus,
+                };
             },
             dykMessage() {
-                if (this.dykLoading) return msg("dyk_status_loading");
-                if (this.dykError) return msg("dyk_status_failed");
-                if (!this.dykStatus) return "";
-                const record = this.dykLatestRecord;
-                if (record)
-                    return msg(
-                        record.passed
-                            ? record.date
-                                ? "dyk_latest_passed"
-                                : "dyk_latest_passed_undated"
-                            : record.date
-                              ? "dyk_latest_not_passed"
-                              : "dyk_latest_not_passed_undated",
-                        {
-                            author:
-                                record.author ||
-                                msg("dyk_record_author_unknown"),
-                            date: record.date || "",
-                        },
-                    );
-                return this.dykStatus.passed
-                    ? this.dykStatus.date
-                        ? msg("dyk_status_passed_on", {
-                              date: this.dykStatus.date,
-                          })
-                        : msg("dyk_status_passed")
-                    : this.dykStatus.nominated
-                      ? ""
-                      : msg("dyk_status_not_found");
+                return createDykMessage(
+                    this.dykStatus,
+                    this.dykLoading,
+                    this.dykError,
+                    msg,
+                    Date.now(),
+                );
             },
             hasSubmittableNominations() {
                 return this.nominationTables.some((table: any) =>
@@ -340,43 +382,12 @@ export function createDialogHost(
                     this.kind === "check" && this.checkBatchEntries.length > 0
                 );
             },
-            checkNavigationTables() {
-                if (!this.isCheckBatch)
-                    return [
-                        {
-                            key: "single",
-                            index: 0,
-                            active: "0",
-                            items: [{ index: 0, position: 0 }],
-                        },
-                    ];
-                const tables = new Map<string, any>();
-                this.checkBatchEntries.forEach(
-                    (entry: CheckBatchEntry, index: number) => {
-                        if (!tables.has(entry.tableKey))
-                            tables.set(entry.tableKey, {
-                                key: entry.tableKey,
-                                index: entry.tableIndex,
-                                active: String(
-                                    this.checkBatchTableItems[entry.tableKey] ??
-                                        index,
-                                ),
-                                items: [],
-                            });
-                        const table = tables.get(entry.tableKey);
-                        table.items.push({
-                            index,
-                            position: table.items.length,
-                        });
-                    },
-                );
-                return [...tables.values()];
-            },
-            activeCheckTable() {
-                return (
-                    this.checkBatchEntries[this.checkBatchIndex]?.tableKey ??
-                    "single"
-                );
+            checkNavigationItems() {
+                return this.isCheckBatch
+                    ? this.checkBatchEntries.map(
+                          (_entry: CheckBatchEntry, index: number) => index,
+                      )
+                    : [0];
             },
             checkBatchReadyToFinish() {
                 return this.checkBatchStatuses.every(
@@ -509,14 +520,14 @@ export function createDialogHost(
             },
             nominationCategoryButtons() {
                 return [
-                    { value: "article", label: this.articleCreationLabel },
-                    { value: "review", label: this.contentReviewLabel },
-                    { value: "media", label: this.mediaContributionLabel },
+                    { value: "article", label: msg("1_4_article_creation") },
+                    { value: "review", label: msg("5_content_review") },
+                    { value: "media", label: msg("6_media") },
                     {
                         value: "recommendation",
-                        label: this.recommendationContributionLabel,
+                        label: msg("7_nominating_others"),
                     },
-                    { value: "other", label: this.otherContributionLabel },
+                    { value: "other", label: msg("8_other") },
                 ];
             },
             checkRuleCategory() {
@@ -599,9 +610,6 @@ export function createDialogHost(
                     this.currentNomination?.pageName,
                 );
             },
-            cancelLabel() {
-                return msg("cancel");
-            },
             saveLabel() {
                 if (this.kind === "new") return msg("submit_nominations");
                 if (this.isCheckBatch)
@@ -651,204 +659,87 @@ export function createDialogHost(
                     ? ""
                     : createPreviewDocument(this.previewHtml);
             },
-            continueLabel() {
-                return msg("continue");
-            },
-            backLabel() {
-                return msg("edit_nomination");
-            },
-            addLabel() {
-                return msg("add_nomination");
-            },
-            removeLabel() {
-                return msg("delete_this_nomination");
-            },
-            skipLabel() {
-                return msg("skip");
-            },
-            awarderLabel() {
-                return msg("recipient");
-            },
-            pageNameLabel() {
-                return msg("awarded_article");
-            },
-            authorPageNameLabel() {
-                return msg("article_title");
-            },
-            articleCreationLabel() {
-                return msg("1_4_article_creation");
-            },
-            articleLengthLabel() {
-                return msg("1_length");
-            },
-            articleQualityLabel() {
-                return msg("2_quality");
-            },
-            articleFormatLabel() {
-                return msg("3_formatting");
-            },
-            ruleCategoryLabel() {
-                return msg("nomination_category");
-            },
-            contentReviewLabel() {
-                return msg("5_content_review");
-            },
-            mediaContributionLabel() {
-                return msg("6_media");
-            },
-            recommendationContributionLabel() {
-                return msg("7_nominating_others");
-            },
-            otherContributionLabel() {
-                return msg("8_other");
-            },
-            scoringItemsLabel() {
-                return msg("scoring_rules");
-            },
-            codePreviewLabel() {
-                return msg("item_source_preview");
-            },
-            additionalMessageLabel() {
-                return msg("additional_comment");
-            },
-            additionalMessagePlaceholder() {
-                return msg("no_signature_needed");
-            },
-            originalRequestReasonLabel() {
-                return msg("original_nomination_reason");
-            },
-            checkReasonBuilderMessage() {
-                return msg("nomination_repair_help");
-            },
-            contentExpansionLabel() {
-                return msg("expansion_type_or_custom_description");
-            },
             contentExpansionDescriptions() {
                 return ["2 kB", "3 kB", "5 kB"];
             },
-            toLabel() {
-                return msg("to");
-            },
-            qualityStartLabel() {
-                return msg("quality_before_improvement");
-            },
-            qualityTargetLabel() {
-                return msg("quality_after_improvement");
-            },
-            qualityScoreLabel() {
-                return msg("total_quality_improvement_score");
-            },
-            pendingReviewLabel() {
-                return msg("review_pending");
-            },
-            activityChoiceLabel() {
-                return msg("activity_type_or_custom_description");
-            },
-            activityScoreLabel() {
-                return msg("activity_score");
-            },
-            ruleDescriptionLabel() {
-                return msg("description");
-            },
-            ruleScoreLabel() {
-                return msg("score");
-            },
-            addActivityLabel() {
-                return msg("add_activity");
-            },
-            removeActivityLabel() {
-                return msg("remove");
-            },
-            writingReviewLabel() {
-                return msg("writing");
-            },
-            coverageReviewLabel() {
-                return msg("coverage");
-            },
-            sourceReviewLabel() {
-                return msg("source_formatting");
-            },
-            quickReviewLabel() {
-                return msg("quick_review");
-            },
-            reviewTierLabel() {
-                return msg("review_tier");
-            },
-            reviewScoreLabel() {
-                return msg("review_score");
-            },
-            mediaPageNameLabel() {
-                return msg("page_name");
-            },
-            mediaPageNameDescription() {
-                return msg(
-                    "filename_including_file_or_an_article_that_uses_the_file",
-                );
-            },
-            relatedPageLabel() {
-                return msg("related_page");
-            },
-            relatedPageDescription() {
-                return msg("related_page_help");
-            },
-            relatedPagePlaceholder() {
-                return msg("enter_a_related_page_or_leave_blank");
-            },
-            legacyContentExpansionMessage() {
-                return msg(
-                    "this_nomination_has_multiple_expansion_rules_or_custom_scores_each",
-                );
-            },
-            legacyQualityMessage() {
-                return msg(
-                    "this_nomination_has_custom_or_nonconsecutive_quality_improvement_rules_each",
-                );
-            },
-            rule5MappingMessage() {
-                return msg(
-                    "the_existing_rule_5_entries_cannot_be_represented_by_this",
-                );
-            },
         },
         watch: {
+            busy(value: boolean) {
+                if (value) this.endNominationDrag();
+                if (!value) this.flushNominationDraftSynchronization();
+            },
+            editingNomination(value: NominationData | null) {
+                if (!value) this.flushNominationDraftSynchronization();
+            },
             existingNominationPage() {
                 void this.loadExistingNominations();
             },
             dykTarget() {
                 void this.refreshDykStatus();
             },
+            assessmentTarget() {
+                void this.refreshPageAssessments();
+            },
+        },
+        beforeUnmount() {
+            this.stopNominationDraftSynchronization();
+            this.endNominationDrag();
         },
         methods: {
-            async refreshDykStatus() {
-                const pageName = this.dykTarget;
-                const requestId = ++this.dykRequestId;
+            refreshPageAssessments() {
+                return this.refreshArticleStatus("assessment");
+            },
+            refreshDykStatus() {
+                return this.refreshArticleStatus("dyk");
+            },
+            async refreshArticleStatus(this: any, kind: "dyk" | "assessment") {
+                const dyk = kind === "dyk";
+                const lookup = dyk
+                    ? services.getDykStatus
+                    : services.getPageAssessments;
+                const target = kind + "Target";
+                const request = kind + "RequestId";
+                const loading = kind + "Loading";
+                const error = kind + "Error";
+                const result = dyk ? "dykStatus" : "pageAssessments";
+                const pageName = this[target];
+                const requestId = ++this[request];
                 const session = this.sessionResolve;
-                this.dykStatus = null;
-                this.dykError = false;
-                this.dykLoading = Boolean(pageName);
-                if (!pageName || !services.getDykStatus) return;
+                this[result] = dyk ? null : [];
+                this[error] = false;
+                this[loading] = Boolean(pageName);
+                if (!pageName || !lookup) return;
+                const requests =
+                    this[dyk ? "dykStatusRequests" : "assessmentRequests"];
+                const key = normalizeNominationPageName(pageName);
+                let pending = requests.get(key);
+                if (!pending) {
+                    pending = Promise.resolve().then<
+                        DykStatus | PageAssessment[]
+                    >(() => lookup(key));
+                    requests.set(key, pending);
+                }
+                const current = () =>
+                    this.open &&
+                    this.sessionResolve === session &&
+                    this[request] === requestId &&
+                    this[target] === pageName;
                 try {
-                    const result = await services.getDykStatus(pageName);
-                    if (
-                        this.open &&
-                        this.sessionResolve === session &&
-                        this.dykRequestId === requestId &&
-                        this.dykTarget === pageName
-                    )
-                        this.dykStatus = result;
-                } catch (error) {
-                    if (
-                        this.open &&
-                        this.sessionResolve === session &&
-                        this.dykRequestId === requestId &&
-                        this.dykTarget === pageName
-                    ) {
-                        this.dykError = true;
-                        services.reportError(error, "lookup-dyk-status");
+                    const value = await pending;
+                    if (current()) this[result] = value;
+                } catch (cause) {
+                    if (requests.get(key) === pending) requests.delete(key);
+                    if (current()) {
+                        this[error] = true;
+                        services.reportError(
+                            cause,
+                            dyk
+                                ? "lookup-dyk-status"
+                                : "lookup-page-assessments",
+                        );
                     }
                 } finally {
-                    if (this.dykRequestId === requestId)
-                        this.dykLoading = false;
+                    if (current()) this[loading] = false;
                 }
             },
             formatScore(score: string | number | null) {
@@ -862,9 +753,7 @@ export function createDialogHost(
             scoreUnit(score: string | number) {
                 return msg(Number(score) === 1 ? "point_singular" : "points_2");
             },
-            msg(key: MessageKey, values?: MessageValues) {
-                return msg(key, values);
-            },
+            msg,
             beginSession(
                 kind: string,
                 fallback: string | boolean,
@@ -886,6 +775,11 @@ export function createDialogHost(
                     this.errorDetails = [];
                     this.nominations = [];
                     this.nominationTables = [];
+                    this.draggedNominationId = "";
+                    this.nominationDropTarget = "";
+                    this.nominationDraftBaseline = null;
+                    this.nominationDraftSyncPending = false;
+                    this.submittedNominationIds = [];
                     this.activeNominationTableIndex = 0;
                     this.reviewedNominationTables = [];
                     this.nominationSummaryTables = [];
@@ -904,9 +798,15 @@ export function createDialogHost(
                     this.existingNominationSessionVersion++;
                     this.existingNominationEntries = {};
                     this.dykRequestId++;
+                    this.dykStatusRequests = new Map();
                     this.dykStatus = null;
                     this.dykLoading = false;
                     this.dykError = false;
+                    this.assessmentRequestId++;
+                    this.assessmentRequests = new Map();
+                    this.pageAssessments = [];
+                    this.assessmentLoading = false;
+                    this.assessmentError = false;
                     this.checkSelectedRows = [];
                     this.newCheckRuleCode = null;
                     this.initialCheckNomination = null;
@@ -922,11 +822,12 @@ export function createDialogHost(
                     this.checkBatchDrafts = [];
                     this.checkBatchStatuses = [];
                     this.checkBatchIndex = -1;
-                    this.checkBatchTableItems = {};
                     this.confirmData = null;
                     try {
                         setup();
                         this.open = true;
+                        if (kind === "new")
+                            this.startNominationDraftSynchronization();
                         void this.loadExistingNominations();
                     } catch (error) {
                         services.reportError(error, "open-dialog");
@@ -936,8 +837,250 @@ export function createDialogHost(
                     }
                 });
             },
+            startNominationDraftSynchronization() {
+                this.stopNominationDraftSynchronization();
+                const store = services.nominationDraftStore;
+                if (!store?.subscribe) return;
+                const session = this.sessionResolve;
+                const version = nominationDraftSynchronizationVersion;
+                unsubscribeNominationDraft = store.subscribe(() => {
+                    if (
+                        this.sessionResolve === session &&
+                        nominationDraftSynchronizationVersion === version
+                    )
+                        this.onNominationDraftChanged();
+                });
+            },
+            stopNominationDraftSynchronization() {
+                const unsubscribe = unsubscribeNominationDraft;
+                unsubscribeNominationDraft = null;
+                nominationDraftSynchronizationVersion++;
+                this.nominationDraftSyncPending = false;
+                unsubscribe?.();
+            },
+            onNominationDraftChanged() {
+                if (!this.open || this.kind !== "new" || this.settling) return;
+                this.nominationDraftSyncPending = true;
+                this.flushNominationDraftSynchronization();
+            },
+            flushNominationDraftSynchronization() {
+                if (
+                    !this.nominationDraftSyncPending ||
+                    !this.open ||
+                    this.kind !== "new" ||
+                    this.busy ||
+                    this.settling ||
+                    this.editingNomination ||
+                    this.draggedNominationId
+                )
+                    return;
+                this.nominationDraftSyncPending = false;
+                const previous = JSON.stringify(
+                    this.captureNominationBatch().tables,
+                );
+                const summaryOpen = this.view === "nomination-summary";
+                if (!this.synchronizeNominationDraft()) return;
+                if (
+                    previous ===
+                    JSON.stringify(this.captureNominationBatch().tables)
+                )
+                    return;
+                // Parsed HTML belongs to the prior batch, including a pending response.
+                if (this.previewOpen) {
+                    this.closeNominationPreview();
+                    this.previewHtml = null;
+                }
+                // An unfinished form stays editable without triggering validation.
+                if (summaryOpen) {
+                    const error = this.error;
+                    const errorDetails = this.errorDetails;
+                    if (!this.prepareNominationReview()) return;
+                    this.error = error;
+                    this.errorDetails = errorDetails;
+                    services.notify(msg("nomination_draft_review_updated"), {
+                        type: "warning",
+                    });
+                }
+            },
+            captureNominationBatch(): SavedNominationDraft {
+                return {
+                    version: 1,
+                    tables: this.nominationTables.map(
+                        (table: any, index: number) => ({
+                            id: (table.id ??= table.nominations[0].id),
+                            nominations: table.nominations.map(
+                                captureNominationDraft,
+                            ),
+                            comment: table.comment,
+                            activeTab:
+                                index === this.activeNominationTableIndex
+                                    ? this.activeTab
+                                    : (table.activeTab ??
+                                      table.nominations[0].id),
+                        }),
+                    ),
+                    activeTableIndex: this.activeNominationTableIndex,
+                    view:
+                        this.view === "nomination-summary"
+                            ? "nomination-summary"
+                            : "main",
+                };
+            },
+            restoreNominationTables(saved: SavedNominationDraft) {
+                return saved.tables.map((table) => ({
+                    id: table.id ?? table.nominations[0].id,
+                    comment: table.comment,
+                    activeTab: table.activeTab,
+                    nominations: table.nominations.map((draft) =>
+                        restoreNominationDraft(
+                            draft,
+                            makeAuthorNomination(
+                                null,
+                                this.ruleNames,
+                                this.ruleDict,
+                            ),
+                        ),
+                    ),
+                }));
+            },
+            synchronizeNominationDraft() {
+                const store = services.nominationDraftStore;
+                if (!store) return true;
+                try {
+                    const saved = store.load();
+                    // Hydrate every remote row before changing the open dialog.
+                    const remoteTables = saved
+                        ? this.restoreNominationTables(saved)
+                        : [];
+                    const remote = saved
+                        ? {
+                              ...saved,
+                              tables: remoteTables.map((table: any) => ({
+                                  ...table,
+                                  nominations: table.nominations.map(
+                                      captureNominationDraft,
+                                  ),
+                              })),
+                          }
+                        : null;
+                    const local = this.captureNominationBatch();
+                    const live = new Map<NominationData, NominationData>();
+                    for (const [index, table] of local.tables.entries())
+                        for (const [
+                            row,
+                            nomination,
+                        ] of table.nominations.entries())
+                            live.set(
+                                nomination,
+                                this.nominationTables[index].nominations[row],
+                            );
+                    for (const [index, table] of (
+                        remote?.tables ?? []
+                    ).entries())
+                        for (const [
+                            row,
+                            nomination,
+                        ] of table.nominations.entries())
+                            live.set(
+                                nomination,
+                                remoteTables[index].nominations[row],
+                            );
+                    const merged = mergeNominationDrafts(
+                        local,
+                        remote,
+                        this.nominationDraftBaseline,
+                    );
+                    this.nominationTables = merged.tables.map((table) => ({
+                        ...table,
+                        nominations: table.nominations.map((nomination) =>
+                            live.get(nomination)!,
+                        ),
+                    }));
+                    this.nominationDraftBaseline = remote;
+                    this.activeNominationTableIndex = merged.activeTableIndex;
+                    if (!this.nominationTables.length) {
+                        const nomination = makeAuthorNomination(
+                            null,
+                            this.ruleNames,
+                            this.ruleDict,
+                        );
+                        this.nominationTables = [
+                            {
+                                id: nomination.id,
+                                nominations: [nomination],
+                                comment: "",
+                                activeTab: nomination.id,
+                            },
+                        ];
+                        this.refreshNominationView(nomination.id);
+                        void this.suggestRecipient(nomination.id);
+                    } else {
+                        this.refreshNominationView(
+                            merged.tables[merged.activeTableIndex].activeTab,
+                        );
+                    }
+                    return true;
+                } catch (error) {
+                    services.reportError(error, "synchronize-nomination-draft");
+                    this.error = msg("nomination_draft_sync_failed");
+                    if (this.previewOpen) this.previewError = this.error;
+                    services.notify(this.error, { type: "error" });
+                    return false;
+                }
+            },
             openNew() {
                 return this.beginSession("new", "cancel", () => {
+                    try {
+                        const saved = services.nominationDraftStore?.load();
+                        if (saved) {
+                            const tables = this.restoreNominationTables(saved);
+                            this.nominationTables = tables;
+                            this.activeNominationTableIndex =
+                                saved.activeTableIndex;
+                            this.refreshNominationView(
+                                tables[saved.activeTableIndex].activeTab,
+                            );
+                            this.nominationDraftBaseline =
+                                this.captureNominationBatch();
+                            const pageName = normalizeNominationPageName(
+                                services.getPageName?.(),
+                            );
+                            if (
+                                pageName &&
+                                !tables.some((table: any) =>
+                                    table.nominations.some(
+                                        (draft: NominationData) =>
+                                            normalizeNominationPageName(
+                                                draft.originalArticleTitle,
+                                            ) === pageName,
+                                    ),
+                                )
+                            ) {
+                                const nomination = makeAuthorNomination(
+                                    null,
+                                    this.ruleNames,
+                                    this.ruleDict,
+                                );
+                                tables[saved.activeTableIndex].nominations.push(
+                                    nomination,
+                                );
+                                this.refreshNominationView(nomination.id);
+                                void this.suggestRecipient(nomination.id);
+                                return;
+                            }
+                            if (saved.view === "nomination-summary")
+                                this.reviewNominations();
+                            return;
+                        }
+                    } catch (error) {
+                        services.reportError(error, "restore-nomination-draft");
+                        services.notify(
+                            msg("nomination_draft_restore_failed"),
+                            {
+                                type: "error",
+                            },
+                        );
+                    }
                     const nomination = makeAuthorNomination(
                         null,
                         this.ruleNames,
@@ -945,11 +1088,57 @@ export function createDialogHost(
                     );
                     this.nominations = [nomination];
                     this.nominationTables = [
-                        { nominations: this.nominations, comment: "" },
+                        {
+                            id: nomination.id,
+                            nominations: this.nominations,
+                            comment: "",
+                        },
                     ];
                     this.activeTab = nomination.id;
                     void this.suggestRecipient(nomination.id);
                 });
+            },
+            async saveNominationDraft() {
+                if (
+                    !this.open ||
+                    this.kind !== "new" ||
+                    this.busy ||
+                    this.settling ||
+                    this.editingNomination
+                )
+                    return;
+                try {
+                    if (!services.nominationDraftStore)
+                        throw new Error("Browser draft storage is unavailable");
+                    if (!this.synchronizeNominationDraft()) return;
+                    if (!this.hasSubmittableNominations) {
+                        this.clearError();
+                        this.error = msg("at_least_one_nomination_is_required");
+                        if (this.previewOpen) this.closeNominationPreview();
+                        this.focusFirstError();
+                        return;
+                    }
+                    if (!this.prepareNominationReview()) {
+                        if (this.previewOpen) {
+                            this.closeNominationPreview();
+                            this.focusFirstError(this.activeNomination);
+                        }
+                        return;
+                    }
+                    services.nominationDraftStore.save(
+                        this.captureNominationBatch(),
+                    );
+                } catch (error) {
+                    services.reportError(error, "save-nomination-draft");
+                    this.error = msg("nomination_draft_save_failed");
+                    if (this.previewOpen) this.previewError = this.error;
+                    services.notify(this.error, { type: "error" });
+                    return;
+                }
+                services.notify(msg("nomination_draft_saved"), {
+                    type: "success",
+                });
+                await this.finishSession("draft");
             },
             openEdit(nomData: any, queriedTarget: any) {
                 return this.beginSession("edit", "cancel", () => {
@@ -1065,7 +1254,6 @@ export function createDialogHost(
                         this.captureCheckDraft();
                 this.checkBatchIndex = index;
                 const entry = this.checkBatchEntries[index];
-                this.checkBatchTableItems[entry.tableKey] = index;
                 const draft = this.checkBatchDrafts[index];
                 if (draft) Object.assign(this, draft);
                 else this.initializeCheckDraft(entry.nomination, entry.target);
@@ -1081,20 +1269,14 @@ export function createDialogHost(
                 if (index !== this.checkBatchIndex)
                     this.activateCheckBatchItem(index);
             },
-            selectCheckBatchTable(key: string) {
-                const table = this.checkNavigationTables.find(
-                    (item: any) => item.key === key,
-                );
-                if (table) this.selectCheckBatchItem(table.active);
-            },
             previousCheckItem() {
                 this.selectCheckBatchItem(String(this.checkBatchIndex - 1));
             },
-            checkBatchItemLabel(item: { index: number; position: number }) {
-                return `${this.tabLabel(item.position)} · ${msg(
-                    this.checkBatchStatuses[item.index] === "saved"
+            checkBatchItemLabel(index: number) {
+                return `${this.tabLabel(index)} · ${msg(
+                    this.checkBatchStatuses[index] === "saved"
                         ? "batch_check_saved"
-                        : this.checkBatchStatuses[item.index] === "skipped"
+                        : this.checkBatchStatuses[index] === "skipped"
                           ? "batch_check_skipped"
                           : "batch_check_pending",
                 )}`;
@@ -1159,6 +1341,20 @@ export function createDialogHost(
             async finishSession(result: unknown) {
                 if (this.settling || !this.sessionResolve) return;
                 this.settling = true;
+                this.endNominationDrag();
+                this.stopNominationDraftSynchronization();
+                if (this.kind === "new" && result === "save") {
+                    try {
+                        services.nominationDraftStore?.remove(
+                            this.submittedNominationIds,
+                        );
+                    } catch (error) {
+                        services.reportError(error, "remove-nomination-draft");
+                        services.notify(msg("nomination_draft_remove_failed"), {
+                            type: "warning",
+                        });
+                    }
+                }
                 this.busy = false;
                 this.open = false;
                 this.previewOpen = false;
@@ -1167,11 +1363,23 @@ export function createDialogHost(
                 const resolve = this.sessionResolve;
                 this.existingNominationSessionVersion++;
                 this.existingNominationEntries = {};
+                this.dykRequestId++;
+                this.dykStatusRequests = new Map();
+                this.dykStatus = null;
+                this.dykLoading = false;
+                this.dykError = false;
+                this.assessmentRequestId++;
+                this.assessmentRequests = new Map();
+                this.pageAssessments = [];
+                this.assessmentLoading = false;
+                this.assessmentError = false;
                 await this.$nextTick();
                 this.kind = null;
                 this.view = "main";
                 this.nominations = [];
                 this.nominationTables = [];
+                this.nominationDraftBaseline = null;
+                this.submittedNominationIds = [];
                 this.reviewedNominationTables = [];
                 this.nominationSummaryTables = [];
                 this.editingNomination = null;
@@ -1183,7 +1391,6 @@ export function createDialogHost(
                 this.checkBatchDrafts = [];
                 this.checkBatchStatuses = [];
                 this.checkBatchIndex = -1;
-                this.checkBatchTableItems = {};
                 this.errorDetails = [];
                 this.nominationEditErrorDetails = [];
                 this.sessionResolve = null;
@@ -1212,7 +1419,6 @@ export function createDialogHost(
                 const sessionVersion = this.existingNominationSessionVersion;
                 this.existingNominationEntries[page] = {
                     items: [],
-                    loading: true,
                     failed: false,
                 };
                 const current = () =>
@@ -1234,7 +1440,6 @@ export function createDialogHost(
                                 normalizeNominationPageName(item.pageName) ===
                                 page,
                         ),
-                        loading: false,
                         failed: false,
                     };
                 } catch (cause) {
@@ -1245,7 +1450,6 @@ export function createDialogHost(
                     }
                     this.existingNominationEntries[page] = {
                         items: [],
-                        loading: false,
                         failed: true,
                     };
                     services.reportError(cause, "check-existing-nominations");
@@ -1813,10 +2017,216 @@ export function createDialogHost(
                     });
                 });
             },
+            canMoveNomination() {
+                return (
+                    this.open &&
+                    !this.busy &&
+                    !this.settling &&
+                    this.kind === "new" &&
+                    this.view === "main" &&
+                    !this.editingNomination &&
+                    !this.previewOpen
+                );
+            },
+            moveNomination(
+                id: string,
+                targetTableId: string | null,
+                targetIndex?: number,
+            ) {
+                if (!this.canMoveNomination()) return false;
+                const source = this.nominationTables.find((table: any) =>
+                    table.nominations.some((item: any) => item.id === id),
+                );
+                if (!source) return false;
+                let destination = this.nominationTables.find(
+                    (table: any) => table.id === targetTableId,
+                );
+                if (targetTableId !== null && !destination) return false;
+                // A sole item already occupies its own table, including its comment.
+                if (targetTableId === null && source.nominations.length === 1)
+                    return false;
+                const sourceIndex = source.nominations.findIndex(
+                    (item: any) => item.id === id,
+                );
+                let insertion =
+                    targetIndex ?? destination?.nominations.length ?? 0;
+                if (
+                    !Number.isInteger(insertion) ||
+                    insertion < 0 ||
+                    insertion > (destination?.nominations.length ?? 0)
+                )
+                    return false;
+                if (destination === source) {
+                    if (sourceIndex < insertion) insertion--;
+                    if (sourceIndex === insertion) return false;
+                }
+                const current =
+                    this.nominationTables[this.activeNominationTableIndex];
+                if (current) current.activeTab = this.activeTab;
+                const [nomination] = source.nominations.splice(sourceIndex, 1);
+                if (source.activeTab === id)
+                    source.activeTab =
+                        source.nominations[sourceIndex]?.id ??
+                        source.nominations[sourceIndex - 1]?.id ??
+                        "";
+                if (!destination) {
+                    destination = {
+                        id:
+                            dialogId +
+                            "-table-" +
+                            Math.random().toString(36).slice(2),
+                        nominations: [],
+                        comment: "",
+                        activeTab: id,
+                    };
+                    this.nominationTables.push(destination);
+                }
+                destination.nominations.splice(insertion, 0, nomination);
+                destination.activeTab = id;
+                if (!source.nominations.length)
+                    this.nominationTables.splice(
+                        this.nominationTables.indexOf(source),
+                        1,
+                    );
+                this.reviewedNominationTables = [];
+                this.nominationSummaryTables = [];
+                this.previewHtml = null;
+                this.previewRequestId++;
+                this.refreshNominationView(id);
+                this.clearError();
+                this.selectNomination(id);
+                return true;
+            },
+            startNominationDrag(event: DragEvent, id: string) {
+                if (
+                    !this.canMoveNomination() ||
+                    !event.dataTransfer ||
+                    !this.nominations.some((item: any) => item.id === id)
+                ) {
+                    event.preventDefault();
+                    return;
+                }
+                this.draggedNominationId = id;
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData(
+                    nominationDragType,
+                    dialogId + ":" + id,
+                );
+            },
+            clearNominationDropTarget() {
+                this.nominationDropTarget = "";
+                getQueryRoot()
+                    .querySelectorAll?.(".acga-nomination-table-drop-target")
+                    .forEach((tab) =>
+                        tab.classList.remove(
+                            "acga-nomination-table-drop-target",
+                        ),
+                    );
+            },
+            endNominationDrag() {
+                this.draggedNominationId = "";
+                this.clearNominationDropTarget();
+                this.flushNominationDraftSynchronization();
+            },
+            allowNominationDrop(event: DragEvent, target: string) {
+                if (
+                    !this.canMoveNomination() ||
+                    !this.draggedNominationId ||
+                    !event.dataTransfer?.types.includes(nominationDragType)
+                )
+                    return false;
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = "move";
+                this.clearNominationDropTarget();
+                this.nominationDropTarget = target;
+                return true;
+            },
+            acceptNominationDrop(
+                event: DragEvent,
+                tableId: string | null,
+                index?: number,
+            ) {
+                const id = this.draggedNominationId;
+                if (
+                    !id ||
+                    !this.canMoveNomination() ||
+                    event.dataTransfer?.getData(nominationDragType) !==
+                        dialogId + ":" + id
+                )
+                    return;
+                event.preventDefault();
+                event.stopPropagation();
+                this.moveNomination(id, tableId, index);
+                this.endNominationDrag();
+            },
+            nominationDropIndex(event: DragEvent, index: number) {
+                const target = event.currentTarget as HTMLElement;
+                const bounds = target.getBoundingClientRect();
+                const rtl =
+                    services.document.defaultView?.getComputedStyle(target)
+                        .direction === "rtl";
+                const after =
+                    event.clientX >= bounds.left + bounds.width / 2 !== rtl;
+                return index + (after ? 1 : 0);
+            },
+            onNominationDragOver(event: DragEvent, index: number) {
+                const after = this.nominationDropIndex(event, index) > index;
+                this.allowNominationDrop(
+                    event,
+                    this.nominations[index].id + (after ? ":after" : ":before"),
+                );
+            },
+            onNominationDrop(event: DragEvent, index: number) {
+                this.acceptNominationDrop(
+                    event,
+                    this.nominationTables[this.activeNominationTableIndex].id,
+                    this.nominationDropIndex(event, index),
+                );
+            },
+            nominationTableDropTarget(event: DragEvent) {
+                const root = event.currentTarget as HTMLElement;
+                const list = root.querySelector(
+                    ".cdx-tabs__header > .cdx-tabs__list",
+                );
+                const tab = (event.target as HTMLElement).closest(
+                    '[role="tab"]',
+                );
+                if (!list || tab?.parentElement !== list) return null;
+                const index = [...list.children].indexOf(tab);
+                const table = this.nominationTables[index];
+                return table ? { tab, table } : null;
+            },
+            onNominationTableDragOver(event: DragEvent) {
+                const target = this.nominationTableDropTarget(event);
+                if (target && this.allowNominationDrop(event, target.table.id))
+                    target.tab.classList.add(
+                        "acga-nomination-table-drop-target",
+                    );
+            },
+            onNominationTableDrop(event: DragEvent) {
+                const target = this.nominationTableDropTarget(event);
+                if (target) this.acceptNominationDrop(event, target.table.id);
+            },
+            onNominationDragLeave(event: DragEvent) {
+                if (
+                    !(event.currentTarget as HTMLElement).contains(
+                        event.relatedTarget as Node | null,
+                    )
+                )
+                    this.clearNominationDropTarget();
+            },
             onNominationTabKeydown(event: KeyboardEvent, index: number) {
                 if (this.busy) return;
+                if (event.key === "Escape" && this.draggedNominationId) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.endNominationDrag();
+                    return;
+                }
                 const count = this.nominations.length;
                 let target: number;
+                let direction = 0;
                 switch (event.key) {
                     case "ArrowLeft":
                     case "ArrowRight": {
@@ -1825,6 +2235,7 @@ export function createDialogHost(
                             services.document.defaultView?.getComputedStyle(tab)
                                 .direction === "rtl";
                         const next = (event.key === "ArrowRight") !== rtl;
+                        direction = next ? 1 : -1;
                         target = (index + (next ? 1 : -1) + count) % count;
                         break;
                     }
@@ -1843,6 +2254,29 @@ export function createDialogHost(
                         return;
                 }
                 event.preventDefault();
+                if (event.shiftKey) {
+                    if (!this.canMoveNomination()) return;
+                    if (
+                        direction &&
+                        (index + direction < 0 || index + direction >= count)
+                    )
+                        return;
+                    const insertion =
+                        event.key === "Home"
+                            ? 0
+                            : event.key === "End"
+                              ? count
+                              : direction > 0
+                                ? index + 2
+                                : index - 1;
+                    this.moveNomination(
+                        this.nominations[index].id,
+                        this.nominationTables[this.activeNominationTableIndex]
+                            .id,
+                        insertion,
+                    );
+                    return;
+                }
                 this.selectNomination(this.nominations[target].id);
             },
             removeNomination(id: string) {
@@ -2089,6 +2523,7 @@ export function createDialogHost(
                     this.ruleDict,
                 );
                 this.nominationTables.push({
+                    id: nomination.id,
                     nominations: [nomination],
                     comment: "",
                 });
@@ -2097,9 +2532,7 @@ export function createDialogHost(
                 void this.suggestRecipient(nomination.id);
                 this.selectNomination(nomination.id);
             },
-            reviewNominations() {
-                if (this.busy || this.kind !== "new" || this.view !== "main")
-                    return;
+            prepareNominationReview() {
                 const included = this.nominationTables.flatMap((table: any) =>
                     table.nominations.filter(
                         (nomination: any) => !nomination.frozen,
@@ -2107,6 +2540,7 @@ export function createDialogHost(
                 );
                 const firstInvalid = authorValidation(included);
                 if (firstInvalid) {
+                    this.view = "main";
                     this.refreshNominationView(firstInvalid.id);
                     firstInvalid.activeRuleCategory =
                         authorErrorRuleCategory(firstInvalid);
@@ -2116,10 +2550,23 @@ export function createDialogHost(
                         ),
                     );
                     this.focusFirstError(firstInvalid);
-                    return;
+                    return false;
                 }
                 this.clearError();
-                if (!this.updateNominationSummary()) return;
+                if (!this.updateNominationSummary()) {
+                    this.view = "main";
+                    return false;
+                }
+                return true;
+            },
+            reviewNominations() {
+                if (this.busy || this.kind !== "new" || this.view !== "main")
+                    return;
+                if (
+                    !this.synchronizeNominationDraft() ||
+                    !this.prepareNominationReview()
+                )
+                    return;
                 this.recipientSuggestionVersion++;
                 this.view = "nomination-summary";
                 this.focusNominationSummary();
@@ -2293,6 +2740,12 @@ export function createDialogHost(
                     !this.hasSubmittableNominations
                 )
                     return;
+                if (
+                    !this.synchronizeNominationDraft() ||
+                    !this.prepareNominationReview() ||
+                    !this.hasSubmittableNominations
+                )
+                    return;
                 this.previewOpen = true;
                 this.previewHtml = null;
                 this.previewError = "";
@@ -2343,6 +2796,27 @@ export function createDialogHost(
                 }
                 if (this.kind === "new" && !this.hasSubmittableNominations)
                     return;
+                if (this.kind === "new") {
+                    const reviewed = this.captureNominationBatch();
+                    if (
+                        !this.synchronizeNominationDraft() ||
+                        !this.prepareNominationReview()
+                    )
+                        return;
+                    // A later save from another page needs review before committing.
+                    if (
+                        JSON.stringify(reviewed.tables) !==
+                        JSON.stringify(this.captureNominationBatch().tables)
+                    ) {
+                        services.notify(
+                            msg("nomination_draft_review_updated"),
+                            { type: "warning" },
+                        );
+                        this.focusNominationSummary();
+                        return;
+                    }
+                    if (!this.hasSubmittableNominations) return;
+                }
                 if (this.checkReasonBuilderActive) {
                     this.continueCheckReasonBuilder();
                     return;
@@ -2428,6 +2902,18 @@ export function createDialogHost(
                 try {
                     let keepOpen;
                     if (this.kind === "new") {
+                        this.submittedNominationIds =
+                            this.nominationTables.flatMap((table: any) =>
+                                table.nominations
+                                    .filter(
+                                        (nomination: NominationData) =>
+                                            !nomination.frozen,
+                                    )
+                                    .map(
+                                        (nomination: NominationData) =>
+                                            nomination.id,
+                                    ),
+                            );
                         keepOpen = await operations.saveNewNomination(
                             this.nominationSubmissionTables(),
                         );

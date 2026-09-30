@@ -36,13 +36,8 @@ const hostMw = {
     notify() {},
 };
 
-const {
-    editACGAScoreList,
-    editACGAScoreListBatch,
-    editPage,
-    getFullText,
-    getPageSnapshot,
-} = createMediaWikiApi({ createApi: () => new hostMw.Api() });
+const { editACGAScoreListBatch, editPage, getPageSnapshot } =
+    createMediaWikiApi({ createApi: () => new hostMw.Api() });
 
 function scoreListResponse(score = 112) {
     return {
@@ -352,26 +347,6 @@ test('getPageSnapshot treats the presence of missing="" as an absent page', asyn
     });
 });
 
-test("getFullText remains a text-only snapshot wrapper", async () => {
-    nextGetResponse = {
-        query: {
-            pageids: ["1"],
-            pages: {
-                1: {
-                    revisions: [
-                        {
-                            revid: 13579,
-                            slots: { main: { "*": "  wrapped text  " } },
-                        },
-                    ],
-                },
-            },
-        },
-    };
-
-    assert.equal(await getFullText("Page"), "  wrapped text  ");
-});
-
 test("queryEntry distinguishes duplicate date headings and returns its locator", () => {
     const text = [
         "=== 8月18日 ===",
@@ -578,7 +553,10 @@ test("score-list editing refuses a missing registry revision without API calls",
     editRequests = [];
     getRequests = [];
 
-    assert.equal(await editACGAScoreList("Example", 3, null), true);
+    assert.equal(
+        await editACGAScoreListBatch([{ userName: "Example", score: 3 }], null),
+        true,
+    );
     assert.equal(editRequests.length, 0);
     assert.equal(getRequests.length, 0);
 });
@@ -592,7 +570,10 @@ test("score-list edits submit the exact summary with each registry revision id",
     for (const registryRevisionId of [123456, 654321]) {
         nextGetResponse = scoreListResponse();
         assert.equal(
-            await editACGAScoreList("Example", 3, registryRevisionId),
+            await editACGAScoreListBatch(
+                [{ userName: "Example", score: 3 }],
+                registryRevisionId,
+            ),
             false,
         );
     }
@@ -621,9 +602,8 @@ test("score-list editing forwards a safe comment id into its edit summary", asyn
     nextEditResponse = { edit: { result: "Success", newrevid: 999 } };
 
     assert.equal(
-        await editACGAScoreList(
-            "Example",
-            3,
+        await editACGAScoreListBatch(
+            [{ userName: "Example", score: 3 }],
             123456,
             "c-LimiEi-20260818134500-8月18日",
         ),
@@ -643,6 +623,12 @@ test("score-list editing reports a resolved second-edit failure", async () => {
     nextEditError = null;
     nextEditResponse = { error: { code: "failed" } };
 
-    assert.equal(await editACGAScoreList("Example", 3, 123456), true);
+    assert.equal(
+        await editACGAScoreListBatch(
+            [{ userName: "Example", score: 3 }],
+            123456,
+        ),
+        true,
+    );
     assert.equal(editRequests.length, 1);
 });

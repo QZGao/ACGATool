@@ -1,6 +1,7 @@
 import { applyScoreDeltas, type ScoreDelta } from "../../domain/score-list.ts";
 import { getLargestContributorLastYear } from "./contributor-history.ts";
 import { getDykStatus } from "./dyk-status.ts";
+import { getPageAssessments } from "./page-assessments.ts";
 import {
     getLatestFileUploader,
     getRevisionEditor,
@@ -45,8 +46,6 @@ export interface MediaWikiApiHost {
     now?: () => Date;
     msg?: Translator;
     notify?: (message: string, options?: Record<string, unknown>) => void;
-    reload?: () => void;
-    schedule?: (callback: () => void, delay: number) => unknown;
     logError?: (message: string, error: unknown) => void;
 }
 
@@ -126,10 +125,6 @@ export function createMediaWikiApi(host: MediaWikiApiHost) {
         };
     }
 
-    async function getFullText(pageName = REGISTRY_PAGE): Promise<string> {
-        return (await getPageSnapshot(pageName)).text;
-    }
-
     async function editPage(
         pageName: string,
         newText: string,
@@ -169,25 +164,6 @@ export function createMediaWikiApi(host: MediaWikiApiHost) {
                 newRevId: null,
                 errorCode: editErrorCode(error, "request-failed"),
             };
-        }
-    }
-
-    async function appendToPage(
-        pageName: string,
-        appendText: string,
-        editSummary: string,
-    ): Promise<boolean> {
-        try {
-            const response = await api().postWithToken("csrf", {
-                action: "edit",
-                title: pageName,
-                appendtext: appendText,
-                summary: editSummary,
-            });
-            return response?.edit?.result === "Success";
-        } catch (error) {
-            host.logError?.("Append request failed", error);
-            return false;
         }
     }
 
@@ -274,27 +250,11 @@ export function createMediaWikiApi(host: MediaWikiApiHost) {
         return true;
     }
 
-    async function editACGAScoreList(
-        awarder: string,
-        score: number,
-        registryRevisionId: number | string | null,
-        commentId: string | null = null,
-    ): Promise<boolean> {
-        return editACGAScoreListBatch(
-            [{ userName: awarder, score }],
-            registryRevisionId,
-            commentId,
-        );
-    }
-
-    function refreshPage(): void {
-        if (host.schedule) host.schedule(() => host.reload?.(), 2000);
-        else host.reload?.();
-    }
-
     return {
         parseWikitext,
         getDykStatus: (pageName: string) => getDykStatus(api(), pageName),
+        getPageAssessments: (pageName: string) =>
+            getPageAssessments(api(), pageName),
         getLatestFileUploader: (pageName: string) =>
             getLatestFileUploader(api(), pageName),
         getRevisionEditor: (revisionId: number) =>
@@ -306,11 +266,7 @@ export function createMediaWikiApi(host: MediaWikiApiHost) {
                 host.now?.() ?? new Date(),
             ),
         getPageSnapshot,
-        getFullText,
         editPage,
-        appendToPage,
-        editACGAScoreList,
         editACGAScoreListBatch,
-        refreshPage,
     };
 }

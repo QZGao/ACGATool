@@ -72,7 +72,13 @@ test("score-list conflict retries against fresh totals and never overwrites anot
             },
         }),
     });
-    assert.equal(await api.editACGAScoreList("Example", -2, 100), false);
+    assert.equal(
+        await api.editACGAScoreListBatch(
+            [{ userName: "Example", score: -2 }],
+            100,
+        ),
+        false,
+    );
     assert.equal(reads, 2);
     assert.equal(writes.length, 2);
     assert.equal(writes[1].baserevid, 23);
@@ -104,9 +110,21 @@ test("zero totals skip all network work and missing revisions or unsupported Lua
             },
         }),
     });
-    assert.equal(await api.editACGAScoreList("Example", 0, 100), false);
+    assert.equal(
+        await api.editACGAScoreListBatch(
+            [{ userName: "Example", score: 0 }],
+            100,
+        ),
+        false,
+    );
     assert.equal(calls, 0);
-    assert.equal(await api.editACGAScoreList("Example", 2, 100), true);
+    assert.equal(
+        await api.editACGAScoreListBatch(
+            [{ userName: "Example", score: 2 }],
+            100,
+        ),
+        true,
+    );
     assert.equal(calls, 1);
 });
 

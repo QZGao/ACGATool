@@ -713,8 +713,17 @@ test("write services refuse multiple rule groups in one nomination", async () =>
     assert.equal(f.edits.length, 0);
 });
 
+function archivableRegistry(
+    firstCheck = "{{ACG提名2/check|ver=1|1a}}--Reviewer 2026年9月10日 (四) 12:00 (UTC)",
+    secondCheck = firstCheck,
+) {
+    return registry(firstCheck)
+        .replace("|核對用2=\n", `|核對用2=${secondCheck}\n`)
+        .replace("Example 2026年9月27日", "Example 2026年9月9日");
+}
+
 test("archiving writes the destination before removing the exact source section", async () => {
-    const f = fixture();
+    const f = fixture(archivableRegistry());
     await f.service.archiveChapter(DATE, 0, 10);
     assert.equal(f.edits.length, 2);
     assert.match(f.edits[0].title, /存檔\/2026年9月/u);
@@ -723,6 +732,37 @@ test("archiving writes the destination before removing the exact source section"
     assert.equal(f.edits[1].title, REGISTRY_PAGE);
     assert.doesNotMatch(f.edits[1].text, /ACG提名2/u);
 });
+
+for (const [label, text] of [
+    ["pending nomination", archivableRegistry(undefined, "")],
+    [
+        "review exactly seven days old",
+        archivableRegistry(
+            "{{ACG提名2/check|ver=1|1a}}--Reviewer 2026年9月20日 (日) 23:00 (UTC)",
+        ),
+    ],
+    [
+        "future review",
+        archivableRegistry(
+            "{{ACG提名2/check|ver=1|1a}}--Reviewer 2026年9月28日 (一) 12:00 (UTC)",
+        ),
+    ],
+    [
+        "active recheck",
+        archivableRegistry(
+            "{{ACG提名2/check|ver=1|1a|status=rechecking}}--Reviewer 2026年9月10日 (四) 12:00 (UTC)",
+        ),
+    ],
+    ["unsigned review", archivableRegistry("Manual result")],
+] as const)
+    test(`archiving refuses ${label} before any wiki write`, async () => {
+        const f = fixture(text);
+        await f.service.archiveChapter(DATE, 0, 10);
+        assert.equal(f.edits.length, 0);
+        assert.equal(f.reloads, 0);
+        assert.equal(f.notices.length, 1);
+        assert.equal(f.failures.length, 0);
+    });
 
 for (const check of [true, false])
     test(`raw check edits require manual reconciliation in ${check ? "check" : "edit"} mode`, async () => {

@@ -107,7 +107,6 @@ export function createRuleFormComponents(
             components: {
                 AcgaScoreInput: ScoreInput,
                 CdxCombobox: Codex.CdxCombobox,
-                CdxTextInput: Codex.CdxTextInput,
             },
             props: {
                 nomination: { type: Object, required: true },
@@ -190,7 +189,6 @@ export function createRuleFormComponents(
                 AcgaScoreInput: ScoreInput,
                 CdxCheckbox: Codex.CdxCheckbox,
                 CdxSelect: Codex.CdxSelect,
-                CdxTextInput: Codex.CdxTextInput,
             },
             props: {
                 nomination: { type: Object, required: true },
@@ -338,9 +336,9 @@ export function createRuleFormComponents(
                 rows() {
                     const labels: Record<string, string> = {
                         general: this.$root.msg("review_mode_general"),
-                        writing: this.$root.writingReviewLabel,
-                        coverage: this.$root.coverageReviewLabel,
-                        source: this.$root.sourceReviewLabel,
+                        writing: this.$root.msg("writing"),
+                        coverage: this.$root.msg("coverage"),
+                        source: this.$root.msg("source_formatting"),
                         complete: this.$root.msg("review_mode_comprehensive"),
                     };
                     return ["general", ...REVIEW_ASPECT_ROWS, "complete"].map(
@@ -559,7 +557,6 @@ export function createRuleFormComponents(
                 CdxButton: Codex.CdxButton,
                 CdxCheckbox: Codex.CdxCheckbox,
                 CdxCombobox: Codex.CdxCombobox,
-                CdxTextInput: Codex.CdxTextInput,
             },
             props: {
                 nomination: { type: Object, required: true },
@@ -642,7 +639,6 @@ export function createRuleFormComponents(
                 CdxField: Codex.CdxField,
                 CdxMessage: Codex.CdxMessage,
                 CdxCheckbox: Codex.CdxCheckbox,
-                CdxTextInput: Codex.CdxTextInput,
             },
             props: {
                 nomination: { type: Object, required: true },
@@ -671,16 +667,15 @@ export function createRuleFormComponents(
                             "other-target",
                         ].includes(type)
                     )
-                        return this.$root.scoringItemsLabel;
+                        return this.$root.msg("scoring_rules");
                     return group.group;
                 },
                 compactLineLabel(group: any) {
                     const type = this.groupType(group);
-                    if (type === "content")
-                        return this.$root.articleLengthLabel;
-                    if (type === "quality")
-                        return this.$root.articleQualityLabel;
-                    if (type === "format") return this.$root.articleFormatLabel;
+                    if (type === "content") return this.$root.msg("1_length");
+                    if (type === "quality") return this.$root.msg("2_quality");
+                    if (type === "format")
+                        return this.$root.msg("3_formatting");
                     return group.group;
                 },
                 formatRule(group: any) {
