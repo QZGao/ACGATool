@@ -1,3 +1,15 @@
+/**
+ * @file tests/nomination/existing-nominations.test.ts
+ * Purpose: tests / nomination / existing nominations.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. fixture
+ * 4. settle
+ * 5. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDialogHost } from "../../src/features/nomination/dialog-host.ts";

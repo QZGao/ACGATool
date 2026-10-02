@@ -1,4 +1,17 @@
-/** Build standalone MediaWiki and userscript installation artifacts. */
+/**
+ * @file scripts/build.ts
+ * Purpose: Build standalone MediaWiki and userscript installation artifacts.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Initialization and execution
+ * 4. bundle
+ * 5. notice
+ * 6. gadget
+ * 7. userscript
+ */
+
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -139,10 +152,23 @@ for (const [filename, source] of artifacts) {
 
 function notice(): string {
     return [
+        "/**",
+        " * ACGATool",
+        " *",
+        ` * Purpose: ${manifest.description}`,
+        " *",
+        ` * @name ${manifest.name}`,
+        ` * @version ${manifest.version}`,
+        " * @license MIT",
+        " *",
+        " * Table of contents:",
+        " * 1. Metadata and license notices",
+        " * 2. MediaWiki bootstrap and browser program",
+        " */",
+        "",
         "/*!",
         " * ACGATool by SuperGrey.",
         " * Main page: [[User:SuperGrey/gadgets/ACGATool]]",
-        ` * ${manifest.name} ${manifest.version}`,
         " * AI-assisted repository edits carry no additional copyright claim.",
         " * Original authorship, credit, and MIT terms remain preserved.",
         " *",
@@ -172,6 +198,9 @@ function userscript(program: string): string {
         "// @author       SuperGrey",
         "// @license      MIT",
         "// @match        https://zh.wikipedia.org/*",
+        "// @homepageURL  https://github.com/For-Each-Next/wp-acga-tool",
+        "// @downloadURL  https://github.com/For-Each-Next/wp-acga-tool/releases/latest/download/acga_tool.user.js",
+        "// @updateURL    https://github.com/For-Each-Next/wp-acga-tool/releases/latest/download/acga_tool.user.js",
         "// @grant        none",
         "// @run-at       document-end",
         "// ==/UserScript==",

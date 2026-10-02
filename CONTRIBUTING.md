@@ -1,71 +1,89 @@
 # Contributing
 
-**Required UI reference: [Codex button types and order](https://doc.wikimedia.org/codex/latest/style-guide/using-links-and-buttons.html#types-and-order-of-buttons).**
-Use one primary progressive button per group, normal secondary buttons, quiet
-tertiary buttons and neutral cancellation. Reserve destructive actions for
-irreversible operations. In forward flows the primary action comes last in
-reading order (right in LTR, left in RTL); dialog footers align to the end.
-Back sits beside the forward action with lower hierarchy. Stacked buttons put
-the primary action at the top in both reading directions. Use `spacing-75`
-(12px by default) between separate buttons; Codex ButtonGroup manages its own spacing.
+<!-- toc:start -->
 
-Use Node.js 24.14.1 or newer. Install the locked dependency tree with `npm ci`
-and Chromium with `npx playwright install chromium` for browser tests.
+## Contents
 
-| Command               | Purpose                                                    |
-| --------------------- | ---------------------------------------------------------- |
-| `npm run format`      | Apply repository formatting.                               |
-| `npm run check`       | Check formatting, lint, TypeScript, and unused code.       |
-| `npm test`            | Run offline domain, API, and service tests.                |
-| `npm run build`       | Generate the MediaWiki gadget and userscript.              |
-| `npm run test:ui`     | Build and run the offline Chromium suite.                  |
-| `npm run screenshots` | Regenerate documentation screenshots at 1024 × 768, DPR 1. |
-| `npm run verify`      | Run all checks and tests.                                  |
+- [Setup](#setup)
+- [Development loop](#development-loop)
+- [Behavior and verification](#behavior-and-verification)
+- [UI and localization](#ui-and-localization)
+- [Documentation and screenshots](#documentation-and-screenshots)
+- [Builds and releases](#builds-and-releases)
 
-Read [the architecture](docs/architecture.md) before changing module ownership.
-Keep scoring and wikitext rules pure, inject external operations, and give each
-dialog session ownership of its state and asynchronous work. Preserve the five
-exclusive nomination categories and local batch staging.
+<!-- toc:end -->
 
-Use TypeScript for source, tests and executable tools. Generated `dist/` files
-come from the build. The ESLint configuration uses its conventional `.mjs`
-extension. Keep translated content as text, align message catalogs, release
-mounted hosts and listeners, and discard stale responses.
+## Setup
 
-For material changes, run `npm run verify` and review the generated artifacts.
-Cover meaningful scoring, parsing, API failure and submission behavior with
-local fixtures. Browser tests exercise real Vue/Codex components with mocked
-MediaWiki operations; `scripts/test-ui.ts` removes temporary reports on exit.
-Production runtime dependencies come from ResourceLoader, while locked npm
-packages keep builds and tests independent of live wiki access.
+Use Node.js `>=24.14.1`. Install the exact tracked dependency tree with
+`npm ci`, then install Chromium with `npx playwright install chromium` for browser tests.
+Read [architecture](docs/architecture.md) before changing source boundaries and
+[contributor rules](AGENTS.md) for the project's behavioral invariants.
 
-Use lowercase kebab-case filenames for modules, styles and test scenarios.
-Keep a feature's TypeScript, template-only Vue markup and stylesheet co-located.
-Dialog feedback uses Codex Message for errors and warnings; field validation
-stays beside its labelled control. Preserve focus, accessible labels and text
-rendering when adjusting dialog markup.
+## Development loop
 
-`npm run screenshots` runs the opt-in documentation scenario with
-`DOCUMENTATION_SCREENSHOTS=1`. It uses real local Vue/Codex components and offline
-nomination fixtures, disables animations, and replaces `docs/images/screenshot-*.png`.
-The viewport is exactly 1024 × 768 CSS pixels with device scale factor 1; images
-contain the full viewport. Inspect both nomination and summary views after UI edits.
+| Command               | Purpose                                                        |
+| --------------------- | -------------------------------------------------------------- |
+| `npm run check`       | Run the configured format, lint, type, and unused-code checks. |
+| `npm test`            | Run offline unit and service tests.                            |
+| `npm run build`       | Generate installation artifacts from source.                   |
+| `npm run test:ui`     | Build and run offline Chromium interaction tests.              |
+| `npm run screenshots` | Recreate documentation images from the pinned article fixture. |
+| `npm run verify`      | Run the complete required validation pipeline.                 |
+| `npm run format`      | Apply repository formatting.                                   |
 
-Keep README focused on major features, operational guidance in `docs/`, and
-release notes in `CHANGELOG.md`. Consolidate related changes into major items,
-with each changelog bullet occupying at most two lines.
+Keep source and module names descriptive. Use lowercase kebab-case filenames and explicit
+TypeScript boundaries. Feature templates, behavior, and scoped styles stay together.
+The lockfile pins dependencies; dependency updates receive the same verification as source edits.
 
-## Releases
+## Behavior and verification
 
-1. Update `package.json` and both project version fields in `package-lock.json`.
-2. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md`.
-3. Run `npm run verify` and review the generated installation files.
-4. Commit the release on `main`, create the matching `vX.Y.Z` tag, and push it.
+Run `npm run verify` before handing off material changes and inspect `git diff --check`.
+Use behavior tests for meaningful regressions: successful actions, partial failures,
+cancellation, stale responses, persistence errors, selection, and teardown as applicable.
+Stub external requests and reject unexpected browser network requests. Do not edit live wikis
+from tests. Inspect generated files rather than changing their content directly.
 
-The tag workflow verifies package and lockfile versions and membership in
-`origin/main`, then runs validation and publishes the verified artifacts.
-Prerelease versions create a GitHub prerelease.
+Preserve the five exclusive nomination categories: 1–4, 5, 6, 7, and 8. Each nomination belongs to one group across forms, checking, and rebuilding. Stage checks locally; submit one registration-page edit and one score-list edit for a completed batch. Cancel discards pending changes. Report partial failures and prevent duplicate scoring on retries. Credit SuperGrey and preserve the MIT notice without adding a maintainer copyright claim.
 
-Credit SuperGrey and preserve the MIT notice in `LICENSE` and generated files.
-AI-assisted maintenance retains the original authorship and licensing without
-an additional maintainer copyright claim.
+Keep pure logic independent of browser and MediaWiki globals. Bind adapters in the composition
+root. Render untrusted text safely; clean up all owned resources. Vue and Codex come from
+ResourceLoader in production; npm packages supply local types, build data, and test fixtures.
+
+## UI and localization
+
+Follow [UI guidelines](docs/ui-guidelines.md), based on the
+[Wikimedia Codex style guide](https://doc.wikimedia.org/codex/latest/style-guide/overview.html)
+and [links and buttons guidance](https://doc.wikimedia.org/codex/latest/style-guide/using-links-and-buttons.html).
+Check semantic links/buttons, action hierarchy, 12px spacing, responsive DOM order, keyboard
+focus, labels, validation, and progress. Keep supported locale messages and placeholders aligned.
+
+## Documentation and screenshots
+
+Follow [documentation conventions](docs/documentation.md). Maintain English, Traditional Chinese,
+and Simplified Chinese user READMEs with working artifact links and equivalent instructions.
+Technical guidance belongs under `docs/`. Update headings and tables of contents with the code.
+Record notable changes in `CHANGELOG.md` without rewriting historical release descriptions.
+
+Run `npm run screenshots` and inspect every resulting image after changing captured UI.
+Use the actual running tool with the pinned BanG Dream! article revision 94028176, an offline
+host, a 1024 × 768 viewport, device scale factor 1, and disabled animations. Preserve source
+attribution and describe any excerpts or simulated responses in [screenshots](docs/screenshots.md).
+
+## Builds and releases
+
+`npm run build` generates `dist/`, including a compressed MediaWiki `.min.js` and
+readable Tampermonkey `.user.js`. Both preserve matching documentation and license notices;
+the userscript metadata comes first. Builds must not contain local paths or timestamps.
+Consult the workflow files for each project's published artifact names.
+
+For a release, update the package and lockfile versions together, move completed Unreleased
+notes into a dated version section, run `npm run verify`, and review installation behavior
+and license notices. A maintainer creates and pushes the release commit/tag deliberately.
+A local build publishes nothing. Preserve the existing workflow's distribution contract.
+
+ACGATool release tags use `vX.Y.Z` and must point to a commit on `origin/main`.
+`scripts/release-check.ts` validates the package version, both lockfile version fields,
+main-branch ancestry, and the matching changelog entry before publication. Prerelease
+versions create a GitHub prerelease. Preserve both `acga_tool.min.js` and
+`acga_tool.user.js` asset names and the complete embedded MIT notice.

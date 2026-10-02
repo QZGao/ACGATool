@@ -1,3 +1,14 @@
+/**
+ * @file tests/domain/archive-eligibility.test.ts
+ * Purpose: tests / domain / archive eligibility.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. section
+ * 4. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import {

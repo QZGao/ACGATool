@@ -1,3 +1,13 @@
+/**
+ * @file tests/platform/page-assessments.test.ts
+ * Purpose: tests / platform / page assessments.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. fixture
+ * 3. Test scenarios
+ */
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createMediaWikiApi } from "../../src/platform/mediawiki/api.ts";

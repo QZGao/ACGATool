@@ -1,4 +1,11 @@
-/** Render parser output only inside an iframe with an empty sandbox attribute. */
+/**
+ * @file src/features/nomination/preview-document.ts
+ * Purpose: Render parser output only inside an iframe with an empty sandbox attribute.
+ *
+ * Table of contents:
+ * 1. createPreviewDocument
+ */
+
 export function createPreviewDocument(html: string): string {
     return `<!doctype html>
 <html>

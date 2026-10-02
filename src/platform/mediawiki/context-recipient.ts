@@ -1,3 +1,15 @@
+/**
+ * @file src/platform/mediawiki/context-recipient.ts
+ * Purpose: src / platform / mediawiki / context recipient module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. queryPages
+ * 3. visibleUser
+ * 4. getLatestFileUploader
+ * 5. getRevisionEditor
+ */
+
 import type { ApiClient } from "./api.ts";
 
 function queryPages(value: unknown): Record<string, unknown>[] {

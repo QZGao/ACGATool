@@ -1,4 +1,13 @@
-/** Run Playwright with temporary reports, preserving its exit status. */
+/**
+ * @file scripts/test-ui.ts
+ * Purpose: Run Playwright with temporary reports, preserving its exit status.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Initialization and execution
+ */
+
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { constants, tmpdir } from "node:os";

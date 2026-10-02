@@ -1,3 +1,18 @@
+/**
+ * @file tests/nomination/draft-synchronization.test.ts
+ * Purpose: tests / nomination / draft synchronization.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. synchronizedStores
+ * 3. harness
+ * 4. batchTitles
+ * 5. titles
+ * 6. validArticle
+ * 7. settle
+ * 8. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { nextTick, watch } from "vue";

@@ -1,4 +1,20 @@
-/** Current-registry nomination identities and advisory duplicate matching. */
+/**
+ * @file src/domain/existing-nominations.ts
+ * Purpose: Current-registry nomination identities and advisory duplicate matching.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. ExistingNomination
+ * 3. normalizeFirstLetter
+ * 4. normalizeNominationPageName
+ * 5. normalizeNominationRecipient
+ * 6. NominationCheckRestriction
+ * 7. getNominationCheckRestriction
+ * 8. getExistingNominations
+ * 9. isSameNomination
+ * 10. findDuplicateNominations
+ */
+
 import { getRegistryEntries, queried2NomData } from "./wikitext.ts";
 
 export interface ExistingNomination {

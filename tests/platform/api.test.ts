@@ -1,3 +1,17 @@
+/**
+ * @file tests/platform/api.test.ts
+ * Purpose: tests / platform / api.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. scoreListResponse
+ * 4. token
+ * 5. Test scenarios
+ * 6. queried
+ * 7. nominationSource
+ */
+
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -42,21 +56,20 @@ const { editACGAScoreListBatch, editPage, getPageSnapshot } =
 function scoreListResponse(score = 112) {
     return {
         query: {
-            pageids: ["1"],
-            pages: {
-                1: {
+            pages: [
+                {
                     revisions: [
                         {
                             revid: 66,
                             slots: {
                                 main: {
-                                    "*": `return {\n    ["Example"] = ${score},\n}`,
+                                    content: `return {\n    ["Example"] = ${score},\n}`,
                                 },
                             },
                         },
                     ],
                 },
-            },
+            ],
         },
     };
 }
@@ -303,17 +316,16 @@ test("getPageSnapshot preserves exact text and its revision id", async () => {
     getRequests = [];
     nextGetResponse = {
         query: {
-            pageids: ["1"],
-            pages: {
-                1: {
+            pages: [
+                {
                     revisions: [
                         {
                             revid: 13579,
-                            slots: { main: { "*": "  page text  " } },
+                            slots: { main: { content: "  page text  " } },
                         },
                     ],
                 },
-            },
+            ],
         },
     };
 
@@ -324,15 +336,14 @@ test("getPageSnapshot preserves exact text and its revision id", async () => {
     });
     assert.equal(getRequests.length, 1);
     assert.equal(getRequests[0].rvprop, "ids|content");
+    assert.equal(getRequests[0].formatversion, 2);
+    assert.equal(getRequests[0].rvslots, "main");
 });
 
-test('getPageSnapshot treats the presence of missing="" as an absent page', async () => {
+test("getPageSnapshot treats formatversion 2 missing=true as an absent page", async () => {
     nextGetResponse = {
         query: {
-            pageids: ["-1"],
-            pages: {
-                "-1": { missing: "" },
-            },
+            pages: [{ missing: true }],
         },
     };
 
@@ -617,4 +628,24 @@ test("score-list editing reports a resolved second-edit failure", async () => {
         true,
     );
     assert.equal(editRequests.length, 1);
+});
+
+test("getPageSnapshot rejects obsolete responses instead of preparing a replacement edit", async () => {
+    nextGetResponse = {
+        query: {
+            pageids: ["1"],
+            pages: {
+                1: { revisions: [{ slots: { main: { "*": "old source" } } }] },
+            },
+        },
+    };
+    await assert.rejects(getPageSnapshot("Page"), /no page snapshot/u);
+    nextGetResponse = {
+        query: {
+            pages: [
+                { revisions: [{ slots: { main: { "*": "old source" } } }] },
+            ],
+        },
+    };
+    await assert.rejects(getPageSnapshot("Page"), /no readable page content/u);
 });

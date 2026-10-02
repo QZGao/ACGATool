@@ -1,3 +1,16 @@
+/**
+ * @file src/features/nomination/model.ts
+ * Purpose: src / features / nomination / model module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. normalizeScore
+ * 4. getSelectedScoreTotal
+ * 5. createNominationModel
+ * 6. NominationModel
+ */
+
 import {
     nominationRuleGroup,
     validateNominationGroup,

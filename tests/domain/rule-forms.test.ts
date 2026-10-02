@@ -1,3 +1,17 @@
+/**
+ * @file tests/domain/rule-forms.test.ts
+ * Purpose: tests / domain / rule forms.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. expectedReviewCode
+ * 4. makeReviewRuleDict
+ * 5. selectedStatus
+ * 6. selectedRules
+ * 7. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 

@@ -1,5 +1,25 @@
 # Changelog
 
+<!-- toc:start -->
+
+## Contents
+
+- [\[2.0.2\] - 2026-10-03](#202---2026-10-03)
+- [\[2.0.1-alpha.2\] - 2026-10-02](#201-alpha2---2026-10-02)
+  - [Changed](#changed)
+- [\[2.0.0-alpha.2\] - 2026-10-01](#200-alpha2---2026-10-01)
+- [\[2.0.0-alpha.1\] - 2026-10-01](#200-alpha1---2026-10-01)
+- [\[2.0.0-alpha\] - 2026-09-27](#200-alpha---2026-09-27)
+
+<!-- toc:end -->
+
+## [2.0.2] - 2026-10-03
+
+- Use native Codex buttons for dialog actions and current formatversion 2
+  MediaWiki responses, removing obsolete keyed-page and revision payloads.
+- Publish matching readable userscript and minified gadget headers, with
+  user guides in three languages and BanG Dream article-based screenshots.
+
 ## [2.0.1-alpha.2] - 2026-10-02
 
 ### Changed

@@ -1,3 +1,11 @@
+/**
+ * @file src/features/nomination/dialog.css
+ * Purpose: src / features / nomination / dialog module.
+ *
+ * Table of contents:
+ * 1. Styles and responsive rules
+ */
+
 .acga-codex-dialog {
     --acga-dialog-width: min(960px, calc(100vw - 32px));
     width: var(--acga-dialog-width);

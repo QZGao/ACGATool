@@ -1,3 +1,19 @@
+/**
+ * @file tests/nomination/draft-persistence.test.ts
+ * Purpose: tests / nomination / draft persistence.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. DraftStore
+ * 3. memoryStore
+ * 4. browserStores
+ * 5. harness
+ * 6. validArticle
+ * 7. settle
+ * 8. submittedTitles
+ * 9. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 

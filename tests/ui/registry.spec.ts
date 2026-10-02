@@ -1,3 +1,14 @@
+/**
+ * @file tests/ui/registry.spec.ts
+ * Purpose: tests / ui / registry.spec module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Test scenarios
+ * 4. loadRegistryRuntime
+ */
+
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";

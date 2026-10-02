@@ -1,3 +1,12 @@
+/**
+ * @file tests/nomination/check-batch.test.ts
+ * Purpose: tests / nomination / check batch.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Test scenarios
+ */
+
 import test from "node:test";
 import assert from "node:assert/strict";
 

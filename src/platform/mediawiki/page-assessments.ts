@@ -1,3 +1,14 @@
+/**
+ * @file src/platform/mediawiki/page-assessments.ts
+ * Purpose: src / platform / mediawiki / page assessments module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. record
+ * 3. queryPage
+ * 4. getPageAssessments
+ */
+
 import type { PageAssessment } from "../../domain/page-assessments.ts";
 import type { ApiClient } from "./api.ts";
 

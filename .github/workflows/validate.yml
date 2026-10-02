@@ -1,3 +1,10 @@
+# @file .github/workflows/validate.yml
+# Purpose: .github / workflows / validate module.
+#
+# Table of contents:
+# 1. Workflow or configuration
+# End file heading
+
 name: Validate
 
 on:

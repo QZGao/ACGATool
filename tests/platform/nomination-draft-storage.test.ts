@@ -1,3 +1,15 @@
+/**
+ * @file tests/platform/nomination-draft-storage.test.ts
+ * Purpose: tests / platform / nomination draft storage.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. memoryStorage
+ * 3. browserEvents
+ * 4. draft
+ * 5. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createBrowserNominationDraftStore } from "../../src/platform/browser/nomination-draft-storage.ts";

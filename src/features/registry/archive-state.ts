@@ -1,4 +1,15 @@
-/** Read archive signals from the wiki's rendered nomination tables. */
+/**
+ * @file src/features/registry/archive-state.ts
+ * Purpose: Read archive signals from the wiki's rendered nomination tables.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. getRenderedHeaderState
+ * 3. readTimestamp
+ * 4. getRenderedReviewTimestamp
+ * 5. getRenderedDiscussionTimestamp
+ */
+
 import { getLatestUtcSignature } from "../../domain/archive-eligibility.ts";
 
 export function getRenderedHeaderState(

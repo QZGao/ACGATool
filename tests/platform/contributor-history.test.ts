@@ -1,3 +1,16 @@
+/**
+ * @file tests/platform/contributor-history.test.ts
+ * Purpose: tests / platform / contributor history.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. revision
+ * 4. history
+ * 5. fixture
+ * 6. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createMediaWikiApi } from "../../src/platform/mediawiki/api.ts";

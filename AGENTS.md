@@ -1,35 +1,62 @@
 # ACGATool contributor instructions
 
-Read `CONTRIBUTING.md` and `docs/architecture.md` before changing project structure.
+<!-- toc:start -->
 
-**UI changes must follow [Codex button types and order](https://doc.wikimedia.org/codex/latest/style-guide/using-links-and-buttons.html#types-and-order-of-buttons).**
-Use one primary progressive action per group, normal secondary actions, quiet
-tertiary actions, and neutral cancellation. In flows, put the primary action last
-in reading order (right in LTR, left in RTL); align dialog actions to the end.
-When stacked, put the primary action at the top in both directions. Use the
-12px spacing token between separate buttons; reserve destructive actions for
-irreversible operations.
+## Contents
 
-- Keep startup and orchestration in `src/app/`, pure scoring and wikitext rules in
-  `src/domain/`, host integration in `src/platform/`, and UI in `src/features/`.
-- Use lowercase kebab-case module and test filenames. Keep feature TypeScript,
-  template-only Vue markup and CSS together; use `*.test.ts` for unit tests and
-  `*.spec.ts` for browser scenarios.
-- Keep `src/index.ts` side-effect free. Use TypeScript for source, tests, and tools.
-- Preserve SuperGrey's credit and the MIT notice in `LICENSE`; the AI-assisted
-  edits do not introduce an additional copyright claim.
-- Keep the five exclusive nomination categories: 1–4, 5, 6, 7, and 8. Each
-  nomination belongs to one group; forms, checking, and rebuilding share it.
-- Stage batch checks locally. Submit one registration-page edit and one score-list
-  edit for the completed batch. Cancel discards pending changes. Report partial
-  failures accurately and avoid duplicate scoring on retries.
-- Treat wiki content as untrusted text. Use injected services for external effects,
-  clean up dialog hosts and listeners, and discard stale asynchronous results.
-- Vue and Codex come from MediaWiki ResourceLoader in production. Keep automated
-  builds and tests independent of live wiki downloads or edits.
-- Use Node.js 24.14.1 or newer and the tracked lockfile (`npm ci`). Run
-  `npm run verify` for material changes. Generate `dist/` with the build.
-- Keep README features brief; place technical guidance in `docs/` and notable
-  changes in `CHANGELOG.md`.
-- Regenerate documentation images with `npm run screenshots`: offline fixtures,
-  a 1024 × 768 viewport, device scale factor 1, and no live wiki operations.
+- [Scope and required reading](#scope-and-required-reading)
+- [Structure and dependencies](#structure-and-dependencies)
+- [UI and accessibility](#ui-and-accessibility)
+- [Data and lifecycle](#data-and-lifecycle)
+- [Project invariants](#project-invariants)
+- [Verification and delivery](#verification-and-delivery)
+
+<!-- toc:end -->
+
+## Scope and required reading
+
+This is an independently installable MediaWiki tool. Read [Contributing](CONTRIBUTING.md),
+[architecture](docs/architecture.md), [UI guidelines](docs/ui-guidelines.md), and
+[documentation conventions](docs/documentation.md) before changing their respective areas.
+
+## Structure and dependencies
+
+Keep startup and orchestration in `src/app/`, deterministic rules in `src/domain/`,
+host integrations in `src/platform/`, and UI ownership in `src/features/`.
+Use `src/shared/` for small host-independent capabilities, `src/i18n/` for messages,
+and `src/types/` for declarations where needed. Keep `src/index.ts` free of startup
+side effects. Inject external operations through typed contracts. Co-locate each UI
+component's template-only Vue file, TypeScript behavior, and scoped CSS.
+
+Use lowercase kebab-case module names. Keep each gadget self-contained; never import another
+project at runtime, replace its globals, or modify its styles. Use explicit public editor
+contracts when interoperating. Remove dead modules and retired browser/API shims; retain
+validation, cancellation, conflict handling, and user-data recovery.
+
+## UI and accessibility
+
+Follow the [Wikimedia Codex style guide](https://doc.wikimedia.org/codex/latest/style-guide/overview.html)
+and especially [Using links and buttons](https://doc.wikimedia.org/codex/latest/style-guide/using-links-and-buttons.html).
+Use links for navigation and buttons for actions. Apply the hierarchy, order, spacing,
+focus, feedback, and responsive rules in [UI guidelines](docs/ui-guidelines.md).
+Production Vue and Codex come from MediaWiki ResourceLoader.
+
+## Data and lifecycle
+
+Treat article text, remote responses, and translations as untrusted input. Render text with
+text nodes or Vue interpolation. Release listeners, observers, timers, backend registrations,
+and Vue mounts when their owner is disposed. Discard stale asynchronous results. Keep supported
+message catalogs aligned. Automated tests remain offline and never modify live wiki services.
+
+## Project invariants
+
+Preserve the five exclusive nomination categories: 1–4, 5, 6, 7, and 8. Each nomination belongs to one group across forms, checking, and rebuilding. Stage checks locally; submit one registration-page edit and one score-list edit for a completed batch. Cancel discards pending changes. Report partial failures and prevent duplicate scoring on retries. Credit SuperGrey and preserve the MIT notice without adding a maintainer copyright claim.
+
+## Verification and delivery
+
+Use Node.js `>=24.14.1` and `npm ci` with the tracked lockfile. Run
+`npm run verify` for material changes. Generate `dist/` from source; never hand-edit it.
+Regenerate and inspect screenshots after relevant UI edits. Keep three user READMEs aligned,
+maintain file headings and contents lists, and record notable changes under Unreleased in
+`CHANGELOG.md`. Preserve attribution and license boundaries. Publishing is a separate
+maintainer action; local verification does not publish anything.

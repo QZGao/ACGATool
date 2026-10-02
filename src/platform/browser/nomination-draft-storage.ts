@@ -1,3 +1,20 @@
+/**
+ * @file src/platform/browser/nomination-draft-storage.ts
+ * Purpose: src / platform / browser / nomination draft storage module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. DraftStorageHost
+ * 3. JsonValue
+ * 4. Constants and state
+ * 5. invalidDraft
+ * 6. record
+ * 7. encode
+ * 8. decode
+ * 9. validatedDraft
+ * 10. createBrowserNominationDraftStore
+ */
+
 import type {
     NominationData,
     NominationDraftStore,

@@ -1,3 +1,11 @@
+/**
+ * @file src/features/registry/registry.css
+ * Purpose: src / features / registry / registry module.
+ *
+ * Table of contents:
+ * 1. Styles and responsive rules
+ */
+
 .acga-registry-status {
     position: absolute;
     inline-size: 1px;

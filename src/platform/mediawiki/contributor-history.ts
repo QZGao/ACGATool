@@ -1,3 +1,17 @@
+/**
+ * @file src/platform/mediawiki/contributor-history.ts
+ * Purpose: src / platform / mediawiki / contributor history module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. record
+ * 3. queryPages
+ * 4. pageRevisions
+ * 5. revisionSize
+ * 6. contributionRevision
+ * 7. getLargestContributorLastYear
+ */
+
 import {
     largestContributor,
     type ContributionRevision,

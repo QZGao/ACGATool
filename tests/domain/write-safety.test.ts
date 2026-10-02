@@ -1,3 +1,13 @@
+/**
+ * @file tests/domain/write-safety.test.ts
+ * Purpose: tests / domain / write safety.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Test scenarios
+ */
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import {

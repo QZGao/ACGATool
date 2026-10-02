@@ -1,3 +1,12 @@
+/**
+ * @file tests/nomination/score-total.test.ts
+ * Purpose: tests / nomination / score total.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Test scenarios
+ */
+
 import test from "node:test";
 import assert from "node:assert/strict";
 

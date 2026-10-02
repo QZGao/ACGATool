@@ -1,4 +1,15 @@
-/** Composition root; importing it does not initialize a MediaWiki page. */
+/**
+ * @file src/app/main.ts
+ * Purpose: Composition root; importing it does not initialize a MediaWiki page.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. StartupHost
+ * 3. Constants and state
+ * 4. start
+ * 5. initialize
+ */
+
 import { createMediaWikiApi } from "../platform/mediawiki/api.ts";
 import { createBrowserNominationDraftStore } from "../platform/browser/nomination-draft-storage.ts";
 import { createNominationDialogs } from "../features/nomination/dialog.ts";

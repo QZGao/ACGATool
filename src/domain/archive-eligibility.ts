@@ -1,4 +1,22 @@
-/** Archive readiness from saved nomination results and UTC signatures. */
+/**
+ * @file src/domain/archive-eligibility.ts
+ * Purpose: Archive readiness from saved nomination results and UTC signatures.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. ArchiveEntryState
+ * 3. ArchiveEligibility
+ * 4. Constants and state
+ * 5. getArchiveEligibility
+ * 6. visibleWikitext
+ * 7. utcTimestamp
+ * 8. getLatestUtcSignature
+ * 9. splitTemplateFields
+ * 10. readTemplates
+ * 11. isRechecking
+ * 12. getWikitextArchiveEligibility
+ */
+
 import { getRegistryEntries, queried2NomData } from "./wikitext.ts";
 
 export interface ArchiveEntryState {

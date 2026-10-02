@@ -1,4 +1,12 @@
-/** DiscussionTools fragments are accepted only as plain safe link fragments. */
+/**
+ * @file src/features/registry/identity.ts
+ * Purpose: DiscussionTools fragments are accepted only as plain safe link fragments.
+ *
+ * Table of contents:
+ * 1. normalizeDiscussionCommentId
+ * 2. findPrecedingDiscussionCommentId
+ */
+
 export function normalizeDiscussionCommentId(
     value: unknown,
 ): string | undefined {

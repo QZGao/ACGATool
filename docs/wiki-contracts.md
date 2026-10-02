@@ -11,6 +11,16 @@ Template and registration contracts were checked against public source and
 rendered markup on 2026-09-27. Automated validation uses local fixtures and mocked
 APIs. These assumptions guide host adapters and parsers.
 
+<!-- toc:start -->
+
+## Contents
+
+- [Registration and scoring](#registration-and-scoring)
+- [Article and file context](#article-and-file-context)
+- [Runtime and interface](#runtime-and-interface)
+
+<!-- toc:end -->
+
 ## Registration and scoring
 
 - [ACG提名2](https://zh.wikipedia.org/wiki/Template:ACG提名2) accepts article,

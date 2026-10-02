@@ -1,16 +1,25 @@
 # Architecture
 
-**Interface contract: [Codex button types and order](https://doc.wikimedia.org/codex/latest/style-guide/using-links-and-buttons.html#types-and-order-of-buttons).**
-Each action group has at most one primary progressive button. Secondary actions
-are normal, tertiary actions quiet, and cancellation neutral. Flow primaries
-come last in reading order (right in LTR, left in RTL), with dialog footers aligned
-to the end; a back action sits next to its forward action. Stacked groups put
-the primary action at the top in either direction and use the 12px spacing token.
-Destructive styling is reserved for irreversible operations.
+<!-- toc:start -->
+
+## Contents
+
+- [Scope](#scope)
+- [Folder names and ownership](#folder-names-and-ownership)
+- [Dependencies and startup](#dependencies-and-startup)
+- [Nomination state](#nomination-state)
+- [Checks and wiki writes](#checks-and-wiki-writes)
+- [Host, lifecycle and build](#host-lifecycle-and-build)
+
+<!-- toc:end -->
+
+## Scope
 
 ACGATool separates deterministic nomination rules from browser state and wiki
 effects. [Usage](usage.md) describes workflows; [wiki contracts](wiki-contracts.md)
 describe the page formats and host assumptions.
+
+## Folder names and ownership
 
 | Path                                     | Responsibility                                                         |
 | ---------------------------------------- | ---------------------------------------------------------------------- |
@@ -23,10 +32,17 @@ describe the page formats and host assumptions.
 | `tests/`, `scripts/`                     | Offline fixtures and verification; TypeScript build and release tools. |
 | `dist/`                                  | Generated installation artifacts.                                      |
 
+## Dependencies and startup
+
 Use lowercase kebab-case filenames and deliberate public exports. `src/index.ts`
 is side-effect free; `src/app/browser.ts` starts the browser application. Domain
 rules operate on supplied values. The composition root injects APIs, storage and
 host capabilities into services and UI.
+
+The host adapter requests current MediaWiki formatversion 2 responses with the main
+revision slot. Obsolete keyed page maps and star-key content are rejected before editing.
+Page-tool commands are native Codex buttons; navigation remains ordinary links. See
+[UI guidelines](ui-guidelines.md) for the required interface contract.
 
 Unit and service scenarios use `*.test.ts`; browser scenarios use `*.spec.ts`.
 Feature-owned templates and styles live beside their TypeScript module:

@@ -1,3 +1,16 @@
+/**
+ * @file tests/nomination/dialog-lifecycle.test.ts
+ * Purpose: tests / nomination / dialog lifecycle.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. harness
+ * 4. Test scenarios
+ * 5. dykFixture
+ * 6. deferredDyk
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ComponentOptions } from "vue";

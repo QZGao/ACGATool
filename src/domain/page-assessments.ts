@@ -1,3 +1,19 @@
+/**
+ * @file src/domain/page-assessments.ts
+ * Purpose: src / domain / page assessments module.
+ *
+ * Table of contents:
+ * 1. PageAssessment
+ * 2. PageAssessmentProject
+ * 3. PageAssessmentGroup
+ * 4. AssessmentClass
+ * 5. Constants and state
+ * 6. Initialization and execution
+ * 7. assessmentClass
+ * 8. projectPriority
+ * 9. groupPageAssessments
+ */
+
 export interface PageAssessment {
     project: string;
     class: string;

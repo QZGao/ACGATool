@@ -1,3 +1,15 @@
+/**
+ * @file tests/domain/edit-summary.test.ts
+ * Purpose: tests / domain / edit summary.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. nomination
+ * 4. body
+ * 5. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatNominationEditSummary } from "../../src/domain/edit-summary.ts";

@@ -1,3 +1,19 @@
+/**
+ * @file src/domain/edit-summary.ts
+ * Purpose: src / domain / edit summary module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. NominationSummaryItem
+ * 4. byteLength
+ * 5. attributed
+ * 6. plainText
+ * 7. totalScore
+ * 8. boundedToolSummary
+ * 9. formatNominationEditSummary
+ */
+
 import {
     allRuleOccurrences,
     NominationRuleSet,

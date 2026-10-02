@@ -1,3 +1,14 @@
+/**
+ * @file src/features/nomination/dialog-host.ts
+ * Purpose: src / features / nomination / dialog host module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. FooterAction
+ * 3. orderFooterActions
+ * 4. createDialogHost
+ */
+
 import { nominationRuleGroup } from "../../domain/rules.ts";
 import type { ComponentOptions } from "vue";
 import {

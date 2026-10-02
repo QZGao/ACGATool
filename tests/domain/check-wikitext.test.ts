@@ -1,3 +1,13 @@
+/**
+ * @file tests/domain/check-wikitext.test.ts
+ * Purpose: tests / domain / check wikitext.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. ruleStatus
+ * 3. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 

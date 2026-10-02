@@ -1,3 +1,13 @@
+/**
+ * @file tests/platform/page-context.test.ts
+ * Purpose: tests / platform / page context.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { nominationPageContext } from "../../src/platform/mediawiki/page-context.ts";

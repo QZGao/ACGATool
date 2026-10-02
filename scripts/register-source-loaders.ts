@@ -1,4 +1,12 @@
-/** Let offline Node tests import the same text assets as the browser build. */
+/**
+ * @file scripts/register-source-loaders.ts
+ * Purpose: Let offline Node tests import the same text assets as the browser build.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Initialization and execution
+ */
+
 import { readFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { fileURLToPath } from "node:url";

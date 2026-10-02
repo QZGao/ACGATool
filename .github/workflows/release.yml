@@ -1,3 +1,10 @@
+# @file .github/workflows/release.yml
+# Purpose: .github / workflows / release module.
+#
+# Table of contents:
+# 1. Workflow or configuration
+# End file heading
+
 name: Release
 
 on:

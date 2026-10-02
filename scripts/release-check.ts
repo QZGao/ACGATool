@@ -1,4 +1,13 @@
-/** Verify the release version, repository ancestry, and reviewed notes. */
+/**
+ * @file scripts/release-check.ts
+ * Purpose: Verify the release version, repository ancestry, and reviewed notes.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Initialization and execution
+ */
+
 import { execFileSync } from "node:child_process";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";

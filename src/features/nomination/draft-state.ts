@@ -1,3 +1,16 @@
+/**
+ * @file src/features/nomination/draft-state.ts
+ * Purpose: src / features / nomination / draft state module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. clone
+ * 4. captureNominationDraft
+ * 5. hydrate
+ * 6. restoreNominationDraft
+ */
+
 import type { NominationData } from "./contracts.ts";
 import {
     ACTIVITY_RULES,

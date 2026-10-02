@@ -1,3 +1,19 @@
+/**
+ * @file src/platform/mediawiki/api.ts
+ * Purpose: src / platform / mediawiki / api module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. PageSnapshot
+ * 4. EditPageOptions
+ * 5. EditPageResult
+ * 6. ApiClient
+ * 7. MediaWikiApiHost
+ * 8. editErrorCode
+ * 9. createMediaWikiApi
+ */
+
 import { applyScoreDeltas, type ScoreDelta } from "../../domain/score-list.ts";
 import { getLargestContributorLastYear } from "./contributor-history.ts";
 import { getDykStatus } from "./dyk-status.ts";
@@ -99,23 +115,20 @@ export function createMediaWikiApi(host: MediaWikiApiHost) {
     ): Promise<PageSnapshot> {
         const response = await api().get({
             action: "query",
+            formatversion: 2,
             titles: pageName,
             prop: "revisions",
-            rvslots: "*",
+            rvslots: "main",
             rvprop: "ids|content",
-            indexpageids: 1,
+            rvlimit: 1,
         });
-        const pageId = response?.query?.pageids?.[0];
-        const page =
-            pageId === undefined || pageId === null
-                ? null
-                : response?.query?.pages?.[pageId];
+        const pages = response?.query?.pages;
+        const page = Array.isArray(pages) ? pages[0] : null;
         if (!page) throw new Error("MediaWiki returned no page snapshot");
-        if (Object.prototype.hasOwnProperty.call(page, "missing"))
+        if (page.missing === true)
             return { exists: false, text: "", revisionId: null };
         const revision = page.revisions?.[0];
-        const content =
-            revision?.slots?.main?.["*"] ?? revision?.slots?.main?.content;
+        const content = revision?.slots?.main?.content;
         if (typeof content !== "string")
             throw new Error("MediaWiki returned no readable page content");
         return {

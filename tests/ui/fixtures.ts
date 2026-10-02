@@ -1,3 +1,14 @@
+/**
+ * @file tests/ui/fixtures.ts
+ * Purpose: tests / ui / fixtures module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Exports
+ * 4. capture
+ */
+
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { expect, test as base } from "@playwright/test";

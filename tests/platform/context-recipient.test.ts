@@ -1,3 +1,13 @@
+/**
+ * @file tests/platform/context-recipient.test.ts
+ * Purpose: tests / platform / context recipient.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. fixture
+ * 3. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createMediaWikiApi } from "../../src/platform/mediawiki/api.ts";

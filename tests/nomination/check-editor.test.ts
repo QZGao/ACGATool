@@ -1,3 +1,16 @@
+/**
+ * @file tests/nomination/check-editor.test.ts
+ * Purpose: tests / nomination / check editor.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. openCheck
+ * 4. formattedCheck
+ * 5. checkingState
+ * 6. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 

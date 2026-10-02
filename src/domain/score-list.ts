@@ -1,4 +1,16 @@
-/** Conservative source edits for the simple Lua table used by Module:ACGaward/list. */
+/**
+ * @file src/domain/score-list.ts
+ * Purpose: Conservative source edits for the simple Lua table used by Module:ACGaward/list.
+ *
+ * Table of contents:
+ * 1. ScoreDelta
+ * 2. ScoreChange
+ * 3. ScoreListUpdate
+ * 4. decodeLuaName
+ * 5. quoteLuaName
+ * 6. applyScoreDeltas
+ */
+
 export interface ScoreDelta {
     userName: string;
     score: number;

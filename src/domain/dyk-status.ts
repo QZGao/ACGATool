@@ -1,3 +1,15 @@
+/**
+ * @file src/domain/dyk-status.ts
+ * Purpose: src / domain / dyk status module.
+ *
+ * Table of contents:
+ * 1. DykStatus
+ * 2. parseDykStatus
+ * 3. epochTime
+ * 4. plainAuthor
+ * 5. splitFields
+ */
+
 export interface DykStatus {
     passed: boolean;
     date: string | null;

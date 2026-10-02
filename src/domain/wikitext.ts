@@ -1,3 +1,48 @@
+/**
+ * @file src/domain/wikitext.ts
+ * Purpose: src / domain / wikitext module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. SourceLocation
+ * 3. SourceToken
+ * 4. TemplateParameter
+ * 5. ParsedEntry
+ * 6. structuralWikitext
+ * 7. trimToken
+ * 8. splitParameters
+ * 9. findTemplateEnd
+ * 10. parseTemplate
+ * 11. getDateSections
+ * 12. tableNominator
+ * 13. collectEntriesInSection
+ * 14. getRegistryEntries
+ * 15. queryEntry
+ * 16. resolveEntryByFingerprint
+ * 17. updateEntryParameters
+ * 18. removeComments
+ * 19. parseUserReason
+ * 20. queried2NomData
+ * 21. withToolAttribution
+ * 22. formatSummaryPageLinks
+ * 23. safeCommentFragment
+ * 24. formatScoreListEditSummary
+ * 25. Constants and state
+ * 26. sourceError
+ * 27. normalizedSuffix
+ * 28. formatEditableItemSource
+ * 29. parseEditableItemSource
+ * 30. CheckedScoreResult
+ * 31. CheckSourceResult
+ * 32. readCheckSource
+ * 33. CheckedRuleToken
+ * 34. NominationCheckParseResult
+ * 35. parseNominationCheckWikitext
+ * 36. getCheckedScore
+ * 37. EntryParameterUpdate
+ * 38. updateEntriesParameters
+ */
+
 import { NominationRuleSet, parseReasonTokens } from "./rules.ts";
 import { boundedToolSummary } from "./edit-summary.ts";
 

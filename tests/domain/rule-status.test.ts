@@ -1,3 +1,12 @@
+/**
+ * @file tests/domain/rule-status.test.ts
+ * Purpose: tests / domain / rule status.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Test scenarios
+ */
+
 import test from "node:test";
 import assert from "node:assert/strict";
 

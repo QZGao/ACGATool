@@ -1,3 +1,13 @@
+/**
+ * @file tests/nomination/fixture.ts
+ * Purpose: tests / nomination / fixture module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. instantiateHost
+ */
+
 import { createTranslator } from "../../src/i18n/index.ts";
 import { reactive } from "vue";
 import type { ComponentOptions } from "vue";

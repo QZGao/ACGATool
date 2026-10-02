@@ -1,4 +1,14 @@
-/** The nomination target and recipient lookup derived from the viewed page. */
+/**
+ * @file src/platform/mediawiki/page-context.ts
+ * Purpose: The nomination target and recipient lookup derived from the viewed page.
+ *
+ * Table of contents:
+ * 1. NominationPageContext
+ * 2. PageConfiguration
+ * 3. revisionNumber
+ * 4. nominationPageContext
+ */
+
 export interface NominationPageContext {
     pageName: string;
     initialCategory: "article" | "media";

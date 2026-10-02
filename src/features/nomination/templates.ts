@@ -1,3 +1,13 @@
+/**
+ * @file src/features/nomination/templates.ts
+ * Purpose: src / features / nomination / templates module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. extractDialogTemplates
+ */
+
 import dialogTemplateSource from "./dialog.vue";
 
 const DIALOG_TEMPLATE_NAMES = [

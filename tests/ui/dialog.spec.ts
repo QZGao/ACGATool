@@ -1,3 +1,19 @@
+/**
+ * @file tests/ui/dialog.spec.ts
+ * Purpose: tests / ui / dialog.spec module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Test scenarios
+ * 4. mount
+ * 5. openNewNomination
+ * 6. openCheckBatch
+ * 7. openDykCheck
+ * 8. closeDykCheck
+ * 9. expectCompactArticleHints
+ */
+
 import { mkdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -4766,9 +4782,36 @@ test.describe("documentation screenshots", () => {
     });
 
     test("nomination form and summary", async ({ page }) => {
+        const articleSource = await readFile(
+            new URL("../fixtures/bang-dream.wikitext", import.meta.url),
+            "utf8",
+        );
+        const sourceInfo = JSON.parse(
+            await readFile(
+                new URL("../fixtures/bang-dream.source.json", import.meta.url),
+                "utf8",
+            ),
+        );
         const errors = await mount(page, "zh-Hant", {
-            pageName: "範例遊戲",
+            pageName: sourceInfo.title,
         });
+        await page.evaluate(
+            ({ title, excerpt }) => {
+                document.querySelector("h1")!.textContent = title;
+                const source = document.createElement("pre");
+                source.textContent = excerpt;
+                source.style.cssText =
+                    "white-space:pre-wrap;line-height:1.6;color:#54595d";
+                document.body.append(source);
+            },
+            {
+                title: sourceInfo.title,
+                excerpt: articleSource.slice(
+                    0,
+                    articleSource.indexOf("\n== 剧情 =="),
+                ),
+            },
+        );
         const msg = createTranslator("zh-Hant").msg;
         const directory = new URL("../../docs/images/", import.meta.url);
         await mkdir(directory, { recursive: true });
@@ -4796,7 +4839,7 @@ test.describe("documentation screenshots", () => {
             .click();
         await dialog
             .getByRole("textbox", { name: msg("article_title"), exact: true })
-            .fill("範例動畫");
+            .fill(sourceInfo.title);
         await recipient.fill("Example2");
         await length.check();
         await dialog
@@ -4805,11 +4848,18 @@ test.describe("documentation screenshots", () => {
         await expect(dialog.getByRole("table")).toBeVisible();
         await dialog
             .locator(".acga-additional-message textarea")
-            .fill("兩項提名分別對應條目的內容擴充，請核對貢獻紀錄。");
+            .fill(
+                "示範提名：請核對 BanG Dream! 條目的實際貢獻紀錄與適用分數。",
+            );
         await page.screenshot({
             path: fileURLToPath(new URL("screenshot-02.png", directory)),
             animations: "disabled",
         });
+        expect(
+            await page.evaluate(
+                () => (window as any).acgaFixture.effects.saves,
+            ),
+        ).toEqual([]);
         expect(errors).toEqual([]);
     });
 });

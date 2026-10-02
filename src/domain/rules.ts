@@ -1,3 +1,97 @@
+/**
+ * @file src/domain/rules.ts
+ * Purpose: src / domain / rules module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Exports
+ * 3. NominationRule
+ * 4. NominationRuleGroup
+ * 5. NominationRules
+ * 6. NominationRuleAliases
+ * 7. NominationRuleSet
+ * 8. getOrderedRuleStatus
+ * 9. generateReason
+ * 10. Constants and state
+ * 11. findReasonWikilinkEnd
+ * 12. findMalformedWikilinkBoundary
+ * 13. encodePlainDescription
+ * 14. encodeReasonDescription
+ * 15. decodeReasonDescription
+ * 16. parseFailure
+ * 17. own
+ * 18. strippedReason
+ * 19. canonicalRuleCode
+ * 20. parseScore
+ * 21. splitReasonTokenText
+ * 22. findModifierClosing
+ * 23. parseRuleToken
+ * 24. parseReasonTokens
+ * 25. reviewSpecialistCode
+ * 26. classifyRule5Code
+ * 27. mappingFailure
+ * 28. expandCompleteReviewToken
+ * 29. decomposeRule5Tokens
+ * 30. decimalScore
+ * 31. defaultsForCode
+ * 32. serializeReasonToken
+ * 33. serializeReasonTokens
+ * 34. isRepeatableRule
+ * 35. getRuleOccurrences
+ * 36. allRuleOccurrences
+ * 37. getOrderedRuleOccurrences
+ * 38. normalizeRepeatableRules
+ * 39. getContentExpansionMenuItems
+ * 40. getContentExpansionDraft
+ * 41. contentExpansionPresetRule
+ * 42. applyContentExpansionChoice
+ * 43. isDefaultDescription
+ * 44. ensureRuleStatus
+ * 45. activityChoiceRule
+ * 46. nextActivityRowId
+ * 47. activityRowId
+ * 48. activityOccurrences
+ * 49. activityDraftRow
+ * 50. getActivityDraft
+ * 51. validateActivityDraft
+ * 52. addActivityDraftRow
+ * 53. applyActivityDraft
+ * 54. normalizeQualityScore
+ * 55. qualityTotal
+ * 56. allocateQualityScore
+ * 57. getQualityDraft
+ * 58. applyQualityDraft
+ * 59. reviewTier
+ * 60. reviewCode
+ * 61. reviewRuleSet
+ * 62. getReviewDefaultScore
+ * 63. ReviewRowDraft
+ * 64. emptyReviewRow
+ * 65. getReviewDraft
+ * 66. applyReviewDraft
+ * 67. normalizedScore
+ * 68. serializeNominationReason
+ * 69. serializeNominationDraftReason
+ * 70. tokenRowFailure
+ * 71. serializeCheckTokenRows
+ * 72. trimmedText
+ * 73. hasMediaFilePrefix
+ * 74. normalizeMediaFileName
+ * 75. resolveMediaPageName
+ * 76. targetError
+ * 77. resolveAuthorTarget
+ * 78. formatNominationItemWikitext
+ * 79. NominationBatchEntry
+ * 80. formatNewNominationBatchWikitext
+ * 81. formatNewNominationTablesWikitext
+ * 82. formatNominationCheckWikitext
+ * 83. formatCheckedNominationItemWikitext
+ * 84. NominationGroup
+ * 85. NominationGroupResult
+ * 86. nominationRuleGroup
+ * 87. validateNominationGroup
+ */
+
 import {
     RULE_GROUPS,
     canonicalRuleMessage,

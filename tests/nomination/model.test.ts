@@ -1,3 +1,14 @@
+/**
+ * @file tests/nomination/model.test.ts
+ * Purpose: tests / nomination / model.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. nomination
+ * 4. Test scenarios
+ */
+
 import { createTranslator } from "../../src/i18n/index.ts";
 import test from "node:test";
 import assert from "node:assert/strict";

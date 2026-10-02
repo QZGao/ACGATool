@@ -1,3 +1,14 @@
+/**
+ * @file tests/domain/reason-tokens.test.ts
+ * Purpose: tests / domain / reason tokens.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Test scenarios
+ * 4. token
+ */
+
 import test from "node:test";
 import assert from "node:assert/strict";
 

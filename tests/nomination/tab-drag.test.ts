@@ -1,3 +1,18 @@
+/**
+ * @file tests/nomination/tab-drag.test.ts
+ * Purpose: tests / nomination / tab drag.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. harness
+ * 3. validArticle
+ * 4. addArticles
+ * 5. tableTitles
+ * 6. dragEvent
+ * 7. keyEvent
+ * 8. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 

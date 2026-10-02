@@ -1,3 +1,13 @@
+/**
+ * @file src/features/nomination/check-batch.ts
+ * Purpose: src / features / nomination / check batch module.
+ *
+ * Table of contents:
+ * 1. Constants and state
+ * 2. normalizeCheckOutcome
+ * 3. CheckOutcome
+ */
+
 export const CHECK_OUTCOME = Object.freeze({
     SAVE: "save" as const,
     CANCEL: "cancel" as const,

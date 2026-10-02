@@ -1,3 +1,13 @@
+/**
+ * @file tests/nomination/dialog-assets.test.ts
+ * Purpose: tests / nomination / dialog assets.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";

@@ -1,4 +1,15 @@
-/** The English catalog defines the message contract for every interface locale. */
+/**
+ * @file src/i18n/index.ts
+ * Purpose: The English catalog defines the message contract for every interface locale.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. MessageKey
+ * 3. Translator
+ * 4. Constants and state
+ * 5. createTranslator
+ */
+
 import en from "./en.json" with { type: "json" };
 import zhHans from "./zh-Hans.json" with { type: "json" };
 import zhHant from "./zh-Hant.json" with { type: "json" };

@@ -1,3 +1,13 @@
+/**
+ * @file tests/tooling/release-check.test.ts
+ * Purpose: tests / tooling / release check.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. releaseFixture
+ * 3. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {

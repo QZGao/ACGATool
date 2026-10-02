@@ -1,4 +1,15 @@
-/** Compact embedded assets without changing their readable source files. */
+/**
+ * @file scripts/compact-assets.ts
+ * Purpose: Compact embedded assets without changing their readable source files.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. TemplateNode
+ * 3. compactMessageKeys
+ * 4. shortenMessageKeys
+ * 5. compactTemplate
+ */
+
 import { babelParse, MagicString, parse } from "@vue/compiler-sfc";
 import { transformSync } from "esbuild";
 

@@ -1,3 +1,13 @@
+/**
+ * @file tests/platform/score-batch.test.ts
+ * Purpose: tests / platform / score batch.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. snapshot
+ * 3. Test scenarios
+ */
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createMediaWikiApi } from "../../src/platform/mediawiki/api.ts";
@@ -5,21 +15,20 @@ import { createMediaWikiApi } from "../../src/platform/mediawiki/api.ts";
 function snapshot(score: number, revision: number) {
     return {
         query: {
-            pageids: ["1"],
-            pages: {
-                "1": {
+            pages: [
+                {
                     revisions: [
                         {
                             revid: revision,
                             slots: {
                                 main: {
-                                    "*": `return {\n    ["Example"] = ${score},\n}`,
+                                    content: `return {\n    ["Example"] = ${score},\n}`,
                                 },
                             },
                         },
                     ],
                 },
-            },
+            ],
         },
     };
 }
@@ -93,14 +102,17 @@ test("zero totals skip all network work and missing revisions or unsupported Lua
                 calls++;
                 return {
                     query: {
-                        pageids: ["1"],
-                        pages: {
-                            "1": {
+                        pages: [
+                            {
                                 revisions: [
-                                    { slots: { main: { "*": "return {\n}" } } },
+                                    {
+                                        slots: {
+                                            main: { content: "return {\n}" },
+                                        },
+                                    },
                                 ],
                             },
-                        },
+                        ],
                     },
                 };
             },

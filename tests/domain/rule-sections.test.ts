@@ -1,3 +1,12 @@
+/**
+ * @file tests/domain/rule-sections.test.ts
+ * Purpose: tests / domain / rule sections.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Test scenarios
+ */
+
 import { createTranslator } from "../../src/i18n/index.ts";
 import assert from "node:assert/strict";
 import test from "node:test";

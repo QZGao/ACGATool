@@ -1,3 +1,27 @@
+/**
+ * @file src/features/nomination/contracts.ts
+ * Purpose: src / features / nomination / contracts module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. DialogModelServices
+ * 3. DialogServices
+ * 4. CodexModule
+ * 5. DialogRuntime
+ * 6. NominationIdentity
+ * 7. NominationData
+ * 8. NewNominationTable
+ * 9. SavedNominationDraft
+ * 10. NominationDraftStore
+ * 11. NewNominationBatch
+ * 12. NominationTarget
+ * 13. CheckBatchEntry
+ * 14. RawNominationFields
+ * 15. ConfirmationOptions
+ * 16. DialogOperations
+ * 17. NominationDialogs
+ */
+
 import type { App, Component } from "vue";
 import type { CheckOutcome } from "./check-batch.ts";
 

@@ -1,3 +1,12 @@
+/**
+ * @file src/features/nomination/score-input.ts
+ * Purpose: src / features / nomination / score input module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. createScoreInput
+ */
+
 import type { ComponentOptions } from "vue";
 import type { CodexModule } from "./contracts.ts";
 import { scoreInputTemplate } from "./templates.ts";

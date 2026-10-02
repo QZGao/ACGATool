@@ -1,3 +1,12 @@
+/**
+ * @file src/features/nomination/rule-forms.ts
+ * Purpose: src / features / nomination / rule forms module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. createRuleFormComponents
+ */
+
 import type { NominationRule } from "../../domain/rules.ts";
 import type { ComponentOptions } from "vue";
 import {

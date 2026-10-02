@@ -1,3 +1,12 @@
+/**
+ * @file playwright.config.ts
+ * Purpose: playwright.config module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Exports
+ */
+
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({

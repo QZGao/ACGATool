@@ -1,3 +1,20 @@
+/**
+ * @file src/features/nomination/draft-batch.ts
+ * Purpose: src / features / nomination / draft batch module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. DraftTable
+ * 3. IdentifiedTable
+ * 4. DraftEntry
+ * 5. equal
+ * 6. tableId
+ * 7. tables
+ * 8. entries
+ * 9. localOrderChanged
+ * 10. mergeNominationDrafts
+ */
+
 import type { NominationData, SavedNominationDraft } from "./contracts.ts";
 
 type DraftTable = SavedNominationDraft["tables"][number] & { id?: string };

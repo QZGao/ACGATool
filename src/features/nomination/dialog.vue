@@ -1,3 +1,11 @@
+<!--
+@file src/features/nomination/dialog.vue
+Purpose: src / features / nomination / dialog module.
+
+Table of contents:
+1. Template
+-->
+
 <template>
     <!-- acga-template:dialog-host -->
     <cdx-dialog

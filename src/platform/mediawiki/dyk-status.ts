@@ -1,3 +1,12 @@
+/**
+ * @file src/platform/mediawiki/dyk-status.ts
+ * Purpose: src / platform / mediawiki / dyk status module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. getDykStatus
+ */
+
 import { parseDykStatus, type DykStatus } from "../../domain/dyk-status.ts";
 import type { ApiClient } from "./api.ts";
 

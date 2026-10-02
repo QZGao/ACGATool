@@ -1,3 +1,17 @@
+/**
+ * @file tests/nomination/check-navigation.test.ts
+ * Purpose: tests / nomination / check navigation.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. entry
+ * 4. fixture
+ * 5. rawCheckEntry
+ * 6. state
+ * 7. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 

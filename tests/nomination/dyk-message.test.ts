@@ -1,3 +1,13 @@
+/**
+ * @file tests/nomination/dyk-message.test.ts
+ * Purpose: tests / nomination / dyk message.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createTranslator } from "../../src/i18n/index.ts";

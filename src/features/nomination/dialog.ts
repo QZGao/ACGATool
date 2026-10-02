@@ -1,3 +1,14 @@
+/**
+ * @file src/features/nomination/dialog.ts
+ * Purpose: src / features / nomination / dialog module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. DialogController
+ * 3. createNominationDialogs
+ * 4. Exports
+ */
+
 import dialogStyles from "./dialog.css";
 import { createDialogHost } from "./dialog-host.ts";
 import { CHECK_OUTCOME, normalizeCheckOutcome } from "./check-batch.ts";

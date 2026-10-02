@@ -1,3 +1,14 @@
+/**
+ * @file src/features/registry/integration.ts
+ * Purpose: src / features / registry / integration module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. RegistryActions
+ * 3. RegistryOptions
+ * 4. mountRegistry
+ */
+
 import type { Translator } from "../../i18n/index.ts";
 /** Enhance rendered ACG nomination tables without rewriting their content. */
 import type { EntrySelection } from "../../app/nomination-service.ts";

@@ -1,3 +1,12 @@
+/**
+ * @file tests/platform/preview.test.ts
+ * Purpose: tests / platform / preview.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createMediaWikiApi } from "../../src/platform/mediawiki/api.ts";

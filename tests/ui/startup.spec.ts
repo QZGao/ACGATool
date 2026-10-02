@@ -1,3 +1,13 @@
+/**
+ * @file tests/ui/startup.spec.ts
+ * Purpose: tests / ui / startup.spec module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. Test scenarios
+ */
+
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -60,7 +70,10 @@ for (const [language, catalog] of [
             { language },
         );
         await page
-            .getByRole("link", { name: catalog.nominate_for_acga, exact: true })
+            .getByRole("button", {
+                name: catalog.nominate_for_acga,
+                exact: true,
+            })
             .click();
         const dialog = page.getByRole("dialog", {
             name: catalog.new_nomination_acg_award_tool,
@@ -111,7 +124,7 @@ for (const fixture of [
             },
         );
         await expect(page.locator("table.acgnom-table")).toHaveCount(1);
-        const link = page.getByRole("link", {
+        const link = page.getByRole("button", {
             name: "Nominate to ACGA",
             exact: true,
         });
@@ -180,7 +193,7 @@ for (const namespace of [0, 1]) {
         );
         const link = page
             .getByRole("navigation", { name: "Tools" })
-            .getByRole("link", { name: "Nominate to ACGA", exact: true });
+            .getByRole("button", { name: "Nominate to ACGA", exact: true });
         await expect(link).toBeVisible();
         await expect(page.locator(".acga-registry-toolbar")).toHaveCount(0);
         await link.click();
@@ -364,7 +377,7 @@ for (const fixture of [
             fixture.options,
         );
         await page
-            .getByRole("link", { name: "Nominate to ACGA", exact: true })
+            .getByRole("button", { name: "Nominate to ACGA", exact: true })
             .click();
         const dialog = page.getByRole("dialog");
         const recipient = () =>
@@ -431,7 +444,7 @@ test("production bundle shows a stable loading recipient until article history r
         { deferredRecipient: true },
     );
     await page
-        .getByRole("link", { name: "Nominate to ACGA", exact: true })
+        .getByRole("button", { name: "Nominate to ACGA", exact: true })
         .click();
     const dialog = page.getByRole("dialog");
     const recipient = dialog.getByRole("textbox", {

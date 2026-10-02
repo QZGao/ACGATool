@@ -1,3 +1,12 @@
+/**
+ * @file tests/domain/page-assessments.test.ts
+ * Purpose: tests / domain / page assessments.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { groupPageAssessments } from "../../src/domain/page-assessments.ts";

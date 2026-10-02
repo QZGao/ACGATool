@@ -1,3 +1,17 @@
+/**
+ * @file tests/nomination/draft-batch.test.ts
+ * Purpose: tests / nomination / draft batch.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. DraftTable
+ * 3. nomination
+ * 4. table
+ * 5. batch
+ * 6. ids
+ * 7. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 

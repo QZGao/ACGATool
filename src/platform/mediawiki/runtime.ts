@@ -1,4 +1,12 @@
-/** Adapt ResourceLoader and MediaWiki globals to explicit startup capabilities. */
+/**
+ * @file src/platform/mediawiki/runtime.ts
+ * Purpose: Adapt ResourceLoader and MediaWiki globals to explicit startup capabilities.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. createBrowserHost
+ */
+
 import type { StartupHost } from "../../app/main.ts";
 import type { DialogRuntime } from "../../features/nomination/contracts.ts";
 import { nominationPageContext } from "./page-context.ts";
@@ -92,7 +100,13 @@ export function createBrowserHost(
                 "t-acga-nominate",
             );
             if (!item) return () => {};
-            const link = item.querySelector("a") ?? item;
+            const anchor = item.querySelector("a");
+            if (!anchor) return () => item.remove();
+            const link = doc.createElement("button");
+            link.type = "button";
+            link.className = "cdx-button cdx-button--weight-quiet";
+            link.textContent = label;
+            anchor.replaceWith(link);
             const activate = (event: Event) => {
                 event.preventDefault();
                 callback();

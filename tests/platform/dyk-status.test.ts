@@ -1,3 +1,13 @@
+/**
+ * @file tests/platform/dyk-status.test.ts
+ * Purpose: tests / platform / dyk status.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Test scenarios
+ * 3. fixture
+ */
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseDykStatus } from "../../src/domain/dyk-status.ts";

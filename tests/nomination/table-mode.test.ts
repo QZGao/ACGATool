@@ -1,3 +1,15 @@
+/**
+ * @file tests/nomination/table-mode.test.ts
+ * Purpose: tests / nomination / table mode.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. harness
+ * 3. validArticle
+ * 4. titles
+ * 5. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 

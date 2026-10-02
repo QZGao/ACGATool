@@ -1,3 +1,18 @@
+/**
+ * @file tests/app/nomination-service.test.ts
+ * Purpose: tests / app / nomination service.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. registry
+ * 4. draft
+ * 5. fixture
+ * 6. Test scenarios
+ * 7. archivableRegistry
+ * 8. signedRegistry
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import {

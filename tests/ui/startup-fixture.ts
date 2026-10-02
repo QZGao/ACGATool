@@ -1,3 +1,13 @@
+/**
+ * @file tests/ui/startup-fixture.ts
+ * Purpose: tests / ui / startup fixture module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. StartupFixtureOptions
+ * 3. mountStartup
+ */
+
 import type { Page } from "@playwright/test";
 
 export interface StartupFixtureOptions {
@@ -152,9 +162,8 @@ export async function mountStartup(
                     if (parameters.rvprop === "ids|content") {
                         return Promise.resolve({
                             query: {
-                                pageids: ["1"],
-                                pages: {
-                                    "1": {
+                                pages: [
+                                    {
                                         pageid: 1,
                                         revisions: [
                                             {
@@ -170,7 +179,7 @@ export async function mountStartup(
                                             },
                                         ],
                                     },
-                                },
+                                ],
                             },
                         });
                     }

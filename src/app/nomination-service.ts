@@ -1,3 +1,22 @@
+/**
+ * @file src/app/nomination-service.ts
+ * Purpose: src / app / nomination service module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Exports
+ * 3. Constants and state
+ * 4. NominationApi
+ * 5. EntrySelection
+ * 6. NominationServices
+ * 7. PendingChange
+ * 8. editOptions
+ * 9. retryable
+ * 10. matchesRevision
+ * 11. createNominationService
+ * 12. NominationService
+ */
+
 import type { Translator, MessageKey } from "../i18n/index.ts";
 /** Nomination workflows. All network, dialog, clock and feedback effects are injected. */
 import {

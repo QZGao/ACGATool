@@ -1,3 +1,14 @@
+/**
+ * @file tests/nomination/review-form.test.ts
+ * Purpose: tests / nomination / review form.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Constants and state
+ * 3. reviewForm
+ * 4. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import {

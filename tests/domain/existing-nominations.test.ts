@@ -1,3 +1,13 @@
+/**
+ * @file tests/domain/existing-nominations.test.ts
+ * Purpose: tests / domain / existing nominations.test module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. nomination
+ * 3. Test scenarios
+ */
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
