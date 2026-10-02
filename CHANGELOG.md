@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## [2.0.1-alpha.2] - 2026-10-02
+
+### Changed
+
+- Dialog actions use Codex hierarchy, neutral cancellation and 12px spacing,
+  with a primary action first when stacked.
+- Developer guides require Codex button types and ordering; test names use
+  kebab-case and the README presents the tool independently.
+- Offline documentation screenshots have a reproducible 1024 × 768 viewport.
 
 ## [2.0.0-alpha.2] - 2026-10-01
 

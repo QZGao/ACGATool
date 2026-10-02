@@ -38,6 +38,29 @@ import type {
     NominationData,
     SavedNominationDraft,
 } from "./contracts.ts";
+
+interface FooterAction {
+    key: string;
+    label: string;
+    weight: "primary" | "normal" | "quiet";
+    action: "default" | "progressive" | "destructive";
+    disabled: boolean;
+    title?: string;
+    run(): unknown;
+}
+
+/** Render stacked actions in reading and keyboard order, with primary first. */
+function orderFooterActions(
+    actions: FooterAction[],
+    stacked: boolean,
+): FooterAction[] {
+    if (!stacked) return actions;
+    const priority = { primary: 0, normal: 1, quiet: 2 };
+    return actions.toSorted(
+        (left, right) => priority[left.weight] - priority[right.weight],
+    );
+}
+
 export function createDialogHost(
     runtime: DialogRuntime,
     operations: DialogOperations,
@@ -69,6 +92,9 @@ export function createDialogHost(
         ) ??
         services.document;
     const model = createNominationModel(services);
+    const footerViewport =
+        services.document.defaultView?.matchMedia?.("(max-width: 640px)");
+    let stopFooterLayout: (() => void) | null = null;
     let unsubscribeNominationDraft: (() => void) | null = null;
     let nominationDraftSynchronizationVersion = 0;
     const { ruleNames, ruleDict } = NominationRuleSet(msg);
@@ -129,6 +155,7 @@ export function createDialogHost(
         data() {
             return {
                 dialogId,
+                footerStacked: footerViewport?.matches ?? false,
                 open: false,
                 kind: null,
                 view: "main",
@@ -217,6 +244,179 @@ export function createDialogHost(
             };
         },
         computed: {
+            footerActions(): FooterAction[] {
+                const cancel: FooterAction = {
+                    key: "cancel",
+                    label: msg("cancel"),
+                    weight: "quiet",
+                    action: "default",
+                    disabled: this.busy,
+                    run: () => this.requestCancel(),
+                };
+                const draft: FooterAction = {
+                    key: "draft",
+                    label: msg("save_nomination_draft"),
+                    weight: "normal",
+                    action: "default",
+                    disabled: this.busy,
+                    title: msg("nomination_draft_help"),
+                    run: () => this.saveNominationDraft(),
+                };
+                const forward: FooterAction = {
+                    key: this.checkReasonBuilderActive ? "continue" : "save",
+                    label: this.checkReasonBuilderActive
+                        ? msg("continue")
+                        : this.saveLabel,
+                    weight: "primary",
+                    action: "progressive",
+                    disabled: this.busy,
+                    run: () =>
+                        this.checkReasonBuilderActive
+                            ? this.continueCheckReasonBuilder()
+                            : this.save(),
+                };
+                let actions: FooterAction[];
+                if (this.kind === "confirm") {
+                    actions = [
+                        cancel,
+                        {
+                            ...forward,
+                            key: "confirm",
+                            label: this.confirmData?.primaryLabel ?? "",
+                            action: "destructive",
+                            run: () => this.confirmPrimary(),
+                        },
+                    ];
+                } else if (
+                    this.kind === "new" &&
+                    this.view === "nomination-summary"
+                ) {
+                    actions = [
+                        {
+                            ...cancel,
+                            key: "back",
+                            label: msg("back"),
+                            weight: "normal",
+                            run: () => this.backToNewNominations(),
+                        },
+                        draft,
+                        {
+                            ...draft,
+                            key: "preview",
+                            label: msg("preview"),
+                            title: undefined,
+                            disabled:
+                                this.busy || !this.hasSubmittableNominations,
+                            run: () => this.previewNominations(),
+                        },
+                        {
+                            ...forward,
+                            disabled:
+                                this.busy || !this.hasSubmittableNominations,
+                        },
+                    ];
+                } else if (this.kind === "new" && this.view === "main") {
+                    actions = [
+                        cancel,
+                        draft,
+                        {
+                            ...forward,
+                            key: "review",
+                            label: msg("preview"),
+                            run: () => this.reviewNominations(),
+                        },
+                    ];
+                } else if (this.isCheckBatch) {
+                    actions = [
+                        cancel,
+                        {
+                            ...cancel,
+                            key: "quit",
+                            label: msg("quit"),
+                            title: msg("quit_check_batch_help"),
+                            run: () => this.quitCheckBatch(),
+                        },
+                        {
+                            ...cancel,
+                            key: "skip",
+                            label: msg("skip"),
+                            run: () => this.skip(),
+                        },
+                        {
+                            ...cancel,
+                            key: "previous",
+                            label: msg("previous"),
+                            weight: "normal",
+                            disabled: this.busy || this.checkBatchIndex === 0,
+                            run: () => this.previousCheckItem(),
+                        },
+                        forward,
+                    ];
+                } else {
+                    actions = [cancel, forward];
+                    if (
+                        this.kind === "check" &&
+                        this.view === "main" &&
+                        this.checkReasonRepairAvailable
+                    ) {
+                        actions.unshift({
+                            ...cancel,
+                            key: "repair",
+                            label: msg("edit_nomination"),
+                            weight: "normal",
+                            run: () => this.backToCheckReasonBuilder(),
+                        });
+                    }
+                }
+                return orderFooterActions(actions, this.footerStacked);
+            },
+            nominationEditorActions(): FooterAction[] {
+                return orderFooterActions(
+                    [
+                        {
+                            key: "cancel-edits",
+                            label: msg("cancel_nomination_edits"),
+                            weight: "normal",
+                            action: "default",
+                            disabled: this.busy,
+                            run: () => this.cancelNominationEdit(),
+                        },
+                        {
+                            key: "apply-edits",
+                            label: msg("apply_nomination_edits"),
+                            weight: "primary",
+                            action: "progressive",
+                            disabled: this.busy,
+                            run: () => this.applyNominationEdit(),
+                        },
+                    ],
+                    this.footerStacked,
+                );
+            },
+            nominationPreviewActions(): FooterAction[] {
+                return orderFooterActions(
+                    [
+                        {
+                            key: "back",
+                            label: msg("back"),
+                            weight: "quiet",
+                            action: "default",
+                            disabled: false,
+                            run: () => this.closeNominationPreview(),
+                        },
+                        {
+                            key: "draft",
+                            label: msg("save_nomination_draft"),
+                            weight: "normal",
+                            action: "default",
+                            disabled: this.busy,
+                            title: msg("nomination_draft_help"),
+                            run: () => this.saveNominationDraft(),
+                        },
+                    ],
+                    this.footerStacked,
+                );
+            },
             existingNominationIdentity() {
                 if (!this.open || this.kind === "confirm") return null;
                 const nomination =
@@ -687,7 +887,19 @@ export function createDialogHost(
                 void this.refreshPageAssessments();
             },
         },
+        mounted() {
+            if (!footerViewport) return;
+            const update = () => {
+                this.footerStacked = footerViewport.matches;
+            };
+            update();
+            footerViewport.addEventListener("change", update);
+            stopFooterLayout = () =>
+                footerViewport.removeEventListener("change", update);
+        },
         beforeUnmount() {
+            stopFooterLayout?.();
+            stopFooterLayout = null;
             this.stopNominationDraftSynchronization();
             this.endNominationDrag();
         },

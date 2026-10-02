@@ -13,13 +13,6 @@ generated installation files. The repository maintainer makes no additional
 copyright claim for the AI-assisted edits in this rebuild. That statement does
 not remove or replace the original author's notice or any third-party terms.
 
-## wikEd Lite
-
-Project structure, build conventions, and verification practices follow
-[wikEd Lite](https://github.com/For-Each-Next/wp-wiked-lite). Its project-owned
-material is dedicated under CC0 1.0. This reference does not change the MIT terms
-of the ACGATool source preserved here.
-
 ## Runtime components
 
 [Vue](https://github.com/vuejs/core) and [Wikimedia Codex](https://gerrit.wikimedia.org/g/design/codex/)

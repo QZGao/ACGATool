@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import type { Locator, Page } from "@playwright/test";
@@ -1939,7 +1939,7 @@ test("nomination summary preserves comments and edits before submitting the batc
         exact: true,
     });
     await expect(cancel).toHaveClass(/cdx-button--weight-quiet/u);
-    await expect(cancel).toHaveClass(/cdx-button--action-destructive/u);
+    await expect(cancel).toHaveClass(/cdx-button--action-default/u);
     await expect(openSummary).toHaveClass(/cdx-button--weight-primary/u);
     await expect(openSummary).toHaveClass(/cdx-button--action-progressive/u);
     await expect(dialog.locator(".acga-additional-message")).toHaveCount(0);
@@ -2023,7 +2023,7 @@ test("nomination summary preserves comments and edits before submitting the batc
         name: "Preview",
         exact: true,
     });
-    await expect(back).toHaveClass(/cdx-button--weight-quiet/u);
+    await expect(back).toHaveClass(/cdx-button--weight-normal/u);
     await expect(back).toHaveClass(/cdx-button--action-default/u);
     await expect(preview).toHaveClass(/cdx-button--weight-normal/u);
     await expect(preview).toHaveClass(/cdx-button--action-default/u);
@@ -3117,7 +3117,7 @@ test("checking renders source as text and submits edited score once", async ({
     const reset = dialog.locator(".cdx-table__header .acga-check-reset");
     await expect(reset).toBeVisible();
     await expect(reset).toHaveClass(/cdx-button--weight-quiet/u);
-    await expect(reset).toHaveClass(/cdx-button--action-destructive/u);
+    await expect(reset).toHaveClass(/cdx-button--action-default/u);
     await reset.click();
     await expect(score).toHaveValue(originalScore);
     await expect(
@@ -3207,7 +3207,7 @@ test("checking row icons and table-footer comments support undo and redo", async
         await expect(button.locator("svg")).toHaveCount(1);
         await expect(button).toHaveClass(/cdx-button--weight-quiet/u);
     }
-    await expect(remove).toHaveClass(/cdx-button--action-destructive/u);
+    await expect(remove).toHaveClass(/cdx-button--action-default/u);
     await expect(
         rowReset.locator(
             "xpath=following-sibling::button[contains(@class, 'acga-check-item-delete')]",
@@ -3353,12 +3353,12 @@ test("flat batch checking tabs retain drafts and history across tables while sta
     const cancel = footer.getByRole("button", { name: "取消", exact: true });
     const quit = footer.getByRole("button", { name: "退出", exact: true });
     await expect(previous).toBeDisabled();
-    await expect(previous).toHaveClass(/cdx-button--weight-quiet/u);
+    await expect(previous).toHaveClass(/cdx-button--weight-normal/u);
     await expect(previous).toHaveClass(/cdx-button--action-default/u);
-    await expect(skip).toHaveClass(/cdx-button--weight-normal/u);
+    await expect(skip).toHaveClass(/cdx-button--weight-quiet/u);
     await expect(skip).toHaveClass(/cdx-button--action-default/u);
     await expect(cancel).toHaveClass(/cdx-button--weight-quiet/u);
-    await expect(cancel).toHaveClass(/cdx-button--action-destructive/u);
+    await expect(cancel).toHaveClass(/cdx-button--action-default/u);
     await expect(quit).toHaveClass(/cdx-button--weight-quiet/u);
     await expect(quit).toHaveClass(/cdx-button--action-default/u);
     await expect(quit).toHaveAttribute(
@@ -3370,8 +3370,8 @@ test("flat batch checking tabs retain drafts and history across tables while sta
     await expect(footer.getByRole("button")).toHaveText([
         "取消",
         "退出",
-        "上一項",
         "略過",
+        "上一項",
         "下一項",
     ]);
     const score = dialog.getByRole("spinbutton", {
@@ -4684,4 +4684,132 @@ test("file, media, activity, and other nominations do not fetch article assessme
         })),
     ).toEqual({ assessmentRequests: 0, dykRequests: 0 });
     expect(errors).toEqual([]);
+});
+
+test("dialog actions keep a neutral cancel and primary end or top in either direction", async ({
+    page,
+}) => {
+    const errors = await mount(page, "en", { pageName: "Example game" });
+    await openNewNomination(page);
+    const dialog = page.getByRole("dialog");
+    const actions = dialog.locator(".acga-footer-actions");
+    const cancel = actions.getByRole("button", { name: "Cancel", exact: true });
+    const draft = actions.getByRole("button", {
+        name: "Save draft",
+        exact: true,
+    });
+    const primary = actions.getByRole("button", {
+        name: "Preview",
+        exact: true,
+    });
+    await expect(cancel).toHaveClass(/cdx-button--action-default/u);
+    await expect(actions.locator(".cdx-button--weight-primary")).toHaveCount(1);
+    await expect(actions).toHaveCSS("gap", "12px");
+    for (const direction of ["ltr", "rtl"]) {
+        await page.evaluate((dir) => {
+            document.documentElement.dir = dir;
+        }, direction);
+        const secondaryBounds = await draft.boundingBox();
+        const primaryBounds = await primary.boundingBox();
+        expect(secondaryBounds).not.toBeNull();
+        expect(primaryBounds).not.toBeNull();
+        if (direction === "ltr") {
+            expect(primaryBounds!.x).toBeGreaterThan(secondaryBounds!.x);
+        } else {
+            expect(primaryBounds!.x).toBeLessThan(secondaryBounds!.x);
+        }
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const direction of ["ltr", "rtl"]) {
+        await page.evaluate((dir) => {
+            document.documentElement.dir = dir;
+        }, direction);
+        await expect(actions).toHaveCSS("flex-direction", "column");
+        await expect(actions.getByRole("button")).toHaveText([
+            "Preview",
+            "Save draft",
+            "Cancel",
+        ]);
+        const cancelBounds = await cancel.boundingBox();
+        const draftBounds = await draft.boundingBox();
+        const primaryBounds = await primary.boundingBox();
+        expect(primaryBounds!.y).toBeLessThan(draftBounds!.y);
+        expect(draftBounds!.y).toBeLessThan(cancelBounds!.y);
+        await expect(primary).toBeInViewport();
+        await expect(cancel).toBeInViewport();
+        await primary.focus();
+        await page.keyboard.press("Tab");
+        await expect(draft).toBeFocused();
+        await page.keyboard.press("Tab");
+        await expect(cancel).toBeFocused();
+        await page.keyboard.press("Shift+Tab");
+        await expect(draft).toBeFocused();
+        await page.keyboard.press("Shift+Tab");
+        await expect(primary).toBeFocused();
+    }
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await expect(actions.getByRole("button")).toHaveText([
+        "Cancel",
+        "Save draft",
+        "Preview",
+    ]);
+    expect(errors).toEqual([]);
+});
+
+test.describe("documentation screenshots", () => {
+    test.skip(process.env.DOCUMENTATION_SCREENSHOTS !== "1");
+    test.use({
+        viewport: { width: 1024, height: 768 },
+        deviceScaleFactor: 1,
+        colorScheme: "light",
+        reducedMotion: "reduce",
+    });
+
+    test("nomination form and summary", async ({ page }) => {
+        const errors = await mount(page, "zh-Hant", {
+            pageName: "範例遊戲",
+        });
+        const msg = createTranslator("zh-Hant").msg;
+        const directory = new URL("../../docs/images/", import.meta.url);
+        await mkdir(directory, { recursive: true });
+        await openNewNomination(page);
+        const dialog = page.getByRole("dialog");
+        const recipient = dialog.getByRole("textbox", {
+            name: msg("recipient"),
+            exact: true,
+        });
+        const length = dialog.getByRole("checkbox", {
+            name: msg("1_length"),
+            exact: true,
+        });
+        await recipient.fill("Example");
+        await length.check();
+        await expect(
+            dialog.getByRole("button", { name: msg("preview"), exact: true }),
+        ).toBeVisible();
+        await page.screenshot({
+            path: fileURLToPath(new URL("screenshot-01.png", directory)),
+            animations: "disabled",
+        });
+        await dialog
+            .getByRole("button", { name: msg("add_nomination"), exact: true })
+            .click();
+        await dialog
+            .getByRole("textbox", { name: msg("article_title"), exact: true })
+            .fill("範例動畫");
+        await recipient.fill("Example2");
+        await length.check();
+        await dialog
+            .getByRole("button", { name: msg("preview"), exact: true })
+            .click();
+        await expect(dialog.getByRole("table")).toBeVisible();
+        await dialog
+            .locator(".acga-additional-message textarea")
+            .fill("兩項提名分別對應條目的內容擴充，請核對貢獻紀錄。");
+        await page.screenshot({
+            path: fileURLToPath(new URL("screenshot-02.png", directory)),
+            animations: "disabled",
+        });
+        expect(errors).toEqual([]);
+    });
 });

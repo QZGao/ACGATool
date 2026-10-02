@@ -650,7 +650,6 @@
                                         <cdx-button
                                             class="acga-check-reset"
                                             weight="quiet"
-                                            action="destructive"
                                             :disabled="busy"
                                             :title="
                                                 msg('reset_nomination_checks')
@@ -737,7 +736,6 @@
                                         <cdx-button
                                             class="acga-check-item-reset"
                                             weight="quiet"
-                                            action="destructive"
                                             :disabled="busy"
                                             :aria-label="
                                                 row.code +
@@ -751,7 +749,6 @@
                                         <cdx-button
                                             class="acga-check-item-delete"
                                             weight="quiet"
-                                            action="destructive"
                                             :disabled="busy"
                                             :aria-label="
                                                 row.code +
@@ -845,148 +842,16 @@
         <template #footer>
             <div class="acga-dialog-footer">
                 <div class="acga-footer-actions">
-                    <template v-if="kind === 'confirm'">
-                        <cdx-button :disabled="busy" @click="requestCancel"
-                            >{{ msg("cancel") }}
-                        </cdx-button>
-                        <cdx-button
-                            weight="primary"
-                            action="destructive"
-                            :disabled="busy"
-                            @click="confirmPrimary"
-                        >
-                            {{ confirmData.primaryLabel }}
-                        </cdx-button>
-                    </template>
-                    <template
-                        v-else-if="
-                            kind === 'new' && view === 'nomination-summary'
-                        "
-                    >
-                        <cdx-button
-                            weight="quiet"
-                            :disabled="busy"
-                            @click="backToNewNominations"
-                            >{{ msg("back") }}
-                        </cdx-button>
-                        <cdx-button
-                            :disabled="busy"
-                            :title="msg('nomination_draft_help')"
-                            @click="saveNominationDraft"
-                            >{{ msg("save_nomination_draft") }}
-                        </cdx-button>
-                        <cdx-button
-                            :disabled="busy || !hasSubmittableNominations"
-                            @click="previewNominations"
-                            >{{ msg("preview") }}
-                        </cdx-button>
-                        <cdx-button
-                            weight="primary"
-                            action="progressive"
-                            :disabled="busy || !hasSubmittableNominations"
-                            @click="save"
-                            >{{ saveLabel }}
-                        </cdx-button>
-                    </template>
-                    <template v-else-if="kind === 'new' && view === 'main'">
-                        <cdx-button
-                            weight="quiet"
-                            action="destructive"
-                            :disabled="busy"
-                            @click="requestCancel"
-                            >{{ msg("cancel") }}</cdx-button
-                        >
-                        <cdx-button
-                            :disabled="busy"
-                            :title="msg('nomination_draft_help')"
-                            @click="saveNominationDraft"
-                            >{{ msg("save_nomination_draft") }}</cdx-button
-                        >
-                        <cdx-button
-                            weight="primary"
-                            action="progressive"
-                            :disabled="busy"
-                            @click="reviewNominations"
-                            >{{ msg("preview") }}</cdx-button
-                        >
-                    </template>
-                    <template v-else-if="isCheckBatch">
-                        <cdx-button
-                            weight="quiet"
-                            action="destructive"
-                            :disabled="busy"
-                            @click="requestCancel"
-                            >{{ msg("cancel") }}</cdx-button
-                        >
-                        <cdx-button
-                            weight="quiet"
-                            :disabled="busy"
-                            :title="msg('quit_check_batch_help')"
-                            @click="quitCheckBatch"
-                            >{{ msg("quit") }}</cdx-button
-                        >
-                        <cdx-button
-                            weight="quiet"
-                            action="default"
-                            :disabled="busy || checkBatchIndex === 0"
-                            @click="previousCheckItem"
-                            >{{ msg("previous") }}</cdx-button
-                        >
-                        <cdx-button
-                            weight="normal"
-                            action="default"
-                            :disabled="busy"
-                            @click="skip"
-                            >{{ msg("skip") }}</cdx-button
-                        >
-                        <cdx-button
-                            v-if="checkReasonBuilderActive"
-                            weight="primary"
-                            action="progressive"
-                            :disabled="busy"
-                            @click="continueCheckReasonBuilder"
-                            >{{ msg("continue") }}</cdx-button
-                        >
-                        <cdx-button
-                            v-else
-                            weight="primary"
-                            action="progressive"
-                            :disabled="busy"
-                            @click="save"
-                            >{{ saveLabel }}</cdx-button
-                        >
-                    </template>
-                    <template v-else>
-                        <cdx-button
-                            v-if="
-                                kind === 'check' &&
-                                view === 'main' &&
-                                checkReasonRepairAvailable
-                            "
-                            :disabled="busy"
-                            @click="backToCheckReasonBuilder"
-                            >{{ msg("edit_nomination") }}
-                        </cdx-button>
-                        <cdx-button :disabled="busy" @click="requestCancel"
-                            >{{ msg("cancel") }}
-                        </cdx-button>
-                        <cdx-button
-                            v-if="checkReasonBuilderActive"
-                            weight="primary"
-                            action="progressive"
-                            :disabled="busy"
-                            @click="continueCheckReasonBuilder"
-                            >{{ msg("continue") }}
-                        </cdx-button>
-                        <cdx-button
-                            v-else
-                            weight="primary"
-                            action="progressive"
-                            :disabled="busy"
-                            @click="save"
-                            >{{ saveLabel }}
-                        </cdx-button>
-                    </template>
+                    <cdx-button
+                        v-for="item in footerActions"
+                        :key="item.key"
+                        :weight="item.weight"
+                        :action="item.action"
+                        :disabled="item.disabled"
+                        :title="item.title"
+                        @click="item.run"
+                        >{{ item.label }}
+                    </cdx-button>
                 </div>
             </div>
         </template>
@@ -1038,15 +903,15 @@
         <template #footer>
             <div class="acga-dialog-footer">
                 <div class="acga-footer-actions">
-                    <cdx-button :disabled="busy" @click="cancelNominationEdit"
-                        >{{ msg("cancel_nomination_edits") }}
-                    </cdx-button>
                     <cdx-button
-                        weight="primary"
-                        action="progressive"
-                        :disabled="busy"
-                        @click="applyNominationEdit"
-                        >{{ msg("apply_nomination_edits") }}
+                        v-for="item in nominationEditorActions"
+                        :key="item.key"
+                        :weight="item.weight"
+                        :action="item.action"
+                        :disabled="item.disabled"
+                        :title="item.title"
+                        @click="item.run"
+                        >{{ item.label }}
                     </cdx-button>
                 </div>
             </div>
@@ -1083,16 +948,15 @@
             <div class="acga-dialog-footer">
                 <div class="acga-footer-actions">
                     <cdx-button
-                        weight="quiet"
-                        @click="closeNominationPreview"
-                        >{{ msg("back") }}</cdx-button
-                    >
-                    <cdx-button
-                        :disabled="busy"
-                        :title="msg('nomination_draft_help')"
-                        @click="saveNominationDraft"
-                        >{{ msg("save_nomination_draft") }}</cdx-button
-                    >
+                        v-for="item in nominationPreviewActions"
+                        :key="item.key"
+                        :weight="item.weight"
+                        :action="item.action"
+                        :disabled="item.disabled"
+                        :title="item.title"
+                        @click="item.run"
+                        >{{ item.label }}
+                    </cdx-button>
                 </div>
             </div>
         </template>

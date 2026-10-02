@@ -12,7 +12,7 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 12px;
+    gap: var(--spacing-75, 12px);
     width: 100%;
 }
 
@@ -29,7 +29,7 @@
 .acga-footer-actions {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--spacing-75, 12px);
     flex-wrap: wrap;
 }
 
@@ -502,7 +502,7 @@
 
 .acga-nomination-summary-actions {
     display: inline-flex;
-    gap: 4px;
+    gap: var(--spacing-75, 12px);
 }
 
 .acga-nomination-summary-table
@@ -594,7 +594,7 @@
 .acga-check-actions,
 .acga-check-header-actions {
     display: inline-flex;
-    gap: 4px;
+    gap: var(--spacing-75, 12px);
 }
 
 .acga-nomination-summary-actions > .cdx-button,
@@ -725,7 +725,8 @@
     }
 
     .acga-footer-actions {
-        justify-content: flex-end;
+        flex-direction: column;
+        align-items: stretch;
         width: 100%;
     }
 

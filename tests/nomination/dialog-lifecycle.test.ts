@@ -357,3 +357,39 @@ test("a synchronous initial recipient lookup failure clears loading after the di
     vm.requestCancel();
     assert.equal(await closed, "cancel");
 });
+
+test("footer layout tracks viewport changes and releases its listener on unmount", () => {
+    const listeners = new Set<() => void>();
+    const viewport = {
+        matches: true,
+        addEventListener(event: string, listener: () => void) {
+            assert.equal(event, "change");
+            listeners.add(listener);
+        },
+        removeEventListener(event: string, listener: () => void) {
+            assert.equal(event, "change");
+            listeners.delete(listener);
+        },
+    };
+    const component = createDialogHost(dialogRuntime, operations, {
+        ...dialogServices,
+        document: {
+            ...dialogServices.document,
+            defaultView: {
+                matchMedia(query: string) {
+                    assert.equal(query, "(max-width: 640px)");
+                    return viewport;
+                },
+            },
+        } as unknown as Document,
+    }) as any;
+    const vm = instantiateHost(component);
+    assert.equal(vm.footerStacked, true);
+    component.mounted.call(vm);
+    assert.equal(listeners.size, 1);
+    viewport.matches = false;
+    for (const listener of listeners) listener();
+    assert.equal(vm.footerStacked, false);
+    component.beforeUnmount.call(vm);
+    assert.equal(listeners.size, 0);
+});

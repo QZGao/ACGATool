@@ -1,5 +1,13 @@
 # Architecture
 
+**Interface contract: [Codex button types and order](https://doc.wikimedia.org/codex/latest/style-guide/using-links-and-buttons.html#types-and-order-of-buttons).**
+Each action group has at most one primary progressive button. Secondary actions
+are normal, tertiary actions quiet, and cancellation neutral. Flow primaries
+come last in reading order (right in LTR, left in RTL), with dialog footers aligned
+to the end; a back action sits next to its forward action. Stacked groups put
+the primary action at the top in either direction and use the 12px spacing token.
+Destructive styling is reserved for irreversible operations.
+
 ACGATool separates deterministic nomination rules from browser state and wiki
 effects. [Usage](usage.md) describes workflows; [wiki contracts](wiki-contracts.md)
 describe the page formats and host assumptions.
@@ -19,6 +27,12 @@ Use lowercase kebab-case filenames and deliberate public exports. `src/index.ts`
 is side-effect free; `src/app/browser.ts` starts the browser application. Domain
 rules operate on supplied values. The composition root injects APIs, storage and
 host capabilities into services and UI.
+
+Unit and service scenarios use `*.test.ts`; browser scenarios use `*.spec.ts`.
+Feature-owned templates and styles live beside their TypeScript module:
+`features/nomination/dialog.ts`, `dialog.vue` and `dialog.css`. Vue files contain
+markup only. Codex Message owns dialog feedback; Codex Field owns labelled input
+and validation. Avoid introducing generic helpers for feature-specific behavior.
 
 ## Nomination state
 
@@ -87,3 +101,7 @@ Production runtimes stay with ResourceLoader; locked npm packages supply
 development types, tooling and offline fixtures. `npm run verify` combines
 formatting, lint, type and unused-code checks with unit and Chromium tests.
 CI and releases use the same pipeline.
+
+`npm run screenshots` exercises the same offline browser fixture with a fixed
+1024 × 768 viewport and device scale factor 1. Its opt-in scenario writes the two
+README images to `docs/images/`; normal tests leave documentation images alone.

@@ -4,7 +4,10 @@
 原作歸功於 **[SuperGrey][1]**，以他的 [ACGATool][2] 為基礎，
 採用 TypeScript 分層結構與 MediaWiki Codex 介面，保留原有 Git 歷史。
 
-## 2.0 主要功能
+## 主要功能
+
+![提名表單，選擇得分項目並編輯提名](docs/images/screenshot-01.png)
+![提名彙總，確認條目、得分者與分數](docs/images/screenshot-02.png)
 
 - 多表格提名、逐項編輯、凍結與整批預覽，支援 1–4、5、6、7、8 五組規則。
 - 瀏覽器暫存跨頁累積提名，自動同步其他分頁的草稿。
@@ -36,6 +39,8 @@ npm run verify
 `npm run build` 會產生 `dist/` 中的安裝檔案。
 開發與驗證流程見 [CONTRIBUTING.md](CONTRIBUTING.md)，
 模組分工見[架構說明](docs/architecture.md)。
+介面變更須遵循 [Codex 按鈕類型與排列規範](https://doc.wikimedia.org/codex/latest/style-guide/using-links-and-buttons.html#types-and-order-of-buttons)。
+以 `npm run screenshots` 重建離線示例圖片，固定視窗為 1024 × 768、DPR 1。
 
 ## 授權
 

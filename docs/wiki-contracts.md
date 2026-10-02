@@ -1,5 +1,12 @@
 # Chinese Wikipedia integration
 
+**UI adapter changes must follow [Codex button types and order](https://doc.wikimedia.org/codex/latest/style-guide/using-links-and-buttons.html#types-and-order-of-buttons):**
+one primary progressive action per group; normal secondary and quiet tertiary
+actions; neutral cancellation. Place the primary last in reading order for a
+flow (right in LTR, left in RTL), align dialog actions to the end, and place it
+first when stacked in either direction. Use the 12px spacing token between
+separate buttons; use destructive styling only for irreversible operations.
+
 Template and registration contracts were checked against public source and
 rendered markup on 2026-09-27. Automated validation uses local fixtures and mocked
 APIs. These assumptions guide host adapters and parsers.

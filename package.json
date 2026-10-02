@@ -1,6 +1,6 @@
 {
     "name": "wp-acga-tool",
-    "version": "2.0.0-alpha.2",
+    "version": "2.0.1-alpha.2",
     "description": "Assess Chinese Wikipedia animation, comics, games, and related articles with SuperGrey's ACGATool.",
     "private": true,
     "license": "MIT",
@@ -17,6 +17,7 @@
         "lint": "eslint . --max-warnings=0",
         "test": "node --import ./scripts/register-source-loaders.ts --test \"tests/**/*.test.ts\"",
         "test:ui": "npm run build && node scripts/test-ui.ts",
+        "screenshots": "npm run build && DOCUMENTATION_SCREENSHOTS=1 node scripts/test-ui.ts --grep \"documentation screenshots\"",
         "verify": "npm run check && npm test && npm run test:ui"
     },
     "devDependencies": {
