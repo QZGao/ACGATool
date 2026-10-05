@@ -100,13 +100,8 @@ export function createBrowserHost(
                 "t-acga-nominate",
             );
             if (!item) return () => {};
-            const anchor = item.querySelector("a");
-            if (!anchor) return () => item.remove();
-            const link = doc.createElement("button");
-            link.type = "button";
-            link.className = "cdx-button cdx-button--weight-quiet";
-            link.textContent = label;
-            anchor.replaceWith(link);
+            const link = item.querySelector("a");
+            if (!link) return () => item.remove();
             const activate = (event: Event) => {
                 event.preventDefault();
                 callback();

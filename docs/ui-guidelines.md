@@ -16,11 +16,19 @@
 
 Follow the [Wikimedia Codex style guide](https://doc.wikimedia.org/codex/latest/style-guide/overview.html)
 and [Using links and buttons](https://doc.wikimedia.org/codex/latest/style-guide/using-links-and-buttons.html).
-These requirements apply to templates, DOM-created controls, page-tool launchers, and screenshots.
+These requirements apply to gadget dialogs and forms, including their templates,
+DOM-created controls, and screenshots. Wikipedia navigation and portlets retain the
+current skin's markup and appearance.
 
 ## Links and buttons
 
-Use real links with meaningful destinations for navigation. Use native buttons or Codex Button
+Add Wikipedia portlet entries with `mw.util.addPortletLink`. Keep the returned wrapper
+and anchor intact; attach the dialog-opening handler to the anchor and call
+`preventDefault()` there. Do not replace portlet links with buttons or add Codex classes
+to Wikipedia navigation.
+
+Within gadget dialogs and forms, use real links with meaningful destinations for
+navigation. Use native buttons or Codex Button
 for operations such as opening a dialog, applying changes, copying, or dismissing content.
 Set non-submit buttons to `type="button"`. Do not use `href="#"` as an action or
 make a button look like an inline text link. Retain visible focus and accessible names;

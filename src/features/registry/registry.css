@@ -25,19 +25,24 @@
     margin-inline-start: var(--spacing-75, 0.75rem);
     vertical-align: middle;
 }
-.acga-registry-controls .cdx-button,
-.acga-registry-edit-control .cdx-button {
+.acga-registry-controls .acga-registry-button,
+.acga-registry-edit-control .acga-registry-button {
     min-height: 23px;
     height: 23px;
     padding: 0 4px;
     font-size: 12px;
     line-height: 1;
 }
-.acga-registry-controls .cdx-checkbox__icon,
-.acga-registry-controls .cdx-checkbox__input {
-    top: 50%;
-    margin-top: 0;
-    transform: translateY(-50%);
+.acga-registry-batch-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.acga-registry-select {
+    margin: 0;
+}
+.acga-registry-button.acga-registry-emphasized:enabled {
+    color: var(--color-progressive, #36c);
 }
 .acga-registry-edit-control {
     display: block;

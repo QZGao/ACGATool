@@ -41,8 +41,9 @@ host capabilities into services and UI.
 
 The host adapter requests current MediaWiki formatversion 2 responses with the main
 revision slot. Obsolete keyed page maps and star-key content are rejected before editing.
-Page-tool commands are native Codex buttons; navigation remains ordinary links. See
-[UI guidelines](ui-guidelines.md) for the required interface contract.
+Page-tool entries use `mw.util.addPortletLink` and retain the skin-owned anchors and
+markup. Codex applies to gadget dialogs and forms. See [UI guidelines](ui-guidelines.md)
+for the required interface contract.
 
 Unit and service scenarios use `*.test.ts`; browser scenarios use `*.spec.ts`.
 Feature-owned templates and styles live beside their TypeScript module:

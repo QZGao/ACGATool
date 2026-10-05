@@ -70,7 +70,7 @@ for (const [language, catalog] of [
             { language },
         );
         await page
-            .getByRole("button", {
+            .getByRole("link", {
                 name: catalog.nominate_for_acga,
                 exact: true,
             })
@@ -124,7 +124,7 @@ for (const fixture of [
             },
         );
         await expect(page.locator("table.acgnom-table")).toHaveCount(1);
-        const link = page.getByRole("button", {
+        const link = page.getByRole("link", {
             name: "Nominate to ACGA",
             exact: true,
         });
@@ -193,12 +193,18 @@ for (const namespace of [0, 1]) {
         );
         const link = page
             .getByRole("navigation", { name: "Tools" })
-            .getByRole("button", { name: "Nominate to ACGA", exact: true });
+            .getByRole("link", { name: "Nominate to ACGA", exact: true });
         await expect(link).toBeVisible();
+        await expect(link).toHaveAttribute("href", "#");
+        await expect(link).not.toHaveClass(/\bcdx-/u);
+        await expect(page.locator("#t-acga-nominate > a")).toHaveCount(1);
+        await expect(page.locator("#p-tb button")).toHaveCount(0);
         await expect(page.locator(".acga-registry-toolbar")).toHaveCount(0);
-        await link.click();
+        await link.focus();
+        await page.keyboard.press("Enter");
         const dialog = page.getByRole("dialog");
         await expect(dialog).toBeVisible();
+        expect(new URL(page.url()).hash).toBe("");
         const article = dialog.locator(".acga-rule-page-name input");
         await expect(article).toHaveValue("");
         await expect(article).toHaveAttribute("placeholder", "Example article");
@@ -377,7 +383,7 @@ for (const fixture of [
             fixture.options,
         );
         await page
-            .getByRole("button", { name: "Nominate to ACGA", exact: true })
+            .getByRole("link", { name: "Nominate to ACGA", exact: true })
             .click();
         const dialog = page.getByRole("dialog");
         const recipient = () =>
@@ -444,7 +450,7 @@ test("production bundle shows a stable loading recipient until article history r
         { deferredRecipient: true },
     );
     await page
-        .getByRole("button", { name: "Nominate to ACGA", exact: true })
+        .getByRole("link", { name: "Nominate to ACGA", exact: true })
         .click();
     const dialog = page.getByRole("dialog");
     const recipient = dialog.getByRole("textbox", {

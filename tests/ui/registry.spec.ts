@@ -444,7 +444,7 @@ test("registry compact buttons and batch checkboxes support keyboard actions and
         expect(box!.height).toBe(23);
         await expect(button).toHaveCSS("min-height", "23px");
         await expect(button).toHaveCSS("font-size", "12px");
-        await expect(button).toHaveCSS("border-style", "solid");
+        await expect(button).toHaveAttribute("type", "button");
         expect(
             await button.evaluate(
                 (element) => getComputedStyle(element).borderColor,
@@ -463,7 +463,7 @@ test("registry compact buttons and batch checkboxes support keyboard actions and
     await expect(editControl).toHaveCSS("display", "block");
     await expect(editControl).toHaveCSS("text-align", "center");
     await expect(editControl).toHaveCSS("margin-top", "0px");
-    const checkboxIcon = page.locator(".cdx-checkbox__icon");
+    await expect(page.locator('#registry [class*="cdx-"]')).toHaveCount(0);
     for (const fontSize of [null, "14px", "18px", "12px"]) {
         await page.evaluate((fontSize) => {
             const style = document.documentElement.style;
@@ -472,7 +472,7 @@ test("registry compact buttons and batch checkboxes support keyboard actions and
         }, fontSize);
         const [buttonBox, checkboxBox] = await Promise.all([
             check.boundingBox(),
-            checkboxIcon.boundingBox(),
+            choice.boundingBox(),
         ]);
         expect(buttonBox!.height).toBe(23);
         expect(buttonBox!.y + buttonBox!.height / 2).toBeCloseTo(
@@ -786,7 +786,7 @@ test("registry uses only yellow headers for pending controls before and after so
             (button) => ({
                 label: button.textContent,
                 progressive: button.classList.contains(
-                    "cdx-button--action-progressive",
+                    "acga-registry-emphasized",
                 ),
                 disabled: button.disabled,
                 hasCheckbox: Boolean(
@@ -856,11 +856,11 @@ test("registry uses only yellow headers for pending controls before and after so
         await expect(choice).toHaveCount(checked ? 0 : 1);
         if (checked)
             await expect(buttons.nth(index)).not.toHaveClass(
-                /cdx-button--action-progressive/u,
+                /acga-registry-emphasized/u,
             );
         else {
             await expect(buttons.nth(index)).toHaveClass(
-                /cdx-button--action-progressive/u,
+                /acga-registry-emphasized/u,
             );
             await expect(choice).toHaveAccessibleName("加入批量核對");
             await expect(choice).toBeEnabled();
@@ -930,7 +930,7 @@ test("registry keeps the live yellow nomination pending when source eligibility 
         ]);
     });
     await expect(check).toBeEnabled();
-    await expect(check).toHaveClass(/cdx-button--action-progressive/u);
+    await expect(check).toHaveClass(/acga-registry-emphasized/u);
     await expect(choice).toBeEnabled();
     await expect(
         page.getByRole("button", { name: "复核", exact: true }),
@@ -1077,9 +1077,7 @@ test("registry labels reviewed entries as rechecks and keeps their eligibility r
     );
     await expect(rechecks.nth(1)).toBeDisabled();
     await expect(rechecks.nth(2)).toBeDisabled();
-    await expect(rechecks.nth(0)).not.toHaveClass(
-        /cdx-button--action-progressive/u,
-    );
+    await expect(rechecks.nth(0)).not.toHaveClass(/acga-registry-emphasized/u);
     await expect(rechecks.nth(1)).toHaveAttribute(
         "title",
         "提名者為本人，無法核對",
@@ -1125,9 +1123,7 @@ test("registry labels reviewed entries as rechecks and keeps their eligibility r
         "title",
         "得分者為本人，無法核對",
     );
-    await expect(rechecks.nth(0)).not.toHaveClass(
-        /cdx-button--action-progressive/u,
-    );
+    await expect(rechecks.nth(0)).not.toHaveClass(/acga-registry-emphasized/u);
     await expect(rechecks.nth(0)).toHaveCSS("color", neutralColor);
     await expect(check).toBeEnabled();
     await expect(choice).toBeEnabled();
@@ -1195,13 +1191,13 @@ test("registry disables single rechecks during pending batch selection and resto
         await expect(buttons.nth(index)).toBeDisabled();
         await expect(buttons.nth(index)).toHaveAttribute("title", tooltip);
         await expect(buttons.nth(index)).not.toHaveClass(
-            /cdx-button--action-progressive/u,
+            /acga-registry-emphasized/u,
         );
         await buttons.nth(index).dispatchEvent("click");
     }
     await choices.nth(1).check();
     await expect(status).toHaveText("已选择 2 项");
-    await expect(buttons.nth(0)).toHaveClass(/cdx-button--action-progressive/u);
+    await expect(buttons.nth(0)).toHaveClass(/acga-registry-emphasized/u);
     await choices.nth(0).uncheck();
     await expect(buttons.nth(2)).toBeDisabled();
     await choices.nth(1).uncheck();
@@ -1305,17 +1301,15 @@ test("registry archive buttons follow header colors, check age and physical disc
             .getByRole("button", { name: "归档", exact: true });
     for (const id of ["ready", "nested-example"]) {
         await expect(archive(id)).toBeEnabled();
-        await expect(archive(id)).toHaveClass(/cdx-button--weight-primary/u);
-        await expect(archive(id)).toHaveClass(
-            /cdx-button--action-progressive/u,
-        );
+        await expect(archive(id)).toHaveClass(/acga-registry-action/u);
+        await expect(archive(id)).toHaveClass(/acga-registry-emphasized/u);
     }
     await expect(archive("recent-discussion")).toBeEnabled();
     await expect(archive("recent-discussion")).toHaveClass(
-        /cdx-button--weight-primary/u,
+        /acga-registry-action/u,
     );
     await expect(archive("recent-discussion")).not.toHaveClass(
-        /cdx-button--action-progressive/u,
+        /acga-registry-emphasized/u,
     );
     await expect(archive("recent-discussion")).toHaveAttribute(
         "title",

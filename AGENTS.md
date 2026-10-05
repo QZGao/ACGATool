@@ -37,8 +37,10 @@ validation, cancellation, conflict handling, and user-data recovery.
 
 Follow the [Wikimedia Codex style guide](https://doc.wikimedia.org/codex/latest/style-guide/overview.html)
 and especially [Using links and buttons](https://doc.wikimedia.org/codex/latest/style-guide/using-links-and-buttons.html).
-Use links for navigation and buttons for actions. Apply the hierarchy, order, spacing,
-focus, feedback, and responsive rules in [UI guidelines](docs/ui-guidelines.md).
+Apply Codex to gadget dialogs and forms, using links for navigation and buttons for
+actions. Add Wikipedia portlet entries with `mw.util.addPortletLink`; preserve the
+skin-owned markup and appearance. Apply the hierarchy, order, spacing, focus, feedback,
+and responsive rules in [UI guidelines](docs/ui-guidelines.md).
 Production Vue and Codex come from MediaWiki ResourceLoader.
 
 ## Data and lifecycle

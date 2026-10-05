@@ -124,7 +124,9 @@ export function mountRegistry(
     ) {
         const element = doc.createElement("button");
         element.type = "button";
-        element.className = classes ? `cdx-button ${classes}` : "cdx-button";
+        element.className = classes
+            ? `acga-registry-button ${classes}`
+            : "acga-registry-button";
         element.textContent = label;
         element.addEventListener(
             "click",
@@ -147,20 +149,11 @@ export function mountRegistry(
     }
     function createBatchControl(selection: EntrySelection) {
         const label = doc.createElement("label");
-        label.className = "cdx-checkbox cdx-checkbox--inline";
-        const wrapper = doc.createElement("span");
-        wrapper.className = "cdx-checkbox__wrapper";
+        label.className = "acga-registry-batch-control";
         const input = doc.createElement("input");
         input.type = "checkbox";
-        input.className = "cdx-checkbox__input acga-registry-select";
-        const icon = doc.createElement("span");
-        icon.className = "cdx-checkbox__icon";
-        icon.setAttribute("aria-hidden", "true");
-        const text = doc.createElement("span");
-        text.className = "cdx-checkbox__label";
-        text.textContent = msg("add_to_batch");
-        wrapper.append(input, icon, text);
-        label.append(wrapper);
+        input.className = "acga-registry-select";
+        label.append(input, doc.createTextNode(msg("add_to_batch")));
         input.addEventListener(
             "change",
             () => {
@@ -194,7 +187,7 @@ export function mountRegistry(
                       : "check",
             );
             row.check.classList.toggle(
-                "cdx-button--action-progressive",
+                "acga-registry-emphasized",
                 !row.checked,
             );
             const reason =
@@ -236,7 +229,7 @@ export function mountRegistry(
             );
             chapter.button.disabled = busy || !eligibility.available;
             chapter.button.classList.toggle(
-                "cdx-button--action-progressive",
+                "acga-registry-emphasized",
                 eligibility.available && eligibility.emphasized,
             );
             chapter.button.title = msg(
@@ -294,7 +287,7 @@ export function mountRegistry(
                             options.revisionId,
                         ),
                     ),
-                "cdx-button--weight-primary acga-registry-action",
+                "acga-registry-action",
             );
             const chapter = {
                 heading: slot,
@@ -336,7 +329,7 @@ export function mountRegistry(
             const edit = button(
                 msg("edit_nomination"),
                 () => invoke(() => actions.editNomination(selection)),
-                "cdx-button--size-small acga-registry-edit",
+                "acga-registry-edit",
             );
             const editControl = doc.createElement("div");
             editControl.className = "acga-registry-edit-control";
@@ -366,10 +359,8 @@ export function mountRegistry(
                 getRenderedReviewTimestamp(anchor);
             const controls = doc.createElement("span");
             controls.className = "acga-registry-controls";
-            const check = button(
-                msg(checked ? "recheck" : "check"),
-                () => checkSelection(selection),
-                "cdx-button--size-small",
+            const check = button(msg(checked ? "recheck" : "check"), () =>
+                checkSelection(selection),
             );
             controls.append(check);
             anchor.append(controls);

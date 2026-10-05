@@ -4,6 +4,8 @@
 
 ## Contents
 
+- [Unreleased](#unreleased)
+- [\[2.0.3\] - 2026-10-05](#203---2026-10-05)
 - [\[2.0.2\] - 2026-10-03](#202---2026-10-03)
 - [\[2.0.1-alpha.2\] - 2026-10-02](#201-alpha2---2026-10-02)
   - [Changed](#changed)
@@ -12,6 +14,15 @@
 - [\[2.0.0-alpha\] - 2026-09-27](#200-alpha---2026-09-27)
 
 <!-- toc:end -->
+
+## Unreleased
+
+## [2.0.3] - 2026-10-05
+
+- Preserve native Wikipedia page-tool links created with `mw.util.addPortletLink`,
+  keeping Codex presentation inside gadget dialogs and forms.
+- Use native registration-table buttons and batch checkboxes with tool-scoped
+  styling instead of Codex controls on Wikipedia page content.
 
 ## [2.0.2] - 2026-10-03
 
