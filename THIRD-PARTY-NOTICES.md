@@ -12,7 +12,7 @@
 
 ## ACGATool
 
-**SuperGrey** is credited as the original author of ACGATool. The original gadget
+**Quinn Gao (a.k.a. SuperGrey)** is credited as the original author of ACGATool. The original gadget
 is documented at [User:SuperGrey/gadgets/ACGATool](https://zh.wikipedia.org/wiki/User:SuperGrey/gadgets/ACGATool).
 This repository retains the source project's MIT license and its original notice:
 

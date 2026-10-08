@@ -750,6 +750,10 @@ export function createNominationModel(services: DialogModelServices) {
         ruleDict: Record<string, NominationRule>,
     ) {
         const sourceState = editableSourceState(nomData);
+        const previous = parseNominationCheckWikitext(
+            String(nomData.checkWikitext ?? ""),
+        );
+        const hasSavedCheck = !previous.ok || previous.hasResult;
         let ruleStatus = {};
         let ruleTokens = null;
         let submittedReason = "";
@@ -806,13 +810,7 @@ export function createNominationModel(services: DialogModelServices) {
             for (const { status } of allRuleOccurrences(ruleStatus))
                 status.selected = true;
         }
-        if (
-            !sourceState.sourceOnly &&
-            String(nomData.checkWikitext ?? "").trim()
-        ) {
-            const previous = parseNominationCheckWikitext(
-                nomData.checkWikitext,
-            );
+        if (!sourceState.sourceOnly && hasSavedCheck) {
             if (!previous.ok) {
                 sourceState.sourceOnly = true;
                 sourceState.sourceError = parseErrorLabel(previous.error);
@@ -860,11 +858,7 @@ export function createNominationModel(services: DialogModelServices) {
             sourceState.sourceOnly = true;
             sourceState.sourceError = grouping.error.code;
         }
-        if (
-            sourceState.sourceOnly &&
-            String(nomData.checkWikitext ?? "").trim()
-        )
-            checkSourceOnly = true;
+        if (sourceState.sourceOnly && hasSavedCheck) checkSourceOnly = true;
         return {
             activeRuleCategory: grouping.ok
                 ? (grouping.category ?? "article")

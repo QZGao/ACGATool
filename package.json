@@ -1,6 +1,6 @@
 {
     "name": "wp-acga-tool",
-    "version": "2.0.3",
+    "version": "2.1.0",
     "description": "Assess Chinese Wikipedia animation, comics, games, and related articles with SuperGrey's ACGATool.",
     "private": true,
     "license": "MIT",

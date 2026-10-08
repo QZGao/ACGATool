@@ -3082,6 +3082,139 @@ test("nominations without article context do not request recipient suggestions",
     expect(errors).toEqual([]);
 });
 
+test("single checking preselects scoring item boxes and saves a manual rejection", async ({
+    page,
+}) => {
+    const errors = await mount(page, "en");
+    await page.evaluate(() => {
+        const global = window as any;
+        void global.acgaFixture.dialogs.showCheckNominationDialog(
+            {
+                ...global.AcgaTestUI.nomination("1c 2-c 3 4-dyk"),
+                checkWikitext: "{{ACG提名2/check|ver=1|}}",
+            },
+            { type: "acg2", position: 1 },
+        );
+    });
+    const dialog = page.getByRole("dialog");
+    const choices = dialog.locator(
+        '.acga-check-table tbody input[type="checkbox"]',
+    );
+    await expect(choices).toHaveCount(4);
+    for (const choice of await choices.all())
+        await expect(choice).toBeChecked();
+    await expect(
+        dialog.getByRole("checkbox", { name: "Select all rows", exact: true }),
+    ).toBeChecked();
+    await capture(page, "check-default-selected");
+    await choices.nth(1).uncheck();
+    await expect(choices.nth(0)).toBeChecked();
+    await expect(choices.nth(1)).not.toBeChecked();
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const effects = await page.evaluate(
+        () => (window as any).acgaFixture.effects,
+    );
+    expect(effects.saves).toHaveLength(1);
+    expect(
+        effects.saves[0].data.ruleTokens.map((token: any) => token.selected),
+    ).toEqual([true, false, true, true]);
+    expect(effects.errors).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
+test("batch checking preselects each fresh item's scoring boxes and retains deselection across navigation", async ({
+    page,
+}) => {
+    const errors = await mount(page, "en");
+    await page.evaluate(() => {
+        const global = window as any;
+        void global.acgaFixture.dialogs.showCheckBatchDialog(
+            ["First article", "Second article"].map((title, index) => ({
+                nomination: {
+                    ...global.AcgaTestUI.nomination("1c 2-c 3 4-dyk", title),
+                    checkWikitext:
+                        index === 0
+                            ? "<!-- 尚未核對 -->"
+                            : "{{ACG提名2/check|ver=1|}}",
+                },
+                target: { type: "acg2", position: index + 1 },
+                tableKey: `table-${index}`,
+                tableIndex: index,
+            })),
+        );
+    });
+    const dialog = page.getByRole("dialog");
+    const choices = dialog.locator(
+        '.acga-check-table tbody input[type="checkbox"]',
+    );
+    await expect(choices).toHaveCount(4);
+    for (const choice of await choices.all())
+        await expect(choice).toBeChecked();
+    await expect(
+        dialog.getByRole("checkbox", { name: "Select all rows", exact: true }),
+    ).toBeChecked();
+    await capture(page, "check-batch-default-selected");
+    await choices.nth(1).uncheck();
+    await dialog
+        .getByRole("tab", { name: "Item 2 · Pending", exact: true })
+        .click();
+    for (const choice of await choices.all())
+        await expect(choice).toBeChecked();
+    await dialog.getByRole("button", { name: "Previous", exact: true }).click();
+    await expect(choices.nth(0)).toBeChecked();
+    await expect(choices.nth(1)).not.toBeChecked();
+    await dialog.getByRole("button", { name: "Next", exact: true }).click();
+    for (const choice of await choices.all())
+        await expect(choice).toBeChecked();
+    await dialog.getByRole("button", { name: "Save all", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const fixture = await page.evaluate(() => ({
+        effects: (window as any).acgaFixture.effects,
+        completions: (window as any).acgaFixture.checkBatchEffects.completions,
+    }));
+    expect(fixture.completions).toHaveLength(1);
+    expect(
+        fixture.completions[0].map((save: any) =>
+            save.data.ruleTokens.map((token: any) => token.selected),
+        ),
+    ).toEqual([
+        [true, false, true, true],
+        [true, true, true, true],
+    ]);
+    expect(fixture.effects.errors).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
+test("rechecking preserves saved rejected scoring boxes instead of selecting them by default", async ({
+    page,
+}) => {
+    const errors = await mount(page, "en");
+    await page.evaluate(() => {
+        const global = window as any;
+        void global.acgaFixture.dialogs.showCheckNominationDialog(
+            {
+                ...global.AcgaTestUI.nomination("1a 3"),
+                checkWikitext: "{{ACG提名2/check|ver=1|1a|no=3}}Reviewed--~~~~",
+            },
+            { type: "acg2", position: 1 },
+        );
+    });
+    const dialog = page.getByRole("dialog");
+    const choices = dialog.locator(
+        '.acga-check-table tbody input[type="checkbox"]',
+    );
+    await expect(choices).toHaveCount(2);
+    await expect(choices.nth(0)).toBeChecked();
+    await expect(choices.nth(1)).not.toBeChecked();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    expect(
+        await page.evaluate(() => (window as any).acgaFixture.effects.saves),
+    ).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
 test("checking renders source as text and submits edited score once", async ({
     page,
 }) => {
@@ -3365,29 +3498,21 @@ test("flat batch checking tabs retain drafts and history across tables while sta
         exact: true,
     });
     const next = footer.getByRole("button", { name: "下一項", exact: true });
-    const skip = footer.getByRole("button", { name: "略過", exact: true });
+    const skip = footer.getByRole("button", { name: "暫不核對", exact: true });
     const cancel = footer.getByRole("button", { name: "取消", exact: true });
-    const quit = footer.getByRole("button", { name: "退出", exact: true });
     await expect(previous).toBeDisabled();
-    await expect(previous).toHaveClass(/cdx-button--weight-normal/u);
+    await expect(previous).toHaveClass(/cdx-button--weight-quiet/u);
     await expect(previous).toHaveClass(/cdx-button--action-default/u);
-    await expect(skip).toHaveClass(/cdx-button--weight-quiet/u);
+    await expect(skip).toHaveClass(/cdx-button--weight-normal/u);
     await expect(skip).toHaveClass(/cdx-button--action-default/u);
     await expect(cancel).toHaveClass(/cdx-button--weight-quiet/u);
     await expect(cancel).toHaveClass(/cdx-button--action-default/u);
-    await expect(quit).toHaveClass(/cdx-button--weight-quiet/u);
-    await expect(quit).toHaveClass(/cdx-button--action-default/u);
-    await expect(quit).toHaveAttribute(
-        "title",
-        "提交已完成的核對並退出，未完成的項目保持未核對狀態。",
-    );
     await expect(next).toHaveClass(/cdx-button--weight-primary/u);
     await expect(next).toHaveClass(/cdx-button--action-progressive/u);
     await expect(footer.getByRole("button")).toHaveText([
         "取消",
-        "退出",
-        "略過",
         "上一項",
+        "暫不核對",
         "下一項",
     ]);
     const score = dialog.getByRole("spinbutton", {
@@ -3455,7 +3580,7 @@ test("flat batch checking tabs retain drafts and history across tables while sta
     await skip.click();
     await expectActiveTab(2);
     await expect(
-        items.getByRole("tab", { name: "項目1 · 已跳過", exact: true }),
+        items.getByRole("tab", { name: "項目1 · 暫不核對", exact: true }),
     ).toBeVisible();
     await next.click();
     await expectActiveTab(3);
@@ -3521,7 +3646,9 @@ test("batch checking cancel closes without submitting staged results", async ({
     expect(errors).toEqual([]);
 });
 
-test("batch checking Quit submits only completed rows", async ({ page }) => {
+test("deferring the remaining batch items submits only completed rows", async ({
+    page,
+}) => {
     const errors = await mount(page);
     await openCheckBatch(page);
     const dialog = page.getByRole("dialog");
@@ -3535,7 +3662,11 @@ test("batch checking Quit submits only completed rows", async ({ page }) => {
     await dialog
         .getByRole("spinbutton", { name: "1a 得分", exact: true })
         .fill("0.5");
-    await dialog.getByRole("button", { name: "退出", exact: true }).click();
+    await dialog.getByRole("button", { name: "暫不核對", exact: true }).click();
+    await expect(dialog.locator(".acga-check-summary")).toContainText(
+        "Third article",
+    );
+    await dialog.getByRole("button", { name: "暫不核對", exact: true }).click();
     await expect(dialog).toBeHidden();
     const { effects, checkBatchEffects } = await page.evaluate(() => {
         const fixture = (window as any).acgaFixture;
@@ -3545,7 +3676,7 @@ test("batch checking Quit submits only completed rows", async ({ page }) => {
         };
     });
     expect(effects.saves).toHaveLength(1);
-    expect(effects.outcome).toBe("quit");
+    expect(effects.outcome).toBe("save");
     expect(checkBatchEffects.completions).toHaveLength(1);
     expect(checkBatchEffects.completions[0]).toHaveLength(1);
     expect(checkBatchEffects.completions[0][0].target.position).toBe(1);
@@ -4096,8 +4227,8 @@ test("DYK score checking distinguishes unsuccessful nominations, absent records 
             date: null,
         }),
     );
-    await expect(status).toHaveText("Talk page has no DYK record.");
-    await expect(status.getByRole("link")).toHaveText("Talk page");
+    await expect(status).toHaveText("No recent DYK records");
+    await expect(status.getByRole("link")).toHaveText("No recent DYK records");
     await expect(status.getByRole("link")).toHaveAttribute(
         "href",
         "/wiki/Talk%3ANo_record",
@@ -4144,11 +4275,11 @@ test("DYK score checking distinguishes unsuccessful nominations, absent records 
     expect(errors).toEqual([]);
 });
 
-for (const [language, talkPage, noRecord] of [
-    ["zh-Hans", "讨论页", "无DYK记录"],
-    ["zh-Hant", "討論頁", "無DYK記錄"],
+for (const [language, noRecord] of [
+    ["zh-Hans", "近期无DYK记录"],
+    ["zh-Hant", "近期無DYK記錄"],
 ])
-    test(`${language} nomination hints link the talk-page name and category 8 uses the recipient label`, async ({
+    test(`${language} nomination hints link the concise no-record status and category 8 uses the recipient label`, async ({
         page,
     }) => {
         const title = "没有 DYK 记录的条目";
@@ -4172,13 +4303,14 @@ for (const [language, talkPage, noRecord] of [
             }),
         );
         const status = dialog.locator(".acga-dyk-status:visible");
-        await expect(status).toHaveText(talkPage + noRecord);
-        const link = status.getByRole("link", { name: talkPage, exact: true });
+        await expect(status).toHaveText(noRecord);
+        const link = status.getByRole("link", { name: noRecord, exact: true });
         await expect(link).toHaveAttribute(
             "href",
             "/wiki/" + encodeURIComponent("Talk:" + title.replaceAll(" ", "_")),
         );
         await expect(status.getByRole("link")).toHaveCount(1);
+        await capture(page, `dyk-no-record-${language}`);
         await dialog.getByRole("button", { name: /^\(8\)/u }).click();
         await expect(
             dialog.getByRole("textbox", { name: "得分者", exact: true }),
@@ -4249,7 +4381,7 @@ test("current DYK nomination links coexist with previous outcomes and disappear 
         await expect(tag).toHaveCSS("color", "rgb(0, 0, 238)");
         await expect(tag).toHaveCSS("border-top-width", "0px");
         await expect(tag).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-        await expect(status).not.toContainText("has no DYK record");
+        await expect(status).not.toContainText("No recent DYK records");
         if (item.history) await expect(status).toContainText(item.history);
         await closeDykCheck(page);
     }
@@ -4269,7 +4401,7 @@ test("current DYK nomination links coexist with previous outcomes and disappear 
         cases.length,
     );
     await expect(tag).toHaveCount(0);
-    await expect(status).toHaveText("Talk page has no DYK record.");
+    await expect(status).toHaveText("No recent DYK records");
     expect(errors).toEqual([]);
 });
 

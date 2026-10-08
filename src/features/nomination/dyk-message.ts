@@ -52,11 +52,12 @@ export function createDykMessage(
         key = status.date ? "dyk_status_passed_on" : "dyk_status_passed";
     else if (status && !status.nominated) key = "dyk_status_not_found";
 
+    if (key === "dyk_status_not_found")
+        return { beforeLink: "", linkLabel: msg(key), afterLink: "" };
     const date = record?.date ?? status?.date;
     if (date) Object.assign(values, formatDate(date, msg, now));
     const template = key ? msg(key) : "";
-    const linkPlaceholder =
-        key === "dyk_status_not_found" ? "{talk}" : "{selection}";
+    const linkPlaceholder = "{selection}";
     const linkPosition = template.indexOf(linkPlaceholder);
     const interpolate = (text: string) =>
         text.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/gu, (placeholder, name) =>
@@ -71,11 +72,9 @@ export function createDykMessage(
     return {
         beforeLink: interpolate(template.slice(0, linkPosition)),
         linkLabel: msg(
-            key === "dyk_status_not_found"
-                ? "dyk_status_talk_page"
-                : compact
-                  ? "dyk_compact_selection_link"
-                  : "dyk_status_selection_link",
+            compact
+                ? "dyk_compact_selection_link"
+                : "dyk_status_selection_link",
         ),
         afterLink: interpolate(
             template.slice(linkPosition + linkPlaceholder.length),

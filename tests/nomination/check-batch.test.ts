@@ -22,7 +22,7 @@ test("check outcomes are immutable and unknown results fail safe to cancel", () 
         normalizeCheckOutcome(CHECK_OUTCOME.CANCEL),
         CHECK_OUTCOME.CANCEL,
     );
-    assert.equal(normalizeCheckOutcome(CHECK_OUTCOME.QUIT), CHECK_OUTCOME.QUIT);
+    assert.equal(normalizeCheckOutcome("quit"), CHECK_OUTCOME.CANCEL);
     assert.equal(normalizeCheckOutcome(undefined), CHECK_OUTCOME.CANCEL);
     assert.equal(normalizeCheckOutcome("unexpected"), CHECK_OUTCOME.CANCEL);
 });

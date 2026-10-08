@@ -84,7 +84,13 @@ failed submission retains that snapshot for recovery.
 Checking drafts remain local until batch completion. Each source nomination has
 a stable identity; accepting replaces its staged result, editing invalidates it,
 and skipping removes it. Item forms, comments and undo/redo histories survive
-navigation. Cancel discards staged results; Quit submits accepted results.
+navigation. Cancel discards staged results; completing the batch submits accepted
+results and leaves deferred items unchecked.
+
+Fresh checks select every scoring row. Empty fields, comment-only fields and empty
+check templates represent unreviewed nominations. Saved results restore their
+scores and selections, including explicit zero-score rejections; the parser keeps
+the presence of a result separate from the number of parsed scoring tokens.
 
 Services resolve and validate the entire batch against a current source snapshot
 before preparing one registration-page edit and one score-list edit. Rechecks

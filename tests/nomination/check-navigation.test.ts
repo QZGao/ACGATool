@@ -411,7 +411,7 @@ test("cancel closes the continuous batch without committing staged items", async
     assert.equal(committed.length, 0);
 });
 
-test("Quit commits staged checks only and leaves the current draft open after a completion failure", async () => {
+test("deferring the remaining item commits staged checks only and retains drafts after a completion failure", async () => {
     const { vm, committed, events } = fixture({
         completeResults: [true, false],
     });
@@ -420,14 +420,21 @@ test("Quit commits staged checks only and leaves the current draft open after a 
     vm.setCheckScore(vm.checkTableRows[0], "1.5");
     vm.setCheckMessage("未暫存的目前項目");
     const current = state(vm);
-    await vm.quitCheckBatch();
+    await vm.skip();
     assert.equal(vm.open, true);
     assert.deepEqual(state(vm), current);
+    assert.deepEqual(vm.checkBatchStatuses, ["saved", "skipped"]);
     assert.equal(committed.length, 0);
-    await vm.quitCheckBatch();
-    assert.equal(await outcome, CHECK_OUTCOME.QUIT);
+    await vm.skip();
+    assert.equal(await outcome, CHECK_OUTCOME.SAVE);
     assert.equal(vm.open, false);
-    assert.deepEqual(events, ["stage:1", "complete", "complete"]);
+    assert.deepEqual(events, [
+        "stage:1",
+        "discard:2",
+        "complete",
+        "discard:2",
+        "complete",
+    ]);
     assert.equal(committed.length, 1);
     assert.equal(committed[0].length, 1);
     assert.equal(committed[0][0].pageName, "Article 1");
@@ -446,7 +453,7 @@ test("pending staging blocks navigation, cancellation, and duplicate Next action
     vm.previousCheckItem();
     vm.requestCancel();
     await vm.skip();
-    await vm.quitCheckBatch();
+    await vm.completeCheckBatch();
     await vm.save();
     assert.equal(vm.open, true);
     assert.equal(vm.checkBatchIndex, 0);
@@ -521,7 +528,7 @@ test("failed raw staging retains source and retries without advancing prematurel
     assert.equal(await outcome, CHECK_OUTCOME.CANCEL);
 });
 
-test("editing an accepted raw check discards its staged result before quitting", async () => {
+test("editing an accepted raw check discards its staged result before deferring the remaining items", async () => {
     const { vm, rawStages, committed, events } = fixture({
         rawStage: async () => false,
     });
@@ -539,11 +546,18 @@ test("editing an accepted raw check discards its staged result before quitting",
     );
     assert.deepEqual(vm.checkBatchStatuses, ["pending", "pending"]);
     assert.deepEqual(events, ["raw:1", "discard:1"]);
-    await vm.quitCheckBatch();
-    assert.equal(await outcome, CHECK_OUTCOME.QUIT);
+    await vm.skip();
+    await vm.skip();
+    assert.equal(await outcome, CHECK_OUTCOME.SAVE);
     assert.equal(rawStages.length, 1);
     assert.equal(committed[0].length, 0);
-    assert.deepEqual(events, ["raw:1", "discard:1", "complete"]);
+    assert.deepEqual(events, [
+        "raw:1",
+        "discard:1",
+        "discard:1",
+        "discard:2",
+        "complete",
+    ]);
 });
 
 test("invalid raw fields cannot stage and pending raw saves reject late source updates", async () => {

@@ -102,6 +102,178 @@ async function loadRegistryRuntime(page: Page): Promise<void> {
     await page.addScriptTag({ content: runtime });
 }
 
+test("registry uses semantic status before presentation colors and translated result text", async ({
+    page,
+}) => {
+    const chapter = (
+        id: string,
+        status: string,
+        classes: string,
+        color: string,
+        result: string,
+    ) => `
+        <section id="${id}"><h3>9月20日</h3>
+            <table class="acgnom-table"><tbody>
+                <tr class="acgnom-entry item1 ${classes}" data-acgnom-index="1" ${status ? `data-acgnom-status="${status}"` : ""}>
+                    <th class="acgnom-title-cell" style="background: ${color}">Article</th><td>Request</td>
+                </tr>
+                <tr class="acgnom-check-row item1 ${classes}" data-acgnom-index="1" ${status ? `data-acgnom-status="${status}"` : ""}><td class="acgnom-check-cell"><div class="acgnom-check">${result}</div></td></tr>
+            </tbody></table>
+        </section>`;
+    const reviewed = "Checked --Reviewer 2026年9月20日 (日) 12:00 (UTC)";
+    await page.setContent(`<!doctype html><html lang="zh-Hant"><body><main id="registry">
+        ${chapter("pending", "pending", "done", "transparent", reviewed)}
+        ${chapter("done", "done", "pending", "#ffffb999", reviewed)}
+        ${chapter("rechecking", "rechecking", "done", "transparent", reviewed)}
+        ${chapter("class-pending", "", "pending", "transparent", "Awaiting review")}
+        ${chapter("class-done", "", "done", "#ffb9ff99", reviewed)}
+    </main></body></html>`);
+    await loadRegistryRuntime(page);
+    await page.evaluate(() => {
+        const global = window as any;
+        global.registryFixture = global.AcgaRegistryUI.mount(
+            document.getElementById("registry"),
+        );
+    });
+    for (const id of ["pending", "class-pending"]) {
+        const section = page.locator(`#${id}`);
+        await expect(
+            section.getByRole("button", { name: "核對", exact: true }),
+        ).toBeEnabled();
+        await expect(section.getByRole("checkbox")).toBeEnabled();
+        await expect(
+            section.getByRole("button", { name: "歸檔", exact: true }),
+        ).toBeDisabled();
+    }
+    for (const id of ["done", "class-done", "rechecking"]) {
+        const section = page.locator(`#${id}`);
+        await expect(
+            section.getByRole("button", { name: "複核", exact: true }),
+        ).toBeEnabled();
+        await expect(section.getByRole("checkbox")).toHaveCount(0);
+        const archive = section.getByRole("button", {
+            name: "歸檔",
+            exact: true,
+        });
+        if (id === "rechecking") await expect(archive).toBeDisabled();
+        else await expect(archive).toBeEnabled();
+    }
+    await capture(page, "registry-semantic-status");
+    expect(
+        await page.evaluate(() => (window as any).registryFixture.effects),
+    ).toMatchObject({ checks: [], edits: [], archives: [], errors: [] });
+});
+
+test("registry pairs sparse semantic items within each table and preserves source DOM on disposal", async ({
+    page,
+}) => {
+    await page.setContent(`<!doctype html><html lang="zh-Hant"><body><main id="registry">
+        <h3>9月27日</h3>
+        <table class="acgnom-table" id="first"><tbody>
+            <tr class="acgnom-entry item1 pending" data-acgnom-index="1" data-acgnom-status="pending">
+                <th class="acgnom-title-cell">First</th><td>Request one</td>
+            </tr>
+            <tr id="unrelated-row"><td><div class="mw-notalk">Discussion between the entry and its check</div></td></tr>
+            <tr class="acgnom-entry item4 pending" data-acgnom-index="4" data-acgnom-status="pending">
+                <th class="acgnom-title-cell">Fourth</th><td>Request four
+                    <table class="acgnom-table" id="nested"><tbody>
+                        <tr class="acgnom-entry item1 pending" data-acgnom-index="1" data-acgnom-status="pending"><th class="acgnom-title-cell">Nested example</th><td><h3>1月1日</h3></td></tr>
+                        <tr class="acgnom-check-row item1 pending" data-acgnom-index="1" data-acgnom-status="pending"><td class="acgnom-check-cell"><div class="acgnom-check">Nested check</div></td></tr>
+                    </tbody></table>
+                </td>
+            </tr>
+            <tr class="acgnom-check-row item4 pending" data-acgnom-index="4" data-acgnom-status="pending"><td class="acgnom-check-cell"><div class="acgnom-check" id="check-four">Fourth check</div></td></tr>
+            <tr class="acgnom-check-row item1 pending" data-acgnom-index="1" data-acgnom-status="pending"><td class="acgnom-check-cell"><div class="acgnom-check" id="check-one">First check</div></td></tr>
+        </tbody></table>
+        <table class="acgnom-table" id="second"><tbody>
+            <tr class="acgnom-entry item2 pending"><th class="acgnom-title-cell">Second table</th><td>Request two</td></tr>
+            <tr class="acgnom-check-row item2 pending"><td class="acgnom-check-cell"><div class="acgnom-check" id="check-two">Second table check</div></td></tr>
+        </tbody></table>
+    </main></body></html>`);
+    const original = await page.locator("#registry").innerHTML();
+    await loadRegistryRuntime(page);
+    await page.evaluate(() => {
+        const global = window as any;
+        global.registryFixture = global.AcgaRegistryUI.mount(
+            document.getElementById("registry"),
+        );
+    });
+    await expect(page.locator(".acga-registry-edit-control")).toHaveCount(3);
+    await expect(page.locator(".acga-registry-controls")).toHaveCount(3);
+    await expect(
+        page.locator("#nested button, #nested input, #unrelated-row button"),
+    ).toHaveCount(0);
+    for (const id of ["check-one", "check-four", "check-two"]) {
+        const check = page
+            .locator(`#${id}`)
+            .getByRole("button", { name: "核對", exact: true });
+        await expect(check).toBeEnabled();
+        await check.click();
+        await expect(check).toBeEnabled();
+    }
+    const edit = page
+        .locator("#second")
+        .getByRole("button", { name: "修改提名", exact: true });
+    await edit.click();
+    await expect(edit).toBeEnabled();
+    const effects = await page.evaluate(
+        () => (window as any).registryFixture.effects,
+    );
+    expect(effects.checks).toEqual([
+        expect.objectContaining({ index: 1, tableIndex: 0, itemIndex: 1 }),
+        expect.objectContaining({ index: 2, tableIndex: 0, itemIndex: 4 }),
+        expect.objectContaining({ index: 3, tableIndex: 1, itemIndex: 2 }),
+    ]);
+    expect(effects.edits).toEqual([
+        expect.objectContaining({
+            date: "9月27日",
+            index: 3,
+            tableIndex: 1,
+            itemIndex: 2,
+            sectionOccurrence: 0,
+            expectedRevisionId: 42,
+        }),
+    ]);
+    expect(effects.errors).toEqual([]);
+    await page.locator("#check-four").getByRole("checkbox").check();
+    await expect(page.locator(".acga-registry-selected")).toHaveCount(1);
+    await page.evaluate(() => (window as any).registryFixture.dispose());
+    expect(await page.locator("#registry").innerHTML()).toBe(original);
+    await expect(page.locator("style[data-registry-fixture]")).toHaveCount(0);
+});
+
+test("registry does not guess editable targets for malformed semantic entries", async ({
+    page,
+}) => {
+    const entry = (index: string, classIndex = index, result = "") => `
+        <tr class="acgnom-entry item${classIndex} done" data-acgnom-index="${index}" data-acgnom-status="done"><th class="acgnom-title-cell" scope="row" rowspan="2">Article</th><td>Request</td></tr>
+        <tr class="acgnom-check-row item${classIndex} done" data-acgnom-index="${index}" data-acgnom-status="done"><td class="acgnom-check-cell">${result || '<div class="acgnom-check">Checked --Reviewer 2026年9月20日 (日) 12:00 (UTC)</div>'}</td></tr>`;
+    const chapter = (id: string, rows: string) => `
+        <section id="${id}"><h3>9月20日</h3><table class="acgnom-table"><tbody>${rows}</tbody></table></section>`;
+    await page.setContent(`<!doctype html><html lang="zh-Hant"><body><main id="registry">
+        ${chapter("invalid", entry("garbage", "1"))}
+        ${chapter("out-of-range", entry("26"))}
+        ${chapter("duplicate", entry("1") + entry("1"))}
+        ${chapter("missing-anchor", entry("1", "1", '<div class="mw-notalk">Legacy-looking check with no semantic anchor</div>'))}
+        ${chapter("conflicting-status", entry("1").replace('data-acgnom-status="done"', 'data-acgnom-status="pending"'))}
+    </main></body></html>`);
+    await loadRegistryRuntime(page);
+    await page.evaluate(() => {
+        const global = window as any;
+        global.registryFixture = global.AcgaRegistryUI.mount(
+            document.getElementById("registry"),
+        );
+    });
+    await expect(page.locator("table button, table input")).toHaveCount(0);
+    const archives = page.getByRole("button", { name: "歸檔", exact: true });
+    await expect(archives).toHaveCount(5);
+    for (let index = 0; index < 5; index++)
+        await expect(archives.nth(index)).toBeDisabled();
+    expect(
+        await page.evaluate(() => (window as any).registryFixture.effects),
+    ).toMatchObject({ checks: [], edits: [], archives: [], errors: [] });
+});
+
 test("registry keeps repeated sections distinct and sends a selected batch once", async ({
     page,
 }) => {
@@ -711,6 +883,7 @@ test("registry disables self checks with reason tooltips and excludes them from 
             choices.nth(index).locator("xpath=ancestor::label"),
         ).toHaveAttribute("title", reason);
     }
+    await capture(page, "registry-disabled-batch-choices");
     await choices.nth(0).dispatchEvent("click");
     await expect(choices.nth(0)).not.toBeChecked();
     await expect(page.getByRole("status")).toBeEmpty();

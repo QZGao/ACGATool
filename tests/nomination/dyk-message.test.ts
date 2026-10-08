@@ -140,11 +140,11 @@ test("failed and unsuccessful DYK records retain a manual talk-page link", () =>
     }
 });
 
-test("missing DYK records link only the talk-page name followed by the concise status", () => {
-    for (const [language, linkLabel, afterLink] of [
-        ["zh-Hans", "讨论页", "无DYK记录"],
-        ["zh-Hant", "討論頁", "無DYK記錄"],
-        ["en", "Talk page", " has no DYK record."],
+test("missing DYK records link the concise recent-record status to the talk page", () => {
+    for (const [language, linkLabel] of [
+        ["zh-Hans", "近期无DYK记录"],
+        ["zh-Hant", "近期無DYK記錄"],
+        ["en", "No recent DYK records"],
     ])
         for (const compact of [false, true])
             assert.deepEqual(
@@ -156,7 +156,7 @@ test("missing DYK records link only the talk-page name followed by the concise s
                     now,
                     compact,
                 ),
-                { beforeLink: "", linkLabel, afterLink },
+                { beforeLink: "", linkLabel, afterLink: "" },
             );
 });
 
@@ -336,8 +336,8 @@ test("compact hints keep loading, missing, and lookup failures distinct", () => 
     assert.match(messages[0].beforeLink, /Checking/u);
     assert.deepEqual(messages[1], {
         beforeLink: "",
-        linkLabel: "Talk page",
-        afterLink: " has no DYK record.",
+        linkLabel: "No recent DYK records",
+        afterLink: "",
     });
     assert.match(messages[2].beforeLink, /could not be checked/u);
     for (const message of [messages[0], messages[2]]) {

@@ -5,6 +5,7 @@
 ## Contents
 
 - [Unreleased](#unreleased)
+- [\[2.1.0\] - 2026-10-09](#210---2026-10-09)
 - [\[2.0.3\] - 2026-10-05](#203---2026-10-05)
 - [\[2.0.2\] - 2026-10-03](#202---2026-10-03)
 - [\[2.0.1-alpha.2\] - 2026-10-02](#201-alpha2---2026-10-02)
@@ -16,6 +17,29 @@
 <!-- toc:end -->
 
 ## Unreleased
+
+## [2.1.0] - 2026-10-09
+
+- Recognize the registration template's nomination rows, item numbers and status
+  markers when attaching check controls, without depending on stylesheet colors.
+- Match score changes to the correct numbered nomination within its table,
+  including sparse item numbers and reordered template parameters; skip ambiguous
+  rendered entries and deduplicate batches after resolving source targets.
+- Restore saved scores marked as actively rechecking and apply only the score
+  difference, retaining manual reconciliation for unknown or rescinded results.
+- Match numbered field names exactly so malformed aliases cannot override the
+  rendered recipient or saved result; reject incomplete editable source before
+  changing the registration page or score list.
+- Select every scoring row for fresh checks, including empty check templates and
+  comment-only fields, while preserving saved recheck decisions and explicit
+  zero-score rejections.
+- Grey out the Add to batch label whenever its checkbox is disabled.
+- Rename Skip to “Check later”, place it after Previous as the secondary action,
+  and remove Quit so Cancel is the single action for discarding a checking batch.
+- Recognize `^` as a successful DYK archive result and `!` as a failed result,
+  alongside `+` and `-`, using the archive's closing timestamp for the outcome date.
+- Shorten the missing-DYK hint to “No recent DYK records”, linked to the talk page,
+  with matching wording in all supported languages.
 
 ## [2.0.3] - 2026-10-05
 

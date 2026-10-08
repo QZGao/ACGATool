@@ -23,6 +23,8 @@ export interface ExistingNomination {
     nominator?: string;
     date: string;
     index: number;
+    tableIndex?: number;
+    itemIndex?: number;
     sectionOccurrence: number;
     dateLabel: string;
     dateAnchor: string;
@@ -103,6 +105,8 @@ export function getExistingNominations(
                 ...(data.nominator ? { nominator: data.nominator } : {}),
                 date: entry.date,
                 index: entry.index,
+                tableIndex: entry.tableIndex,
+                itemIndex: entry.itemIndex,
                 sectionOccurrence: entry.sectionOccurrence,
                 dateLabel: entry.date,
                 dateAnchor:
@@ -124,9 +128,16 @@ export function isSameNomination(
 ): boolean {
     if (typeof target !== "object" || target === null) return false;
     const identity = target as Record<string, unknown>;
+    const explicitIdentity =
+        identity.tableIndex !== undefined || identity.itemIndex !== undefined;
     return (
         nomination.date === identity.date &&
-        nomination.index === identity.index &&
+        (explicitIdentity
+            ? Number.isSafeInteger(identity.tableIndex) &&
+              Number.isSafeInteger(identity.itemIndex) &&
+              nomination.tableIndex === identity.tableIndex &&
+              nomination.itemIndex === identity.itemIndex
+            : nomination.index === identity.index) &&
         nomination.sectionOccurrence === identity.sectionOccurrence
     );
 }

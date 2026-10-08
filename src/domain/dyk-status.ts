@@ -74,7 +74,12 @@ export function parseDykStatus(source: string): DykStatus {
             if (key === "result") resultIndex = index;
         }
         const result = params.get("result");
-        if (result === "+" || result === "-") {
+        if (
+            result === "+" ||
+            result === "^" ||
+            result === "-" ||
+            result === "!"
+        ) {
             const closingTime =
                 epochTime(params.get("closets") ?? "") ??
                 (!fields[resultIndex + 1]?.includes("=")
@@ -86,7 +91,7 @@ export function parseDykStatus(source: string): DykStatus {
                     closingTime === null
                         ? null
                         : new Date(closingTime).toISOString().slice(0, 10),
-                passed: result === "+",
+                passed: result === "+" || result === "^",
                 // Nomination chronology identifies the latest nomination; only the
                 // closing timestamp supplies the displayed outcome date above.
                 orderingTime:

@@ -95,6 +95,8 @@ export interface EntrySelection {
     date: string;
     index: number;
     sectionOccurrence: number;
+    tableIndex?: number;
+    itemIndex?: number;
     commentId?: string;
     expectedRevisionId?: string | number | null;
 }
@@ -213,6 +215,7 @@ export function createNominationService(services: NominationServices) {
             selection.date,
             selection.index,
             selection.sectionOccurrence,
+            selection,
         );
         if (!target) {
             stale();
@@ -654,23 +657,23 @@ export function createNominationService(services: NominationServices) {
                 stale();
                 return false;
             }
-            const unique = Array.from(
-                new Map(
-                    selections.map((item) => [
-                        `${item.date}:${item.sectionOccurrence}:${item.index}`,
-                        item,
-                    ]),
-                ).values(),
-            );
-            const targets = unique.map((item) =>
+            const targets = selections.map((item) =>
                 targetInSnapshot(snapshot, item),
             );
             if (targets.some((target) => !target)) return false;
+            const unique = Array.from(
+                new Map(
+                    targets.map((target) => [
+                        `${target!.date}:${target!.sectionOccurrence}:${target!.index}`,
+                        target!,
+                    ]),
+                ).values(),
+            );
             const eligible: Array<{
                 target: NominationTarget;
                 data: NominationData;
             }> = [];
-            for (const target of targets) {
+            for (const target of unique) {
                 const data = queried2NomData(target);
                 if (!data) {
                     stale();
@@ -685,9 +688,11 @@ export function createNominationService(services: NominationServices) {
                     eligible.push({ target: target!, data });
             }
             if (!eligible.length) return false;
-            eligible.sort(
-                (left, right) =>
-                    Number(left.target.start) - Number(right.target.start),
+            eligible.sort((left, right) =>
+                left.target.date === right.target.date &&
+                left.target.sectionOccurrence === right.target.sectionOccurrence
+                    ? Number(left.target.index) - Number(right.target.index)
+                    : Number(left.target.start) - Number(right.target.start),
             );
             const tableKeys = new Map<string, number>();
             const entries: CheckBatchEntry[] = eligible.map(

@@ -104,6 +104,8 @@ test("finalized DYK archive results accept normalized template names and trimmed
     for (const source of [
         "{{ Template:DYKEntry/archive | author = Example | result = + | closets = 1754391689 }}",
         "{{模板:dykentry/archive|author=Example|result=+|closets=1754391689}}",
+        "{{ Template:DYKEntry/archive | author = Example | result = ^ | closets = 1754391689 }}",
+        "{{模板:dykentry/archive|author=Example|result=^|closets=1754391689}}",
     ]) {
         assert.deepEqual(parseDykStatus(source), {
             passed: true,
@@ -111,14 +113,62 @@ test("finalized DYK archive results accept normalized template names and trimmed
             records: [{ author: "Example", date: "2025-08-05", passed: true }],
         });
     }
+    for (const result of ["-", "!"])
+        assert.deepEqual(
+            parseDykStatus(
+                `{{Template:DYKEntry/archive|author=Example|result= ${result} |closets=1754391689}}`,
+            ),
+            {
+                passed: false,
+                date: "2025-08-05",
+                records: [
+                    { author: "Example", date: "2025-08-05", passed: false },
+                ],
+            },
+        );
+});
+
+test("the Tropico archive caret result preserves its author and closing date through a read-only lookup", async () => {
+    const source = `{{Banner shell|1={{DYKtalk|date=2026-10-07}}}}
+{{DYKEntry/archive
+|closeframe=1
+|revid=94828175
+|hash=d8abc8d3e261e6f897b1a421e4814be9d8284869
+|result=^|51efa15f339e0ca99b057402f652ff700e43cca1|1791126181
+|article=海岛大亨系列
+|image=Tropico logo.png
+|type=video game
+|author=BrianBYBYBY
+|nominator=BrianBYBYBY
+|timestamp=1790863482
+}}
+* {{support}}
+{{DYKvoteF}}`;
+    const { api, queries } = fixture({
+        query: {
+            pages: [{ revisions: [{ slots: { main: { content: source } } }] }],
+        },
+    });
+    assert.deepEqual(await api.getDykStatus("海岛大亨系列"), {
+        passed: true,
+        date: "2026-10-04",
+        records: [{ author: "BrianBYBYBY", date: "2026-10-04", passed: true }],
+    });
+    assert.equal(queries[0]!.titles, "Talk:海岛大亨系列");
+});
+
+test("a later exclamation failure overrides caret success without borrowing banner dates", () => {
     assert.deepEqual(
-        parseDykStatus(
-            "{{Template:DYKEntry/archive|author=Example|result= - |closets=1754391689}}",
-        ),
+        parseDykStatus(`{{DYKtalk|date=2026-10-07}}
+{{DYKEntry/archive|author=Earlier|timestamp=1790863482|result=^|hash|1791126181}}
+{{DYKEntry/archive|author=Later|timestamp=1791200000|result=!}}`),
         {
             passed: false,
-            date: "2025-08-05",
-            records: [{ author: "Example", date: "2025-08-05", passed: false }],
+            date: null,
+            records: [
+                { author: "Earlier", date: "2026-10-04", passed: true },
+                { author: "Later", date: null, passed: false },
+            ],
         },
     );
 });
@@ -225,14 +275,21 @@ test("the latest nomination may have an unknown outcome date without borrowing i
 test("DYK candidates, unfinished archives and literal archive examples do not become outcomes", () => {
     for (const source of [
         "{{DYKEntry|author=Candidate|result=+|hash|1754391689}}",
+        "{{DYKEntry|author=Candidate|result=^|hash|1754391689}}",
         "{{DYKEntry/archive|author=Candidate|result=?|hash|1754391689}}",
         "{{DYKEntry/archive|author=Candidate|result=+?|hash|1754391689}}",
+        "{{DYKEntry/archive|author=Candidate|result=^?|hash|1754391689}}",
+        "{{DYKEntry/archive|author=Candidate|result=!!|hash|1754391689}}",
+        "{{DYKEntry/archive|author=Candidate|result=@|hash|1754391689}}",
         "{{DYKEntry/archive|author=Candidate|result=−|hash|1754391689}}",
         "{{DYKEntry/archiveExample|author=Candidate|result=+|hash|1754391689}}",
         "{{DYKEntry/archive|author=Candidate|timestamp=1754391689}}",
         "<!-- {{DYKEntry/archive|author=Example|result=-|hash|1754391689}} -->",
         "<nowiki>{{DYKEntry/archive|author=Example|result=+|hash|1754391689}}</nowiki>",
         "<pre>{{DYKEntry/archive|author=Example|result=-|hash|1754391689}}</pre>",
+        "<!-- {{DYKEntry/archive|author=Example|result=^|hash|1754391689}} -->",
+        "<nowiki>{{DYKEntry/archive|author=Example|result=!|hash|1754391689}}</nowiki>",
+        "{{DYKtalk|date=2026-10-07}}{{DYKEntry/archive|author=Candidate|result=?}}{{support}}{{DYKvoteF}}",
         "{{DYKEntry<nowiki>literal</nowiki>/archive|author=Example|result=+|hash|1754391689}}",
     ]) {
         assert.deepEqual(parseDykStatus(source), { passed: false, date: null });

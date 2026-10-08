@@ -342,24 +342,17 @@ export function createDialogHost(
                         cancel,
                         {
                             ...cancel,
-                            key: "quit",
-                            label: msg("quit"),
-                            title: msg("quit_check_batch_help"),
-                            run: () => this.quitCheckBatch(),
+                            key: "previous",
+                            label: msg("previous"),
+                            disabled: this.busy || this.checkBatchIndex === 0,
+                            run: () => this.previousCheckItem(),
                         },
                         {
                             ...cancel,
                             key: "skip",
                             label: msg("skip"),
-                            run: () => this.skip(),
-                        },
-                        {
-                            ...cancel,
-                            key: "previous",
-                            label: msg("previous"),
                             weight: "normal",
-                            disabled: this.busy || this.checkBatchIndex === 0,
-                            run: () => this.previousCheckItem(),
+                            run: () => this.skip(),
                         },
                         forward,
                     ];
@@ -1499,7 +1492,7 @@ export function createDialogHost(
                 );
                 this.checkBatchStatuses[this.checkBatchIndex] = "pending";
             },
-            async completeCheckBatch(outcome = CHECK_OUTCOME.SAVE as string) {
+            async completeCheckBatch() {
                 if (
                     !this.isCheckBatch ||
                     this.busy ||
@@ -1509,7 +1502,7 @@ export function createDialogHost(
                 this.busy = true;
                 try {
                     if (!(await operations.completeNominationCheckBatch()))
-                        await this.finishSession(outcome);
+                        await this.finishSession(CHECK_OUTCOME.SAVE);
                 } catch (error) {
                     services.reportError(error, "complete-check-batch");
                     this.error = msg(
@@ -1531,10 +1524,6 @@ export function createDialogHost(
                     return;
                 }
                 this.activateCheckBatchItem(pending);
-            },
-            quitCheckBatch() {
-                if (!this.busy && this.isCheckBatch)
-                    return this.completeCheckBatch(CHECK_OUTCOME.QUIT);
             },
             openConfirmation(options: any) {
                 return this.beginSession("confirm", false, () => {

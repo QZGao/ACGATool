@@ -161,7 +161,10 @@ function findTemplateEnd(text: string, start: number): { endIndex: number } {
 function parseTemplate(
     text: string,
     start: number,
-): { entries: ParsedEntry[]; endIndex: number } {
+): {
+    entries: Array<{ itemIndex: number; template: ParsedEntry }>;
+    endIndex: number;
+} {
     const { endIndex: templateEnd } = findTemplateEnd(text, start);
     const innerStart = start + 2;
     const innerEnd = templateEnd - 2;
@@ -190,25 +193,42 @@ function parseTemplate(
         const suffix = key.match(/^(.+?)(\d+)$/);
         if (!suffix) continue;
         const groupNumber = Number(suffix[2]);
-        if (groupNumber === 0) continue;
-        const groupKey = suffix[1].trim();
+        if (
+            groupNumber < 1 ||
+            groupNumber > 25 ||
+            String(groupNumber) !== suffix[2]
+        )
+            continue;
+        // MediaWiki trims the whole parameter name, not whitespace before its
+        // numeric suffix. Keep malformed aliases distinct from recognized fields.
+        const groupKey = suffix[1];
         (groups[groupNumber] ??= {})[groupKey] = parameter;
     }
     const entries = Object.keys(groups)
         .map(Number)
         .sort((left, right) => left - right)
+        .filter((number) =>
+            Boolean(removeComments(groups[number]["條目名稱"]?.value ?? "")),
+        )
         .map((number) => {
             const group = groups[number];
             const parameters = Object.values(group);
             return {
-                ...group,
-                fullLocation: {
-                    start: Math.min(
-                        ...parameters.map((param) => param.fullLocation.start),
-                    ),
-                    end: Math.max(
-                        ...parameters.map((param) => param.fullLocation.end),
-                    ),
+                itemIndex: number,
+                template: {
+                    ...group,
+                    fullLocation: {
+                        start: Math.min(
+                            ...parameters.map(
+                                (param) => param.fullLocation.start,
+                            ),
+                        ),
+                        end: Math.max(
+                            ...parameters.map(
+                                (param) => param.fullLocation.end,
+                            ),
+                        ),
+                    },
                 },
             };
         });
@@ -290,9 +310,9 @@ function collectEntriesInSection(text: string, section: any): Array<any> {
         const firstNewEntry = entries.length;
         for (const entry of tableEntries) {
             entries.push({
-                template: entry,
-                start: entry.fullLocation.start,
-                end: entry.fullLocation.end,
+                ...entry,
+                start: entry.template.fullLocation.start,
+                end: entry.template.fullLocation.end,
                 type: "acg2",
                 tableIndex,
             });
@@ -309,7 +329,6 @@ function collectEntriesInSection(text: string, section: any): Array<any> {
         previousTableEnd = endIndex;
         regex.lastIndex = endIndex - section.start;
     }
-    entries.sort((a: any, b: any) => a.start - b.start);
     return entries;
 }
 
@@ -346,6 +365,7 @@ export function getRegistryEntries(text: string): Array<any> {
  * @param date 日期字串（例如「2月3日」）。
  * @param index 該日期下從 1 開始的項目索引。
  * @param sectionOccurrence 同名日期標題從 0 開始的出現次序。
+ * @param templateIdentity Rendered table number and original parameter suffix, when available.
  * @returns 包含 template、start、end、type 與定位資訊的項目物件；找不到時回傳 null。
  */
 export function queryEntry(
@@ -353,6 +373,7 @@ export function queryEntry(
     date: string,
     index: number,
     sectionOccurrence: number = 0,
+    templateIdentity?: { tableIndex?: number; itemIndex?: number },
 ): any {
     if (!Number.isSafeInteger(sectionOccurrence) || sectionOccurrence < 0)
         return null;
@@ -362,7 +383,29 @@ export function queryEntry(
     ];
     if (!targetSection) return null;
     const entries = collectEntriesInSection(text, targetSection);
-    if (index < 1 || index > entries.length) return null;
+    const explicitIdentity =
+        templateIdentity?.tableIndex !== undefined ||
+        templateIdentity?.itemIndex !== undefined;
+    if (explicitIdentity) {
+        if (
+            typeof templateIdentity.tableIndex !== "number" ||
+            !Number.isSafeInteger(templateIdentity.tableIndex) ||
+            templateIdentity.tableIndex < 0 ||
+            typeof templateIdentity.itemIndex !== "number" ||
+            !Number.isSafeInteger(templateIdentity.itemIndex) ||
+            templateIdentity.itemIndex < 1 ||
+            templateIdentity.itemIndex > 25
+        )
+            return null;
+        index =
+            entries.findIndex(
+                (entry) =>
+                    entry.tableIndex === templateIdentity.tableIndex &&
+                    entry.itemIndex === templateIdentity.itemIndex,
+            ) + 1;
+    }
+    if (!Number.isSafeInteger(index) || index < 1 || index > entries.length)
+        return null;
     const locatedEntry = {
         ...entries[index - 1],
         date,
@@ -460,26 +503,7 @@ export function updateEntryParameters(
     entry: any,
     changes: any,
 ): string {
-    const mods = [];
-    for (const key in changes) {
-        if (entry.template[key]) {
-            const token = entry.template[key];
-            mods.push({
-                start: token.valueLocation.start,
-                end: token.valueLocation.end,
-                replacement: changes[key],
-            });
-        }
-    }
-    mods.sort((a: any, b: any) => b.start - a.start);
-    let updated = original;
-    for (const mod of mods) {
-        updated =
-            updated.slice(0, mod.start) +
-            mod.replacement +
-            updated.slice(mod.end);
-    }
-    return updated;
+    return updateEntriesParameters(original, [{ entry, changes }]);
 }
 
 /**
@@ -820,6 +844,7 @@ function readCheckSource(checkWikitext: string): CheckSourceResult {
     let rejected = "";
     let versionSeen = false;
     let rejectedSeen = false;
+    let statusSeen = false;
     for (const part of parts) {
         if (/^ver\s*=\s*1$/u.test(part) && !versionSeen) {
             versionSeen = true;
@@ -828,6 +853,12 @@ function readCheckSource(checkWikitext: string): CheckSourceResult {
         if (/^no\s*=/u.test(part) && !rejectedSeen) {
             rejectedSeen = true;
             rejected = part.replace(/^no\s*=\s*/u, "");
+            continue;
+        }
+        // Rechecking preserves the previously awarded result. Rescinded scores
+        // still require manual reconciliation: markup cannot prove a reversal.
+        if (/^status\s*=\s*rechecking$/u.test(part) && !statusSeen) {
+            statusSeen = true;
             continue;
         }
         if (expression === undefined) {
@@ -856,7 +887,12 @@ interface CheckedRuleToken {
 }
 
 export type NominationCheckParseResult =
-    | { ok: true; tokens: CheckedRuleToken[]; message: string }
+    | {
+          ok: true;
+          hasResult: boolean;
+          tokens: CheckedRuleToken[];
+          message: string;
+      }
     | { ok: false; error: { code: string } };
 
 /** Restore supported saved checks without treating their signatures as editable comments. */
@@ -893,7 +929,12 @@ export function parseNominationCheckWikitext(
                 /\(UTC\)\s*$/u.test(message)))
     )
         message = message.slice(0, signature.index);
-    return { ok: true, tokens, message };
+    return {
+        ok: true,
+        hasResult: source.accepted !== "" || source.rejected !== "",
+        tokens,
+        message,
+    };
 }
 
 /** Read only the supported check expression; unknown legacy expressions need manual reconciliation. */

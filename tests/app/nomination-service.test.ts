@@ -482,13 +482,13 @@ test("grouped batch cancellation discards staged decisions", async () => {
     assert.equal(f.scores.length, 0);
 });
 
-test("quitting submits only the staged checks and leaves pending nominations unchanged", async () => {
+test("completing a batch with deferred items submits only staged checks and leaves other nominations unchanged", async () => {
     const f = fixture();
     f.dialogs.showCheckBatchDialog = async (entries) => {
         await f.service.saveNominationCheck(draft(), entries[0].target);
         assert.equal(f.edits.length, 0);
         assert.equal(await f.service.completeNominationCheckBatch(), false);
-        return "quit";
+        return "save";
     };
     assert.equal(await f.service.checkBatch(selections), true);
     assert.equal(f.edits.length, 1);
@@ -547,6 +547,109 @@ test("rechecking a saved score applies only its negative difference and identifi
     assert.deepEqual(f.scores[0].deltas, [{ userName: "Example", score: -1 }]);
     assert.equal(f.scores[0].recheck, true);
     assert.match(f.edits[0].summary, /^復核分數：/u);
+});
+
+test("an active rechecking result updates only its existing score difference", async () => {
+    const f = fixture(
+        registry("{{ACG提名2/check|ver=1|1b|status=rechecking}}--signature"),
+    );
+    assert.equal(
+        await f.service.saveNominationCheck(
+            draft(),
+            queryEntry(f.pages.get(REGISTRY_PAGE)!.text, DATE, 1),
+        ),
+        false,
+    );
+    assert.deepEqual(f.scores[0].deltas, [{ userName: "Example", score: -1 }]);
+    assert.equal(f.scores[0].recheck, true);
+    assert.doesNotMatch(f.edits[0].text, /status=rechecking/u);
+    assert.equal(f.reloads, 1);
+});
+
+test("modern sparse item identities open and score their exact source slots", async () => {
+    const source = registry()
+        .replaceAll("名稱2", "名稱7")
+        .replaceAll("理由2", "理由7")
+        .replaceAll("核對用2", "核對用7");
+    const f = fixture(source);
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        assert.equal(entries.length, 1);
+        assert.equal(entries[0].nomination.pageName, "B");
+        assert.equal(entries[0].target.index, 2);
+        assert.equal(entries[0].target.itemIndex, 7);
+        await f.service.saveNominationCheck(draft("B"), entries[0].target);
+        return "save";
+    };
+    assert.equal(
+        await f.service.checkBatch([
+            { ...selections[0], index: 7, tableIndex: 0, itemIndex: 7 },
+        ]),
+        true,
+    );
+    assert.equal(f.edits.length, 1);
+    assert.match(f.edits[0].text, /核對用1=\n/u);
+    assert.match(
+        f.edits[0].text,
+        /核對用7=\{\{ACG提名2\/check\|ver=1\|1a\}\}/u,
+    );
+    assert.deepEqual(f.scores[0].deltas, [{ userName: "Example", score: 1 }]);
+});
+
+test("batch selection deduplicates resolved identities and orders out-of-order source slots by rendered position", async () => {
+    const source = `=== ${DATE} ===
+{{ACG提名2
+|條目名稱7=B
+|用戶名稱7=Example
+|提名理由7={{ACG提名2/request|ver=1|1a}}
+|核對用7=
+|條目名稱1=A
+|用戶名稱1=Example
+|提名理由1={{ACG提名2/request|ver=1|1a}}
+|核對用1=
+}}`;
+    const f = fixture(source);
+    f.dialogs.showCheckBatchDialog = async (entries) => {
+        assert.deepEqual(
+            entries.map((entry) => entry.nomination.pageName),
+            ["A", "B"],
+        );
+        for (const entry of entries)
+            await f.service.saveNominationCheck(
+                draft(entry.nomination.pageName),
+                entry.target,
+            );
+        return "save";
+    };
+    assert.equal(
+        await f.service.checkBatch([
+            { ...selections[0], tableIndex: 0, itemIndex: 7 },
+            { ...selections[0], tableIndex: 0, itemIndex: 1 },
+            { ...selections[0], index: 99, tableIndex: 0, itemIndex: 7 },
+        ]),
+        true,
+    );
+    assert.equal(f.edits.length, 1);
+    assert.equal(f.scores[0].deltas.length, 2);
+});
+
+test("a missing saved check field prevents registration changes and score updates", async () => {
+    const source = registry().replace("|核對用1=\n", "");
+    const f = fixture(source);
+    assert.equal(
+        await f.service.saveNominationCheck(
+            {
+                ...draft(),
+                replaceRequestReason: true,
+                requestReasonText: "1a",
+            },
+            queryEntry(source, DATE, 1),
+        ),
+        true,
+    );
+    assert.equal(f.edits.length, 0);
+    assert.equal(f.scores.length, 0);
+    assert.equal(f.reloads, 0);
+    assert.equal(f.pages.get(REGISTRY_PAGE)!.text, source);
 });
 
 test("mixed initial checks and rechecks use one combined score update and summary", async () => {

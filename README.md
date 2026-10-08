@@ -2,7 +2,7 @@
 
 [English](README.md) · [繁體中文](README.zh-Hant.md) · [简体中文](README.zh-Hans.md)
 
-Nominate and review contributions for the Chinese Wikipedia ACG WikiProject award. Original tool by **[SuperGrey](https://zh.wikipedia.org/wiki/User:SuperGrey)**.
+Nominate and review contributions for the Chinese Wikipedia ACG WikiProject award. Original tool by **Quinn Gao (a.k.a. [SuperGrey](https://zh.wikipedia.org/wiki/User:SuperGrey))**.
 
 <!-- toc:start -->
 
@@ -34,7 +34,11 @@ To remove the tool, disable its Tampermonkey entry or remove its code from `comm
 
 Open an article, its talk page, a file page, or the award registration page and choose **Nominate to ACGA** from the page tools. Select a recipient and scoring rules, then choose **Preview** to review the complete nomination. Submit only after checking the proposed entries.
 
-**Save draft** stores your work locally. **Cancel** discards unsaved form changes while retaining explicitly saved drafts. During batch checking, accepted items remain local until you finish the batch; read partial-failure messages before retrying.
+On the award registration page, select pending nominations to check them in a batch, or recheck an existing result to adjust its score. **Add to batch** is grey when unavailable. Fresh checks select all scoring rows by default; rechecks preserve the saved selections. Review the rows before accepting a result.
+
+During batch checking, the horizontal controls are **Cancel → Previous → Check later → Next / Save all**. **Next** accepts and stages the current result; **Check later** leaves that nomination unchecked. Completing the batch with **Save all**, or deferring the last pending item, submits the accepted results. **Cancel** discards the entire staged check batch. Read partial-failure messages before retrying.
+
+For nominations, **Save draft** stores your work locally. **Cancel** discards unsaved form changes while retaining explicitly saved drafts.
 
 ## Screenshots
 
@@ -42,7 +46,11 @@ Offline examples based on the article source of **BanG Dream! 少女樂團派對
 
 ![Nomination form](docs/images/screenshot-01.png)
 
+_Choose scoring rules for a nomination._
+
 ![Nomination batch review](docs/images/screenshot-02.png)
+
+_Review nominees, scores, and the complete batch before submitting._
 
 [Source attribution and modifications](THIRD-PARTY-NOTICES.md#documentation-article-fixture).
 
@@ -54,4 +62,4 @@ Contributor information is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-The [MIT license](LICENSE) preserves Copyright (c) 2025 Quinn Gao and SuperGrey’s original credit. AI-assisted maintenance makes no additional copyright claim. See [third-party notices](THIRD-PARTY-NOTICES.md).
+The [MIT license](LICENSE) preserves the original copyright notice and credit for Quinn Gao (a.k.a. SuperGrey). AI-assisted maintenance makes no additional copyright claim. See [third-party notices](THIRD-PARTY-NOTICES.md).

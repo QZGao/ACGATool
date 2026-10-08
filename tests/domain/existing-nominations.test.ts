@@ -14,6 +14,7 @@ import {
     findDuplicateNominations,
     getExistingNominations,
     getNominationCheckRestriction,
+    isSameNomination,
     normalizeNominationPageName,
     normalizeNominationRecipient,
 } from "../../src/domain/existing-nominations.ts";
@@ -76,6 +77,28 @@ test("duplicates exclude the current physical entry and retain identical request
     assert.equal(
         findDuplicateNominations(entries, "Example article", "").length,
         0,
+    );
+});
+
+test("explicit rendered table and item identities take precedence over cumulative ordinals", () => {
+    const text = `=== 9月27日 ===\n${nomination("First", "Editor")}\n${nomination("Second", "Editor").replaceAll("名稱1", "名稱7").replaceAll("理由1", "理由7").replaceAll("核對用1", "核對用7")}`;
+    const entries = getExistingNominations(text);
+    const target = {
+        date: "9月27日",
+        sectionOccurrence: 0,
+        index: 7,
+        tableIndex: 1,
+        itemIndex: 7,
+    };
+    assert.equal(isSameNomination(entries[0], target), false);
+    assert.equal(isSameNomination(entries[1], target), true);
+    assert.equal(
+        isSameNomination(entries[1], {
+            ...target,
+            itemIndex: undefined,
+            index: 2,
+        }),
+        false,
     );
 });
 

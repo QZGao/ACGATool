@@ -24,10 +24,10 @@ import {
 } from "../../domain/archive-eligibility.ts";
 import {
     getRenderedDiscussionTimestamp,
-    getRenderedHeaderState,
     getRenderedReviewTimestamp,
 } from "./archive-state.ts";
 import { findPrecedingDiscussionCommentId } from "./identity.ts";
+import { getRenderedNominations } from "./rendered-nominations.ts";
 import styles from "./registry.css";
 
 export interface RegistryActions {
@@ -65,7 +65,6 @@ export function mountRegistry(
     const nominationRows: Array<{
         selection: EntrySelection;
         check: HTMLButtonElement;
-        controls: HTMLSpanElement;
         batchControl: {
             input: HTMLInputElement;
             label: HTMLLabelElement;
@@ -73,7 +72,6 @@ export function mountRegistry(
         cell: HTMLTableCellElement;
         checked: boolean;
         restriction: string | null;
-        archiveEntry: ArchiveEntryState;
     }> = [];
     const archiveSections: Array<{
         heading: Element;
@@ -170,15 +168,6 @@ export function mountRegistry(
     function sync() {
         for (const edit of editButtons) edit.disabled = busy;
         for (const row of nominationRows) {
-            row.archiveEntry.checked = row.checked;
-            if (row.checked) {
-                selected.delete(row.selection);
-                row.batchControl?.label.remove();
-                row.batchControl = null;
-            } else if (!row.batchControl) {
-                row.batchControl = createBatchControl(row.selection);
-                row.controls.append(row.batchControl.label);
-            }
             row.check.textContent = msg(
                 row.checked
                     ? "recheck"
@@ -251,6 +240,7 @@ export function mountRegistry(
         date: string;
         occurrence: number;
         index: number;
+        tableIndex: number;
         archive: (typeof archiveSections)[number];
     } | null = null;
     for (const node of root.querySelectorAll("h2, h3, table.acgnom-table")) {
@@ -296,35 +286,45 @@ export function mountRegistry(
                 entries: [],
             };
             archiveSections.push(chapter);
-            section = { date, occurrence, index: 0, archive: chapter };
+            section = {
+                date,
+                occurrence,
+                index: 0,
+                tableIndex: 0,
+                archive: chapter,
+            };
             slot.append(archive);
             inserted.push(archive);
             continue;
         }
         if (!section) continue;
         const table = node as HTMLTableElement;
+        const tableIndex = section.tableIndex++;
         const commentId = findPrecedingDiscussionCommentId(table);
-        for (const row of Array.from(table.rows)) {
-            if (row.closest("table") !== table) continue;
-            const heading = Array.from(row.cells).find(
-                (cell) =>
-                    cell.tagName === "TH" &&
-                    (cell.scope === "row" || cell.rowSpan === 2),
-            );
-            if (!heading) continue;
+        for (const nomination of getRenderedNominations(table)) {
+            const {
+                heading,
+                result: anchor,
+                cell,
+                state,
+                itemIndex,
+            } = nomination;
             section.index++;
             const archiveEntry: ArchiveEntryState = {
                 checked: false,
-                rechecking: getRenderedHeaderState(heading) === "rechecking",
+                rechecking: state === "rechecking",
                 latestCheckTimestamp: null,
             };
             section.archive.entries.push(archiveEntry);
+            // Keep malformed entries in archive eligibility, but never guess a write target.
+            if (!heading || !anchor || !cell || !state) continue;
             const selection: EntrySelection = {
                 date: section.date,
                 index: section.index,
                 sectionOccurrence: section.occurrence,
                 expectedRevisionId: options.revisionId,
                 commentId,
+                ...(itemIndex !== undefined ? { tableIndex, itemIndex } : {}),
             };
             const edit = button(
                 msg("edit_nomination"),
@@ -337,23 +337,7 @@ export function mountRegistry(
             heading.append(editControl);
             editButtons.push(edit);
             inserted.push(editControl);
-            const checkRow = row.nextElementSibling;
-            if (
-                !(checkRow instanceof doc.defaultView!.HTMLTableRowElement) ||
-                checkRow.closest("table") !== table
-            )
-                continue;
-            const anchor =
-                Array.from(
-                    checkRow.querySelectorAll<HTMLElement>(".mw-notalk"),
-                ).find((candidate) => candidate.closest("table") === table) ??
-                Array.from(checkRow.cells).find(
-                    (cell) => cell.tagName === "TD",
-                );
-            if (!anchor || anchor.closest("table") !== table) continue;
-            const cell = anchor.closest("td");
-            if (!cell) continue;
-            const checked = getRenderedHeaderState(heading) !== "pending";
+            const checked = state !== "pending";
             archiveEntry.checked = checked;
             archiveEntry.latestCheckTimestamp =
                 getRenderedReviewTimestamp(anchor);
@@ -363,16 +347,16 @@ export function mountRegistry(
                 checkSelection(selection),
             );
             controls.append(check);
+            const batchControl = checked ? null : createBatchControl(selection);
+            if (batchControl) controls.append(batchControl.label);
             anchor.append(controls);
             nominationRows.push({
                 selection,
                 check,
-                controls,
-                batchControl: null,
+                batchControl,
                 cell,
                 checked,
                 restriction: null,
-                archiveEntry,
             });
             inserted.push(controls);
         }

@@ -88,6 +88,26 @@ test.beforeEach(() => {
     savedChecks.length = 0;
 });
 
+test("fresh checks with empty templates or comment-only placeholders select every scoring item", () => {
+    for (const checkWikitext of [
+        "",
+        " \n ",
+        "<!-- 核對用 -->",
+        " \n<!-- 尚未\n核對 -->\n<!-- 請保留 --> ",
+        "{{ACG提名2/check|ver=1|}}",
+        "{{ACG提名2/check|ver=1| \n<!-- 尚未核對 --> |no= }}",
+    ]) {
+        const vm = openCheck("1c 2-c 3 4-dyk", { checkWikitext });
+        assert.deepEqual(vm.checkedRowsModel, [0, 1, 2, 3], checkWikitext);
+        assert.equal(formattedCheck(vm).reasonScore, 6, checkWikitext);
+        assert.equal(vm.currentNomination.sourceOnly, false, checkWikitext);
+        assert.match(
+            formattedCheck(vm).wikitext,
+            /^\{\{ACG提名2\/check\|ver=1\|1c 2-c 3 4-dyk\}\}/u,
+        );
+    }
+});
+
 test("rechecking restores saved check rows, scores, selection and comment while preserving the original request", async () => {
     const request = "1c 4-dyk 4-dyk";
     const vm = openCheck(request, {

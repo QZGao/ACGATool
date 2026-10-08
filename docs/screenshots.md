@@ -38,10 +38,12 @@ network requests and assert that the screenshot scenario performs no saves.
 
 ## Image inventory
 
-| Image               | Captured behavior                                                        |
-| ------------------- | ------------------------------------------------------------------------ |
-| `screenshot-01.png` | Traditional Chinese nomination form, article title, and scoring choices. |
-| `screenshot-02.png` | Nomination summary, recipients, scores, source codes, and final actions. |
+All scenes use the Traditional Chinese interface.
+
+| Image                                         | Captured behavior                                                     |
+| --------------------------------------------- | --------------------------------------------------------------------- |
+| [screenshot-01.png](images/screenshot-01.png) | Nomination form, article title and scoring choices.                   |
+| [screenshot-02.png](images/screenshot-02.png) | Nomination summary, nominees, scores, source codes and final actions. |
 
 ## Test ownership
 

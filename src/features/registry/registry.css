@@ -38,6 +38,9 @@
     align-items: center;
     gap: 4px;
 }
+.acga-registry-batch-control:has(> .acga-registry-select:disabled) {
+    color: var(--color-disabled, #72777d);
+}
 .acga-registry-select {
     margin: 0;
 }
@@ -52,7 +55,7 @@
     margin-inline-start: var(--spacing-75, 0.75rem);
 }
 .acgnom-table td.acga-registry-selected {
-    /* Selected cells take precedence over the template's inline background. */
+    /* Keep batch selections visible over the template's background styles. */
     background-color: var(
         --background-color-progressive-subtle,
         #e8eeff

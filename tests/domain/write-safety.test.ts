@@ -15,6 +15,7 @@ import {
     getRegistryEntries,
     parseNominationCheckWikitext,
     queryEntry,
+    updateEntryParameters,
     updateEntriesParameters,
 } from "../../src/domain/wikitext.ts";
 import { applyScoreDeltas } from "../../src/domain/score-list.ts";
@@ -83,6 +84,129 @@ test("registry entries share physical table groups while repeated date sections 
     assert.equal(queryEntry(source, "9月27日", 2, 1).tableIndex, 0);
 });
 
+test("rendered identities follow numeric slots, omit blank titles and reset in each table", () => {
+    const source = `=== 9月27日 ===
+{{ACG提名2
+|條目名稱7=Seventh
+|用戶名稱7=Seven
+|提名理由7={{ACG提名2/request|ver=1|1a}}
+|核對用7=
+|條目名稱3= <!-- omitted -->
+|用戶名稱3=Hidden
+|條目名稱1=First
+|用戶名稱1=One
+|提名理由1={{ACG提名2/request|ver=1|1a}}
+|核對用1=
+|條目名稱26=Outside template capacity
+|條目名稱01=Not a numbered slot
+}}
+{{ACG提名2
+|條目名稱7=Next table
+|用戶名稱7=Other
+|提名理由7={{ACG提名2/request|ver=1|1a}}
+|核對用7=
+}}`;
+    assert.deepEqual(
+        getRegistryEntries(source).map((entry) => [
+            entry.index,
+            entry.tableIndex,
+            entry.itemIndex,
+            entry.template.條目名稱.value,
+        ]),
+        [
+            [1, 0, 1, "First"],
+            [2, 0, 7, "Seventh"],
+            [3, 1, 7, "Next table"],
+        ],
+    );
+    const target = queryEntry(source, "9月27日", 7, 0, {
+        tableIndex: 1,
+        itemIndex: 7,
+    });
+    assert.equal(target.index, 3);
+    const updated = updateEntriesParameters(source, [
+        { entry: target, changes: { 核對用: "{{ACG提名2/check|ver=1|1a}}" } },
+    ]);
+    assert.equal(queryEntry(updated, "9月27日", 2).template.核對用.value, "");
+    assert.equal(
+        queryEntry(updated, "9月27日", 3).template.核對用.value,
+        "{{ACG提名2/check|ver=1|1a}}",
+    );
+    for (const identity of [
+        { tableIndex: 0 },
+        { itemIndex: 7 },
+        { tableIndex: 0, itemIndex: 3 },
+        { tableIndex: 0, itemIndex: 26 },
+        { tableIndex: 2, itemIndex: 7 },
+        { tableIndex: -1, itemIndex: 1 },
+    ])
+        assert.equal(queryEntry(source, "9月27日", 1, 0, identity), null);
+});
+
+test("interleaved source fields remain independently editable by numbered identity", () => {
+    const source = `=== 9月27日 ===
+{{ACG提名2
+|條目名稱7=Seventh
+|條目名稱1=First
+|用戶名稱7=Seven
+|用戶名稱1=One
+|提名理由7={{ACG提名2/request|ver=1|1a}}
+|提名理由1={{ACG提名2/request|ver=1|1a}}
+|核對用7=
+|核對用1=
+}}`;
+    const updated = updateEntriesParameters(
+        source,
+        [1, 7].map((itemIndex) => ({
+            entry: queryEntry(source, "9月27日", 1, 0, {
+                tableIndex: 0,
+                itemIndex,
+            }),
+            changes: { 核對用: `Checked slot ${itemIndex}` },
+        })),
+    );
+    assert.equal(
+        queryEntry(updated, "9月27日", 1).template.核對用.value,
+        "Checked slot 1",
+    );
+    assert.equal(
+        queryEntry(updated, "9月27日", 2).template.核對用.value,
+        "Checked slot 7",
+    );
+});
+
+test("whitespace before a numeric suffix cannot override exact title, recipient or check fields", () => {
+    const source = `=== 9月27日 ===
+{{ACG提名2
+|條目名稱1=Exact title
+|用戶名稱1=Recipient
+|提名理由1={{ACG提名2/request|ver=1|1a}}
+|核對用1={{ACG提名2/check|ver=1|1a}}
+|條目名稱 1=Wrong title
+|用戶名稱 1=Other
+|提名理由 1={{ACG提名2/request|ver=1|1b}}
+|核對用 1={{ACG提名2/check|ver=1|1b}}
+}}`;
+    const entry = queryEntry(source, "9月27日", 1);
+    assert.equal(entry.template.條目名稱.value, "Exact title");
+    assert.equal(entry.template.用戶名稱.value, "Recipient");
+    assert.equal(
+        entry.template.提名理由.value,
+        "{{ACG提名2/request|ver=1|1a}}",
+    );
+    assert.equal(entry.template.核對用.value, "{{ACG提名2/check|ver=1|1a}}");
+    const updated = updateEntriesParameters(source, [
+        { entry, changes: { 核對用: "{{ACG提名2/check|ver=1|0}}" } },
+    ]);
+    assert.match(updated, /\|核對用1=\{\{ACG提名2\/check\|ver=1\|0\}\}/u);
+    assert.match(updated, /\|核對用 1=\{\{ACG提名2\/check\|ver=1\|1b\}\}/u);
+    assert.equal(
+        getRegistryEntries(source.replace("|條目名稱1=Exact title\n", ""))
+            .length,
+        0,
+    );
+});
+
 test("batch validation rejects stale entries, duplicate targets and missing parameters", () => {
     const entry = queryEntry(registry, "9月27日", 1);
     assert.throws(() =>
@@ -94,6 +218,9 @@ test("batch validation rejects stale entries, duplicate targets and missing para
         updateEntriesParameters(registry, [
             { entry, changes: { 不存在: "Lost" } },
         ]),
+    );
+    assert.throws(() =>
+        updateEntryParameters(registry, entry, { 不存在: "Lost" }),
     );
     assert.throws(() =>
         updateEntriesParameters(registry, [
@@ -134,6 +261,22 @@ test("previous check totals recognize empty and invalid checks while excluding r
     }
 });
 
+test("check parsing distinguishes unfilled templates from explicit scoring results", () => {
+    for (const [source, hasResult] of [
+        ["", false],
+        ["<!-- 尚未核對 -->", false],
+        ["{{ACG提名2/check|ver=1|}}", false],
+        ["{{ACG提名2/check|ver=1| \n<!-- placeholder --> |no= }}", false],
+        ["{{ACG提名2/check|ver=1|0}}", true],
+        ["{{ACG提名2/check|ver=1|1c}}", true],
+        ["{{ACG提名2/check|ver=1||no=1c}}", true],
+    ] as const) {
+        const parsed = parseNominationCheckWikitext(source);
+        assert.equal(parsed.ok, true, source);
+        if (parsed.ok) assert.equal(parsed.hasResult, hasResult, source);
+    }
+});
+
 test("saved checks retain canonical rows, rejected selections, scores and comments without the signature", () => {
     const parsed = parseNominationCheckWikitext(
         "<!-- example -->{{ACG提名2/check|ver=1|DYK([[Article|a b]])[0.5] 4(活動)[1.5]|no=4-dyk(末項)[0.5]}}原有說明--~~~~",
@@ -155,6 +298,33 @@ test("saved checks retain canonical rows, rejected selections, scores and commen
             ["4-dyk", false, "末項", 0.5, 2],
         ],
     );
+});
+
+test("active rechecking metadata preserves the previous score and editable saved result", () => {
+    const source =
+        "{{ACG提名2/check|status=rechecking|ver=1|1b|no=1c}}Pending review--~~~~";
+    assert.deepEqual(getCheckedScore(source), { ok: true, score: 2 });
+    const parsed = parseNominationCheckWikitext(source);
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) {
+        assert.deepEqual(
+            parsed.tokens.map((token) => [token.code, token.selected]),
+            [
+                ["1b", true],
+                ["1c", false],
+            ],
+        );
+        assert.equal(parsed.message, "Pending review");
+    }
+    for (const status of [
+        "rescinded",
+        "unknown",
+        "rechecking|status=rechecking",
+    ])
+        assert.equal(
+            getCheckedScore(`{{ACG提名2/check|ver=1|1b|status=${status}}}`).ok,
+            false,
+        );
 });
 
 test("saved check parsing preserves comment dashes and strips a recognizable expanded UTC signature", () => {

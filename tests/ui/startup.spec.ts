@@ -18,6 +18,7 @@ import zhHant from "../../src/i18n/zh-Hant.json" with { type: "json" };
 
 let runtime: string;
 let bundle: string;
+let userscript: string;
 let styles: string;
 
 test.beforeAll(async () => {
@@ -42,9 +43,13 @@ test.beforeAll(async () => {
         write: false,
     });
     runtime = result.outputFiles[0]!.text;
-    [bundle, styles] = await Promise.all([
+    [bundle, userscript, styles] = await Promise.all([
         readFile(
             new URL("../../dist/acga_tool.min.js", import.meta.url),
+            "utf8",
+        ),
+        readFile(
+            new URL("../../dist/acga_tool.user.js", import.meta.url),
             "utf8",
         ),
         readFile(
@@ -56,6 +61,55 @@ test.beforeAll(async () => {
         ),
     ]);
 });
+
+for (const format of ["compact gadget", "userscript"]) {
+    test(`production ${format} preselects scoring items with an empty registry check template`, async ({
+        page,
+    }) => {
+        const errors = await mountStartup(
+            page,
+            {
+                runtime,
+                bundle: format === "userscript" ? userscript : bundle,
+                styles,
+            },
+            {
+                namespaceNumber: 102,
+                pageName: "WikiProject:ACG/維基ACG專題獎/登記處",
+                renderedNominations: true,
+                checkWikitext: "<!-- 尚未核對 -->{{ACG提名2/check|ver=1|}}",
+            },
+        );
+        await page.getByRole("button", { name: "Check", exact: true }).click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog).toBeVisible();
+        const choices = dialog.locator(
+            '.acga-check-table tbody input[type="checkbox"]',
+        );
+        await expect(choices).toHaveCount(1);
+        await expect(choices).toBeChecked();
+        await expect(
+            dialog.getByRole("checkbox", {
+                name: "Select all rows",
+                exact: true,
+            }),
+        ).toBeChecked();
+        await expect(
+            dialog.locator(".acga-code-preview-text textarea"),
+        ).toHaveValue(/\{\{ACG提名2\/check\|ver=1\|1c\}\}/u);
+        expect(
+            await page.evaluate(() => (window as any).startupEffects.apiWrites),
+        ).toEqual([]);
+        await dialog
+            .getByRole("button", { name: "Cancel", exact: true })
+            .click();
+        await expect(dialog).toBeHidden();
+        expect(
+            await page.evaluate(() => (window as any).startupEffects.apiWrites),
+        ).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+}
 
 for (const [language, catalog] of [
     ["zh-Hans", zhHans],

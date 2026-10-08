@@ -11,7 +11,6 @@
 export const CHECK_OUTCOME = Object.freeze({
     SAVE: "save" as const,
     CANCEL: "cancel" as const,
-    QUIT: "quit" as const,
 });
 
 const VALID_CHECK_OUTCOMES: ReadonlySet<unknown> = new Set(
