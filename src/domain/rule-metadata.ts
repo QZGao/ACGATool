@@ -1,13 +1,3 @@
-/**
- * @file src/domain/rule-metadata.ts
- * Purpose: Canonical on-wiki rule descriptions; UI catalogs provide translated display labels.
- *
- * Table of contents:
- * 1. Constants and state
- * 2. RuleMessageKey
- * 3. RuleTranslator
- */
-
 const CANONICAL_RULE_MESSAGES = {
     content_expansion: "內容擴充",
     add_or_expand_article_content_new_content_of_at_least:

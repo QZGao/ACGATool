@@ -1,12 +1,3 @@
-/**
- * @file src/platform/mediawiki/dyk-status.ts
- * Purpose: src / platform / mediawiki / dyk status module.
- *
- * Table of contents:
- * 1. Imports
- * 2. getDykStatus
- */
-
 import { parseDykStatus, type DykStatus } from "../../domain/dyk-status.ts";
 import type { ApiClient } from "./api.ts";
 
@@ -14,7 +5,7 @@ export async function getDykStatus(
     client: ApiClient,
     pageName: string,
 ): Promise<DykStatus> {
-    const title = pageName.trim().replaceAll("_", " ");
+    const title = pageName.trim().replace(/_/gu, " ");
     if (!title) return { passed: false, date: null };
     const response = await client.get({
         action: "query",

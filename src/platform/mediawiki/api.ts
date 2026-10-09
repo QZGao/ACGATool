@@ -1,19 +1,3 @@
-/**
- * @file src/platform/mediawiki/api.ts
- * Purpose: src / platform / mediawiki / api module.
- *
- * Table of contents:
- * 1. Imports
- * 2. Constants and state
- * 3. PageSnapshot
- * 4. EditPageOptions
- * 5. EditPageResult
- * 6. ApiClient
- * 7. MediaWikiApiHost
- * 8. editErrorCode
- * 9. createMediaWikiApi
- */
-
 import { applyScoreDeltas, type ScoreDelta } from "../../domain/score-list.ts";
 import { getLargestContributorLastYear } from "./contributor-history.ts";
 import { getDykStatus } from "./dyk-status.ts";

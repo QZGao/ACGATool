@@ -1,15 +1,4 @@
-/**
- * @file src/features/nomination/model.ts
- * Purpose: src / features / nomination / model module.
- *
- * Table of contents:
- * 1. Imports
- * 2. Constants and state
- * 3. normalizeScore
- * 4. getSelectedScoreTotal
- * 5. createNominationModel
- * 6. NominationModel
- */
+import { fromEntries } from "../../shared/collections.ts";
 
 import {
     nominationRuleGroup,
@@ -182,7 +171,7 @@ export function createNominationModel(services: DialogModelServices) {
     function cloneValue(value: any): any {
         if (Array.isArray(value)) return value.map(cloneValue);
         if (value && typeof value === "object") {
-            return Object.fromEntries(
+            return fromEntries(
                 Object.entries(value).map(([key, item]) => [
                     key,
                     cloneValue(item),
@@ -252,7 +241,7 @@ export function createNominationModel(services: DialogModelServices) {
             if (
                 !repeatable &&
                 !includeMissing &&
-                !Object.hasOwn(hydrated, rule)
+                !Object.prototype.hasOwnProperty.call(hydrated, rule)
             )
                 continue;
             const occurrences = repeatable
@@ -393,7 +382,7 @@ export function createNominationModel(services: DialogModelServices) {
         const activeCategory = nomination?.activeRuleCategory;
         const ruleStatus = nomination?.ruleStatus || {};
         if (!AUTHOR_RULE_CATEGORIES.has(activeCategory)) return {};
-        return Object.fromEntries(
+        return fromEntries(
             Object.entries(ruleStatus).filter(
                 ([rule]) => nominationRuleGroup(rule) === activeCategory,
             ),
@@ -500,7 +489,7 @@ export function createNominationModel(services: DialogModelServices) {
     function relatedPageNamePlaceholder(nomination: any): string {
         if (!nomination?.usesRecipientDefault) return "";
         const pageName = String(nomination.originalArticleTitle ?? "").trim();
-        const normalized = pageName.replaceAll("_", " ");
+        const normalized = pageName.replace(/_/gu, " ");
         if (
             /^(?:WikiProject|維基專題|维基专题):ACG\/(?:維基ACG專題獎|维基ACG专题奖)(?:\/|$)/iu.test(
                 normalized,

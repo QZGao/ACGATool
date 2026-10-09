@@ -1,4 +1,9 @@
 {
+    "nomination_draft_comments_recovered": "Nominations were submitted, but comments saved on another page during submission were not sent. Reopen nomination to recover them.",
+    "nomination_draft_recovered_comments_help": "These comments changed while their nominations were being submitted and were not sent. Copy any text you need before dismissing it. Submitted nominations will not be resubmitted.",
+    "nomination_draft_recovered_comment": "Unsent comment {number}",
+    "nomination_draft_dismiss_recovered_comment": "Dismiss unsent comment {number}",
+    "nomination_draft_dismiss_comment": "Dismiss comment",
     "save_nomination_draft": "Save draft",
     "nomination_draft_help": "Save this batch in this browser and close the window. Opening on another page adds its nomination to the saved batch.",
     "nomination_draft_saved": "Draft saved in this browser. Reopen nomination on any page to continue.",

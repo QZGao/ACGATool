@@ -1,14 +1,4 @@
-/**
- * @file src/features/registry/rendered-nominations.ts
- * Purpose: Resolve template-owned nomination rows, item identities and control anchors.
- *
- * Table of contents:
- * 1. Imports
- * 2. RenderedNomination
- * 3. itemIndex
- * 4. rowState
- * 5. getRenderedNominations
- */
+import { flatMap } from "../../shared/collections.ts";
 
 import { getRenderedHeaderState } from "./archive-state.ts";
 
@@ -99,7 +89,7 @@ export function getRenderedNominations(
             };
         });
     }
-    return rows.flatMap((row) => {
+    return flatMap(rows, (row) => {
         const heading = Array.from(row.cells).find(
             (cell) =>
                 cell.tagName === "TH" &&

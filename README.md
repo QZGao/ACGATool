@@ -1,65 +1,46 @@
 # ACGATool
 
-[English](README.md) · [繁體中文](README.zh-Hant.md) · [简体中文](README.zh-Hans.md)
+專案頁面：[ACGATool](https://zh.wikipedia.org/wiki/User:SuperGrey/gadgets/ACGATool)
 
-Nominate and review contributions for the Chinese Wikipedia ACG WikiProject award. Original tool by **Quinn Gao (a.k.a. [SuperGrey](https://zh.wikipedia.org/wiki/User:SuperGrey))**.
+[維基ACG專題獎](https://zh.wikipedia.org/wiki/WikiProject:ACG/維基ACG專題獎) 專用提名、核分小工具。
 
-<!-- toc:start -->
+- **新提名：** 點擊 [登記處](https://zh.wikipedia.org/wiki/WikiProject:ACG/維基ACG專題獎/登記處) 頁面頂部「登記新提名」按鈕，即可打開「新提名」視窗。可同時提名多則條目。按「儲存」即發佈至登記處頁面。
+- **編輯提名：** 點擊登記處內任一已有提名中條目名稱右側出現的「筆」圖示，即可打開「編輯提名」視窗。在此，可對單則提名進行修改。介面與新提名類似。按「儲存」即完成修訂。
+- **核對分數：** 點擊登記處內任一已有提名中提名核對欄出現的「螢光筆」圖示，即可打開「提名核分」視窗。在此，可對單則提名進行核分，也可以對已核分提名重新核分。除了可選擇部分項得分外，也可直接選取「提名無效」。按「儲存」即完成核分。此外，小工具將自動於 [Module:ACGaward/list](https://zh.wikipedia.org/wiki/Module:ACGaward/list) 登記分數（但不會自動傳送「頒獎」通知）。
+- **歸檔：** 點擊登記處內任一章節標題的「歸檔」連結，即可一鍵歸檔該章節。
 
-## Contents
+## 使用方式
+### 發行版本
+将如下程式碼复制至 [User:你的用戶名/common.js](https://zh.wikipedia.org/wiki/Special:MyPage/common.js) 頁面：
 
-- [Features](#features)
-- [Installation](#installation)
-- [How to use](#how-to-use)
-- [Screenshots](#screenshots)
-- [Help](#help)
-- [License](#license)
+```js
+importScript('User:SuperGrey/gadgets/ACGATool/main.js');  // Backlink: [[User:SuperGrey/gadgets/ACGATool]]
+```
 
-<!-- toc:end -->
+### 從原始碼建構
 
-## Features
+1. **安裝 Node.js**
+   - 請先安裝 [Node.js](https://nodejs.org/)。
 
-- Prepare multiple nominations, organize them into tables, freeze items, and review the batch before submitting.
-- Save drafts across pages and browser tabs; select from the five exclusive rule groups: 1–4, 5, 6, 7, and 8.
-- Check nominations in batches, with undo/redo and a final registration-page and score-list update.
-- Use suggested recipients and article assessment information while checking the actual contribution history.
+2. **安裝依賴套件**
+   - 在 ACGATool 目錄下執行：
+     ```sh
+     npm install
+     ```
 
-## Installation
+3. **建構 Bundled 版本**
+   - 執行下列指令以產生 `dist/bundled.js`：
+     ```sh
+     npm run build
+     ```
+   - 若需持續監看檔案變動並自動重建，請執行：
+     ```sh
+     npm run watch
+     ```
 
-Install the readable [Tampermonkey userscript](https://github.com/For-Each-Next/wp-acga-tool/releases/latest/download/acga_tool.user.js), or copy the latest [MediaWiki gadget](https://github.com/For-Each-Next/wp-acga-tool/releases/latest/download/acga_tool.min.js) into your Chinese Wikipedia `Special:MyPage/common.js`. Choose one installation method, then reload Wikipedia. Submissions use your logged-in wiki account. [All releases](https://github.com/For-Each-Next/wp-acga-tool/releases).
-
-To remove the tool, disable its Tampermonkey entry or remove its code from `common.js`, then reload Wikipedia.
-
-## How to use
-
-Open an article, its talk page, a file page, or the award registration page and choose **Nominate to ACGA** from the page tools. Select a recipient and scoring rules, then choose **Preview** to review the complete nomination. Submit only after checking the proposed entries.
-
-On the award registration page, select pending nominations to check them in a batch, or recheck an existing result to adjust its score. **Add to batch** is grey when unavailable. Fresh checks select all scoring rows by default; rechecks preserve the saved selections. Review the rows before accepting a result.
-
-During batch checking, the horizontal controls are **Cancel → Previous → Check later → Next / Save all**. **Next** accepts and stages the current result; **Check later** leaves that nomination unchecked. Completing the batch with **Save all**, or deferring the last pending item, submits the accepted results. **Cancel** discards the entire staged check batch. Read partial-failure messages before retrying.
-
-For nominations, **Save draft** stores your work locally. **Cancel** discards unsaved form changes while retaining explicitly saved drafts.
-
-## Screenshots
-
-Offline examples based on the article source of **BanG Dream! 少女樂團派對** (revision 94028176). Recipients, scores, banners, and API results are simulated; screenshots do not claim a live assessment.
-
-![Nomination form](docs/images/screenshot-01.png)
-
-_Choose scoring rules for a nomination._
-
-![Nomination batch review](docs/images/screenshot-02.png)
-
-_Review nominees, scores, and the complete batch before submitting._
-
-[Source attribution and modifications](THIRD-PARTY-NOTICES.md#documentation-article-fixture).
-
-## Help
-
-See the [usage guide](docs/usage.md) for nominations, reviews, drafts, and recovery. The interface follows your Wikipedia language: English, Traditional Chinese, or Simplified Chinese.
-
-Contributor information is in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## License
-
-The [MIT license](LICENSE) preserves the original copyright notice and credit for Quinn Gao (a.k.a. SuperGrey). AI-assisted maintenance makes no additional copyright claim. See [third-party notices](THIRD-PARTY-NOTICES.md).
+4. **安裝至維基**
+   - 將 `dist/bundled.js` 上傳至你的維基用戶頁面，例如 [User:你的用戶名/ACGATool.js](https://zh.wikipedia.org/wiki/Special:MyPage/ACGATool.js)。
+   - 在 [User:你的用戶名/common.js](https://zh.wikipedia.org/wiki/Special:MyPage/common.js) 頁面加入：
+     ```js
+     importScript('User:你的用戶名/ACGATool.js');  // 修改為你的用戶名
+     ```

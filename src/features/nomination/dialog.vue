@@ -1,11 +1,3 @@
-<!--
-@file src/features/nomination/dialog.vue
-Purpose: src / features / nomination / dialog module.
-
-Table of contents:
-1. Template
--->
-
 <template>
     <!-- acga-template:dialog-host -->
     <cdx-dialog
@@ -89,12 +81,54 @@ Table of contents:
         </div>
 
         <div
+            v-if="kind === 'new' && recoveredNominationComments.length"
+            class="acga-recovered-comments"
+        >
+            <cdx-message type="warning">
+                {{ msg("nomination_draft_recovered_comments_help") }}
+            </cdx-message>
+            <cdx-field
+                v-for="(item, index) in recoveredNominationComments"
+                :key="JSON.stringify([item.tableId, item.comment])"
+            >
+                <template #label>{{
+                    msg("nomination_draft_recovered_comment", {
+                        number: index + 1,
+                    })
+                }}</template>
+                <cdx-text-area
+                    :model-value="item.comment"
+                    :rows="2"
+                    :autosize="true"
+                    readonly
+                />
+                <cdx-button
+                    type="button"
+                    weight="quiet"
+                    :disabled="busy"
+                    :aria-label="
+                        msg('nomination_draft_dismiss_recovered_comment', {
+                            number: index + 1,
+                        })
+                    "
+                    @click="dismissRecoveredNominationComment(index)"
+                >
+                    {{ msg("nomination_draft_dismiss_comment") }}
+                </cdx-button>
+            </cdx-field>
+        </div>
+
+        <div
             v-if="kind === 'new' && view === 'main'"
             class="acga-nomination-table-layout"
         >
             <cdx-tabs
                 class="acga-nomination-table-tabs"
-                :active="nominationTables[activeNominationTableIndex]?.id || ''"
+                :active="
+                    (nominationTables[activeNominationTableIndex] &&
+                        nominationTables[activeNominationTableIndex].id) ||
+                    ''
+                "
                 framed
                 @update:active="
                     switchNominationTable(
@@ -1020,7 +1054,7 @@ Table of contents:
                 >{{ dykMessage.linkLabel }}</a
             >{{ dykMessage.afterLink }}
             <a
-                v-if="status.dykStatus?.nominated"
+                v-if="status.dykStatus && status.dykStatus.nominated"
                 class="acga-dyk-nomination"
                 :href="status.dykNominationUrl"
                 target="_blank"
@@ -1608,7 +1642,7 @@ Table of contents:
                 @update:selected="(value) => setChoice(row, value)"
             />
             <acga-score-input
-                :model-value="String(row.score ?? '')"
+                :model-value="String(row.score == null ? '' : row.score)"
                 :disabled="disabled || !row.selected"
                 :status="
                     scoreInvalid(row) && row.selected ? 'error' : 'default'

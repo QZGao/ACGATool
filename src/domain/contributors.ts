@@ -1,12 +1,3 @@
-/**
- * @file src/domain/contributors.ts
- * Purpose: src / domain / contributors module.
- *
- * Table of contents:
- * 1. ContributionRevision
- * 2. largestContributor
- */
-
 export interface ContributionRevision {
     revid: number;
     parentid: number;

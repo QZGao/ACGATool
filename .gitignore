@@ -1,15 +1,4 @@
-# Local OS and editor files
-.DS_Store
-.idea/
-.vscode/
-
-# Dependencies and generated output
 node_modules/
+npm-debug.log*
+.DS_Store
 dist/
-*.tsbuildinfo
-
-# Caches and test reports
-.cache/
-coverage/
-test-results/
-playwright-report/

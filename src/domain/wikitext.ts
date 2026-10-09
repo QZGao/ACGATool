@@ -1,47 +1,4 @@
-/**
- * @file src/domain/wikitext.ts
- * Purpose: src / domain / wikitext module.
- *
- * Table of contents:
- * 1. Imports
- * 2. SourceLocation
- * 3. SourceToken
- * 4. TemplateParameter
- * 5. ParsedEntry
- * 6. structuralWikitext
- * 7. trimToken
- * 8. splitParameters
- * 9. findTemplateEnd
- * 10. parseTemplate
- * 11. getDateSections
- * 12. tableNominator
- * 13. collectEntriesInSection
- * 14. getRegistryEntries
- * 15. queryEntry
- * 16. resolveEntryByFingerprint
- * 17. updateEntryParameters
- * 18. removeComments
- * 19. parseUserReason
- * 20. queried2NomData
- * 21. withToolAttribution
- * 22. formatSummaryPageLinks
- * 23. safeCommentFragment
- * 24. formatScoreListEditSummary
- * 25. Constants and state
- * 26. sourceError
- * 27. normalizedSuffix
- * 28. formatEditableItemSource
- * 29. parseEditableItemSource
- * 30. CheckedScoreResult
- * 31. CheckSourceResult
- * 32. readCheckSource
- * 33. CheckedRuleToken
- * 34. NominationCheckParseResult
- * 35. parseNominationCheckWikitext
- * 36. getCheckedScore
- * 37. EntryParameterUpdate
- * 38. updateEntriesParameters
- */
+import { flatMap } from "../shared/collections.ts";
 
 import { NominationRuleSet, parseReasonTokens } from "./rules.ts";
 import { boundedToolSummary } from "./edit-summary.ts";
@@ -61,14 +18,14 @@ type ParsedEntry = {
 /** Keep source offsets stable while ignoring comments and literal wikitext examples. */
 function structuralWikitext(text: string): string {
     return text.replace(
-        /<!--[\s\S]*?(?:-->|$)|<(nowiki|pre|source|syntaxhighlight)\b[^>]*(?<!\/)>[\s\S]*?(?:<\/\1\s*>|$)/giu,
+        /<!--[\s\S]*?(?:-->|$)|<(nowiki|pre|source|syntaxhighlight)\b(?:[^>]*[^/>])?>[\s\S]*?(?:<\/\1\s*>|$)/giu,
         (ignored) => ignored.replace(/[^\r\n]/g, " "),
     );
 }
 
 function trimToken(token: SourceToken): SourceToken {
-    const leading = token.text.length - token.text.trimStart().length;
-    const trailing = token.text.length - token.text.trimEnd().length;
+    const leading = token.text.length - token.text.replace(/^\s+/u, "").length;
+    const trailing = token.text.length - token.text.replace(/\s+$/u, "").length;
     return {
         text: token.text.trim(),
         start: token.start + leading,
@@ -181,7 +138,8 @@ function parseTemplate(
         const rawValue = trimmed.text.slice(equal + 1);
         const key = rawKey.trim();
         const value = rawValue.trim();
-        const valueLeading = rawValue.length - rawValue.trimStart().length;
+        const valueLeading =
+            rawValue.length - rawValue.replace(/^\s+/u, "").length;
         const parameter: TemplateParameter = {
             value,
             valueLocation: {
@@ -245,7 +203,7 @@ function parseTemplate(
  * @returns 章節陣列：{ date, start, end }。
  */
 export function getDateSections(text: string): Array<any> {
-    const regex = /^===(?!=)[\t ]*(.+?)[\t ]*(?<!=)===(?!=)[\t \r]*$/gm;
+    const regex = /^===(?!=)(.*?[^=\r\n\u2028\u2029])===(?!=)[\t \r]*$/gm;
     const structure = structuralWikitext(text);
     const sections = [];
     const matches = [];
@@ -336,13 +294,13 @@ function collectEntriesInSection(text: string, section: any): Array<any> {
 export function getRegistryEntries(text: string): Array<any> {
     const occurrences = new Map<string, number>();
     const structure = structuralWikitext(text);
-    return getDateSections(text).flatMap((section) => {
+    return flatMap(getDateSections(text), (section) => {
         const sectionOccurrence = occurrences.get(section.date) ?? 0;
         occurrences.set(section.date, sectionOccurrence + 1);
         if (!/^\d{1,2}月\d{1,2}日$/u.test(section.date)) return [];
         const nextChapter = structure
             .slice(section.start, section.end)
-            .search(/^==(?!=).+?(?<!=)==(?!=)[\t \r]*$/mu);
+            .search(/^==(?!=).*?[^=\r\n\u2028\u2029]==(?!=)[\t \r]*$/mu);
         const boundedSection =
             nextChapter < 0
                 ? section
@@ -512,7 +470,7 @@ export function updateEntryParameters(
  * @returns 移除註解後的文字。
  */
 function removeComments(text: string): string {
-    text = text.replace(/<!--.*?-->/gs, "");
+    text = text.replace(/<!--[\s\S]*?-->/g, "");
     return text.trim();
 }
 
@@ -918,9 +876,10 @@ export function parseNominationCheckWikitext(
         }
     }
     let message = source.suffix;
-    const signature = [
-        ...message.matchAll(/--(?=~{3,5}\s*$|\[\[|<|\{\{)/gu),
-    ].at(-1);
+    const signaturePattern = /--(?=~{3,5}\s*$|\[\[|<|\{\{)/gu;
+    let signature: RegExpExecArray | null = null;
+    let match: RegExpExecArray | null;
+    while ((match = signaturePattern.exec(message)) !== null) signature = match;
     if (
         signature &&
         (/^--~{3,5}\s*$/u.test(message.slice(signature.index)) ||
@@ -935,6 +894,12 @@ export function parseNominationCheckWikitext(
         tokens,
         message,
     };
+}
+
+/** Keep unsupported legacy checks as prior results rather than assuming no score was awarded. */
+export function hasNominationCheckResult(checkWikitext: string): boolean {
+    const parsed = parseNominationCheckWikitext(checkWikitext);
+    return !parsed.ok || parsed.hasResult;
 }
 
 /** Read only the supported check expression; unknown legacy expressions need manual reconciliation. */

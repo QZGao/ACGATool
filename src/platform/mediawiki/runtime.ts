@@ -1,12 +1,3 @@
-/**
- * @file src/platform/mediawiki/runtime.ts
- * Purpose: Adapt ResourceLoader and MediaWiki globals to explicit startup capabilities.
- *
- * Table of contents:
- * 1. Imports
- * 2. createBrowserHost
- */
-
 import type { StartupHost } from "../../app/main.ts";
 import type { DialogRuntime } from "../../features/nomination/contracts.ts";
 import { nominationPageContext } from "./page-context.ts";
@@ -23,7 +14,7 @@ export function createBrowserHost(
         articleTitle: [0, 1].includes(host.config.get("wgNamespaceNumber"))
             ? host.config.get("wgTitle")
             : host.config.get("wgNamespaceNumber") === 6
-              ? host.config.get("wgPageName").replaceAll("_", " ")
+              ? host.config.get("wgPageName").replace(/_/gu, " ")
               : "",
         getNominationContext: () =>
             nominationPageContext(

@@ -1,15 +1,3 @@
-/**
- * @file src/shared/i18n.ts
- * Purpose: Typed plain-text catalogs with locale selection and named placeholders.
- *
- * Table of contents:
- * 1. MessageCatalog
- * 2. MessageValues
- * 3. LocaleCatalog
- * 4. resolveLocale
- * 5. createI18n
- */
-
 export type MessageCatalog = Record<string, string>;
 export type MessageValues = Record<string, string | number>;
 export type LocaleCatalog<Source extends MessageCatalog> = {
@@ -24,7 +12,7 @@ function resolveLocale(
         availableLocales.map((value) => [value.toLowerCase(), value]),
     );
     let normalized = String(locale || "en")
-        .replaceAll("_", "-")
+        .replace(/_/gu, "-")
         .toLowerCase();
     if (/^zh(?:-(?:cn|hans|my|sg))?$/u.test(normalized)) normalized = "zh-hans";
     if (/^zh-(?:hk|hant|mo|tw)$/u.test(normalized)) normalized = "zh-hant";

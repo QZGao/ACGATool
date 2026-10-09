@@ -1,15 +1,3 @@
-/**
- * @file src/domain/dyk-status.ts
- * Purpose: src / domain / dyk status module.
- *
- * Table of contents:
- * 1. DykStatus
- * 2. parseDykStatus
- * 3. epochTime
- * 4. plainAuthor
- * 5. splitFields
- */
-
 export interface DykStatus {
     passed: boolean;
     date: string | null;
@@ -26,7 +14,7 @@ export function parseDykStatus(source: string): DykStatus {
     const text = source
         .replace(/<!--[\s\S]*?(?:-->|$)/gu, "")
         .replace(
-            /<(nowiki|pre|source|syntaxhighlight)\b[^>]*(?<!\/)>[\s\S]*?(?:<\/\1\s*>|$)/giu,
+            /<(nowiki|pre|source|syntaxhighlight)\b(?:[^>]*[^/>])?>[\s\S]*?(?:<\/\1\s*>|$)/giu,
             "\u0000",
         );
     const stack: Array<{ start: number; width: number }> = [];
@@ -144,7 +132,9 @@ function plainAuthor(value: string): string | null {
     const author = (link?.[1] ?? value)
         .replace(/<[^>]*>/gu, " ")
         .replace(/[[\]{}|]/gu, " ")
-        .replace(/\p{Cc}/gu, " ")
+        // Unicode category Cc consists of these exact control-code ranges.
+        // eslint-disable-next-line no-control-regex
+        .replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ")
         .replace(/\s+/gu, " ")
         .trim();
     return author || null;

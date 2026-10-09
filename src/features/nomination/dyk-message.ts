@@ -1,13 +1,3 @@
-/**
- * @file src/features/nomination/dyk-message.ts
- * Purpose: src / features / nomination / dyk message module.
- *
- * Table of contents:
- * 1. Imports
- * 2. createDykMessage
- * 3. formatDate
- */
-
 import type { DykStatus } from "../../domain/dyk-status.ts";
 import type { MessageKey, Translator } from "../../i18n/index.ts";
 import type { MessageValues } from "../../shared/i18n.ts";
@@ -21,7 +11,7 @@ export function createDykMessage(
     now: number,
     compact = false,
 ) {
-    const record = status?.records?.at(-1);
+    const record = status?.records?.slice(-1)[0];
     let key: MessageKey | null = null;
     const values: MessageValues = {};
     if (loading) key = "dyk_status_loading";

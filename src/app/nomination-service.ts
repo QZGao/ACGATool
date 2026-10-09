@@ -1,22 +1,3 @@
-/**
- * @file src/app/nomination-service.ts
- * Purpose: src / app / nomination service module.
- *
- * Table of contents:
- * 1. Imports
- * 2. Exports
- * 3. Constants and state
- * 4. NominationApi
- * 5. EntrySelection
- * 6. NominationServices
- * 7. PendingChange
- * 8. editOptions
- * 9. retryable
- * 10. matchesRevision
- * 11. createNominationService
- * 12. NominationService
- */
-
 import type { Translator, MessageKey } from "../i18n/index.ts";
 /** Nomination workflows. All network, dialog, clock and feedback effects are injected. */
 import {
@@ -26,6 +7,7 @@ import {
     resolveEntryByFingerprint,
     updateEntriesParameters,
     getCheckedScore,
+    hasNominationCheckResult,
     parseUserReason,
     formatSummaryPageLinks,
     withToolAttribution,
@@ -66,6 +48,7 @@ import {
 } from "../features/nomination/check-batch.ts";
 import { normalizeDiscussionCommentId } from "../features/registry/identity.ts";
 import type { Feedback } from "../shared/ports.ts";
+import { flatMap } from "../shared/collections.ts";
 import type { ScoreDelta } from "../domain/score-list.ts";
 export type { ScoreDelta } from "../domain/score-list.ts";
 import {
@@ -262,7 +245,9 @@ export function createNominationService(services: NominationServices) {
                     )
                         manualScore = true;
                     if (
-                        original?.checkWikitext?.trim() &&
+                        hasNominationCheckResult(
+                            original?.checkWikitext ?? "",
+                        ) &&
                         change.fields.用戶名稱 !== undefined &&
                         change.fields.用戶名稱 !== original.awarder
                     )
@@ -390,8 +375,8 @@ export function createNominationService(services: NominationServices) {
     }
 
     function wasChecked(target: NominationTarget) {
-        return Boolean(
-            String(queried2NomData(target)?.checkWikitext ?? "").trim(),
+        return hasNominationCheckResult(
+            queried2NomData(target)?.checkWikitext ?? "",
         );
     }
 
@@ -457,7 +442,7 @@ export function createNominationService(services: NominationServices) {
                     REGISTRY_PAGE,
                     insertNominationIntoRegistry(snapshot.text, date, text),
                     formatNominationEditSummary(
-                        tables.flatMap((table) => table.nominations),
+                        flatMap(tables, (table) => table.nominations),
                     ),
                     editOptions(snapshot),
                 );

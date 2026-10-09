@@ -1,21 +1,9 @@
-/**
- * @file src/domain/existing-nominations.ts
- * Purpose: Current-registry nomination identities and advisory duplicate matching.
- *
- * Table of contents:
- * 1. Imports
- * 2. ExistingNomination
- * 3. normalizeFirstLetter
- * 4. normalizeNominationPageName
- * 5. normalizeNominationRecipient
- * 6. NominationCheckRestriction
- * 7. getNominationCheckRestriction
- * 8. getExistingNominations
- * 9. isSameNomination
- * 10. findDuplicateNominations
- */
-
-import { getRegistryEntries, queried2NomData } from "./wikitext.ts";
+import {
+    getRegistryEntries,
+    hasNominationCheckResult,
+    queried2NomData,
+} from "./wikitext.ts";
+import { flatMap } from "../shared/collections.ts";
 
 export interface ExistingNomination {
     pageName: string;
@@ -40,7 +28,7 @@ function normalizeFirstLetter(value: string): string {
 /** Match title spelling variations without collapsing case-sensitive names. */
 export function normalizeNominationPageName(value: unknown): string {
     const title = String(value ?? "")
-        .replaceAll("_", " ")
+        .replace(/_/gu, " ")
         .replace(/\s+/gu, " ")
         .trim()
         .replace(/^:/u, "")
@@ -55,7 +43,7 @@ export function normalizeNominationPageName(value: unknown): string {
 export function normalizeNominationRecipient(value: unknown): string {
     return normalizeFirstLetter(
         String(value ?? "")
-            .replaceAll("_", " ")
+            .replace(/_/gu, " ")
             .replace(/\s+/gu, " ")
             .trim()
             .replace(/^(?:user|用户|用戶|使用者):/iu, "")
@@ -93,7 +81,7 @@ export function getExistingNominations(
             ? undefined
             : normalizeNominationPageName(pageName);
     if (target === "") return [];
-    return getRegistryEntries(text).flatMap((entry) => {
+    return flatMap(getRegistryEntries(text), (entry) => {
         const data = queried2NomData(entry);
         const page = normalizeNominationPageName(data?.pageName);
         if (!data || !page || (target !== undefined && page !== target))
@@ -115,7 +103,7 @@ export function getExistingNominations(
                         ? `_${entry.sectionOccurrence + 1}`
                         : ""),
                 reasonText: String(data.requestReasonText ?? "").trim(),
-                checked: Boolean(String(data.checkWikitext ?? "").trim()),
+                checked: hasNominationCheckResult(data.checkWikitext ?? ""),
             },
         ];
     });

@@ -1,15 +1,4 @@
-/**
- * @file src/features/nomination/draft-state.ts
- * Purpose: src / features / nomination / draft state module.
- *
- * Table of contents:
- * 1. Imports
- * 2. Constants and state
- * 3. clone
- * 4. captureNominationDraft
- * 5. hydrate
- * 6. restoreNominationDraft
- */
+import { fromEntries } from "../../shared/collections.ts";
 
 import type { NominationData } from "./contracts.ts";
 import {
@@ -45,7 +34,7 @@ const draftKeys = [
 function clone(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(clone);
     if (value && typeof value === "object")
-        return Object.fromEntries(
+        return fromEntries(
             Object.entries(value).map(([key, item]) => [key, clone(item)]),
         );
     return value;
@@ -56,9 +45,7 @@ export function captureNominationDraft(
     nomination: NominationData,
 ): NominationData {
     return {
-        ...Object.fromEntries(
-            draftKeys.map((key) => [key, clone(nomination[key])]),
-        ),
+        ...fromEntries(draftKeys.map((key) => [key, clone(nomination[key])])),
         awarder: nomination.awarder,
         pageName: nomination.pageName,
         frozen: Boolean(nomination.frozen),
@@ -84,7 +71,7 @@ function hydrate(value: unknown, defaults: unknown, key: string): unknown {
         if (!value || typeof value !== "object" || Array.isArray(value))
             throw new TypeError("Invalid draft fields");
         const fields = value as Record<string, unknown>;
-        const result = Object.fromEntries(
+        const result = fromEntries(
             Object.entries(defaults).map(([field, fallback]) => [
                 field,
                 hydrate(fields[field], fallback, field),
@@ -92,7 +79,7 @@ function hydrate(value: unknown, defaults: unknown, key: string): unknown {
         );
         // Optional custom descriptions and row presets are scalar fields.
         for (const [field, item] of Object.entries(value)) {
-            if (Object.hasOwn(defaults, field)) continue;
+            if (Object.prototype.hasOwnProperty.call(defaults, field)) continue;
             if (item !== null && typeof item === "object")
                 throw new TypeError("Invalid optional draft field");
             if (["__proto__", "prototype", "constructor"].includes(field))

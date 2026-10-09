@@ -1,13 +1,4 @@
-/**
- * @file src/features/nomination/dialog-host.ts
- * Purpose: src / features / nomination / dialog host module.
- *
- * Table of contents:
- * 1. Imports
- * 2. FooterAction
- * 3. orderFooterActions
- * 4. createDialogHost
- */
+import { flatMap, fromEntries } from "../../shared/collections.ts";
 
 import { nominationRuleGroup } from "../../domain/rules.ts";
 import type { ComponentOptions } from "vue";
@@ -67,9 +58,14 @@ function orderFooterActions(
 ): FooterAction[] {
     if (!stacked) return actions;
     const priority = { primary: 0, normal: 1, quiet: 2 };
-    return actions.toSorted(
-        (left, right) => priority[left.weight] - priority[right.weight],
-    );
+    return actions
+        .map((action, index) => ({ action, index }))
+        .sort(
+            (left, right) =>
+                priority[left.action.weight] - priority[right.action.weight] ||
+                left.index - right.index,
+        )
+        .map(({ action }) => action);
 }
 
 export function createDialogHost(
@@ -178,6 +174,9 @@ export function createDialogHost(
                 nominationTables: [],
                 nominationDraftBaseline: null as SavedNominationDraft | null,
                 nominationDraftSyncPending: false,
+                recoveredNominationComments: [] as NonNullable<
+                    SavedNominationDraft["recoveredComments"]
+                >,
                 submittedNominationIds: [] as string[],
                 activeNominationTableIndex: 0,
                 nominationSummaryTables: [],
@@ -1000,6 +999,7 @@ export function createDialogHost(
                     this.draggedNominationId = "";
                     this.nominationDropTarget = "";
                     this.nominationDraftBaseline = null;
+                    this.recoveredNominationComments = [];
                     this.nominationDraftSyncPending = false;
                     this.submittedNominationIds = [];
                     this.activeNominationTableIndex = 0;
@@ -1139,6 +1139,17 @@ export function createDialogHost(
                         }),
                     ),
                     activeTableIndex: this.activeNominationTableIndex,
+                    ...(this.recoveredNominationComments.length
+                        ? {
+                              recoveredComments:
+                                  this.recoveredNominationComments.map(
+                                      (item: {
+                                          tableId: string;
+                                          comment: string;
+                                      }) => ({ ...item }),
+                                  ),
+                          }
+                        : {}),
                     view:
                         this.view === "nomination-summary"
                             ? "nomination-summary"
@@ -1216,6 +1227,8 @@ export function createDialogHost(
                         ),
                     }));
                     this.nominationDraftBaseline = remote;
+                    this.recoveredNominationComments =
+                        merged.recoveredComments ?? [];
                     this.activeNominationTableIndex = merged.activeTableIndex;
                     if (!this.nominationTables.length) {
                         const nomination = makeAuthorNomination(
@@ -1252,44 +1265,50 @@ export function createDialogHost(
                     try {
                         const saved = services.nominationDraftStore?.load();
                         if (saved) {
+                            this.recoveredNominationComments =
+                                saved.recoveredComments ?? [];
                             const tables = this.restoreNominationTables(saved);
-                            this.nominationTables = tables;
-                            this.activeNominationTableIndex =
-                                saved.activeTableIndex;
-                            this.refreshNominationView(
-                                tables[saved.activeTableIndex].activeTab,
-                            );
-                            this.nominationDraftBaseline =
-                                this.captureNominationBatch();
-                            const pageName = normalizeNominationPageName(
-                                services.getPageName?.(),
-                            );
-                            if (
-                                pageName &&
-                                !tables.some((table: any) =>
-                                    table.nominations.some(
-                                        (draft: NominationData) =>
-                                            normalizeNominationPageName(
-                                                draft.originalArticleTitle,
-                                            ) === pageName,
-                                    ),
-                                )
-                            ) {
-                                const nomination = makeAuthorNomination(
-                                    null,
-                                    this.ruleNames,
-                                    this.ruleDict,
+                            if (!tables.length) {
+                                this.nominationDraftBaseline = saved;
+                            } else {
+                                this.nominationTables = tables;
+                                this.activeNominationTableIndex =
+                                    saved.activeTableIndex;
+                                this.refreshNominationView(
+                                    tables[saved.activeTableIndex].activeTab,
                                 );
-                                tables[saved.activeTableIndex].nominations.push(
-                                    nomination,
+                                this.nominationDraftBaseline =
+                                    this.captureNominationBatch();
+                                const pageName = normalizeNominationPageName(
+                                    services.getPageName?.(),
                                 );
-                                this.refreshNominationView(nomination.id);
-                                void this.suggestRecipient(nomination.id);
+                                if (
+                                    pageName &&
+                                    !tables.some((table: any) =>
+                                        table.nominations.some(
+                                            (draft: NominationData) =>
+                                                normalizeNominationPageName(
+                                                    draft.originalArticleTitle,
+                                                ) === pageName,
+                                        ),
+                                    )
+                                ) {
+                                    const nomination = makeAuthorNomination(
+                                        null,
+                                        this.ruleNames,
+                                        this.ruleDict,
+                                    );
+                                    tables[
+                                        saved.activeTableIndex
+                                    ].nominations.push(nomination);
+                                    this.refreshNominationView(nomination.id);
+                                    void this.suggestRecipient(nomination.id);
+                                    return;
+                                }
+                                if (saved.view === "nomination-summary")
+                                    this.reviewNominations();
                                 return;
                             }
-                            if (saved.view === "nomination-summary")
-                                this.reviewNominations();
-                            return;
                         }
                     } catch (error) {
                         services.reportError(error, "restore-nomination-draft");
@@ -1316,6 +1335,44 @@ export function createDialogHost(
                     this.activeTab = nomination.id;
                     void this.suggestRecipient(nomination.id);
                 });
+            },
+            dismissRecoveredNominationComment(index: number) {
+                if (this.busy || this.kind !== "new" || !this.open) return;
+                const dismissed = this.recoveredNominationComments[index];
+                const store = services.nominationDraftStore;
+                if (!dismissed || !store) return;
+                try {
+                    // Dismiss only this recovered text, never save unrelated
+                    // unfinished inputs or discard another tab's newer comment.
+                    const saved = store.load();
+                    if (saved) {
+                        const recoveredComments = (
+                            saved.recoveredComments ?? []
+                        ).filter(
+                            (item) =>
+                                item.tableId !== dismissed.tableId ||
+                                item.comment !== dismissed.comment,
+                        );
+                        if (!saved.tables.length && !recoveredComments.length)
+                            store.remove();
+                        else {
+                            const remaining = { ...saved };
+                            delete remaining.recoveredComments;
+                            if (recoveredComments.length)
+                                remaining.recoveredComments = recoveredComments;
+                            store.save(remaining);
+                        }
+                    }
+                    this.recoveredNominationComments.splice(index, 1);
+                } catch (error) {
+                    services.reportError(
+                        error,
+                        "dismiss-recovered-nomination-comment",
+                    );
+                    services.notify(msg("nomination_draft_save_failed"), {
+                        type: "error",
+                    });
+                }
             },
             async saveNominationDraft() {
                 if (
@@ -1442,7 +1499,7 @@ export function createDialogHost(
                 });
             },
             captureCheckDraft() {
-                return Object.fromEntries(
+                return fromEntries(
                     checkDraftKeys.map((key) => [key, this[key]]),
                 );
             },
@@ -1541,9 +1598,16 @@ export function createDialogHost(
                 this.stopNominationDraftSynchronization();
                 if (this.kind === "new" && result === "save") {
                     try {
-                        services.nominationDraftStore?.remove(
+                        const recovered = services.nominationDraftStore?.remove(
                             this.submittedNominationIds,
                         );
+                        if (recovered)
+                            services.notify(
+                                msg("nomination_draft_comments_recovered"),
+                                {
+                                    type: "warning",
+                                },
+                            );
                     } catch (error) {
                         services.reportError(error, "remove-nomination-draft");
                         services.notify(msg("nomination_draft_remove_failed"), {
@@ -1575,6 +1639,7 @@ export function createDialogHost(
                 this.nominations = [];
                 this.nominationTables = [];
                 this.nominationDraftBaseline = null;
+                this.recoveredNominationComments = [];
                 this.submittedNominationIds = [];
                 this.nominationSummaryTables = [];
                 this.editingNomination = null;
@@ -1679,7 +1744,8 @@ export function createDialogHost(
                 const error = msg("please_check_invalid_forms_before_preview", {
                     forms: labels.join(msg("nomination_position_separator")),
                 });
-                const details = nominations.flatMap(
+                const details = flatMap(
+                    nominations,
                     (nomination: any, index: number) => {
                         const issues =
                             nomination.validationIssues ??
@@ -1741,7 +1807,8 @@ export function createDialogHost(
                 });
             },
             syncCheckSelection() {
-                this.checkSelectedRows = this.checkRules.flatMap(
+                this.checkSelectedRows = flatMap(
+                    this.checkRules,
                     (item: any, index: number) =>
                         item.status.selected ? [index] : [],
                 );
@@ -2059,9 +2126,10 @@ export function createDialogHost(
             async suggestRecipient(id: string) {
                 const pageName = services.getPageName?.();
                 const lookup = services.getSuggestedRecipient;
-                const nomination = this.nominationTables
-                    .flatMap((table: any) => table.nominations)
-                    .find((item: any) => item.id === id);
+                const nomination = flatMap(
+                    this.nominationTables,
+                    (table: any) => table.nominations,
+                ).find((item: any) => item.id === id);
                 if (
                     !pageName ||
                     !lookup ||
@@ -2620,7 +2688,7 @@ export function createDialogHost(
                 this.selectNomination(nomination.id);
             },
             prepareNominationReview() {
-                const included = this.nominationTables.flatMap((table: any) =>
+                const included = flatMap(this.nominationTables, (table: any) =>
                     table.nominations.filter(
                         (nomination: any) => !nomination.frozen,
                     ),
@@ -2992,8 +3060,9 @@ export function createDialogHost(
                 try {
                     let keepOpen;
                     if (this.kind === "new") {
-                        this.submittedNominationIds =
-                            this.nominationTables.flatMap((table: any) =>
+                        this.submittedNominationIds = flatMap(
+                            this.nominationTables,
+                            (table: any) =>
                                 table.nominations
                                     .filter(
                                         (nomination: NominationData) =>
@@ -3003,7 +3072,7 @@ export function createDialogHost(
                                         (nomination: NominationData) =>
                                             nomination.id,
                                     ),
-                            );
+                        );
                         keepOpen = await operations.saveNewNomination(
                             this.nominationSubmissionTables(),
                         );

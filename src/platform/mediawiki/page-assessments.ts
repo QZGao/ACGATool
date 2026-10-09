@@ -1,14 +1,3 @@
-/**
- * @file src/platform/mediawiki/page-assessments.ts
- * Purpose: src / platform / mediawiki / page assessments module.
- *
- * Table of contents:
- * 1. Imports
- * 2. record
- * 3. queryPage
- * 4. getPageAssessments
- */
-
 import type { PageAssessment } from "../../domain/page-assessments.ts";
 import type { ApiClient } from "./api.ts";
 
@@ -35,7 +24,7 @@ export async function getPageAssessments(
     client: ApiClient,
     pageName: string,
 ): Promise<PageAssessment[]> {
-    const title = pageName.trim().replaceAll("_", " ");
+    const title = pageName.trim().replace(/_/gu, " ");
     if (!title) return [];
     const parameters = {
         action: "query",

@@ -1,23 +1,8 @@
-/**
- * @file src/domain/archive-eligibility.ts
- * Purpose: Archive readiness from saved nomination results and UTC signatures.
- *
- * Table of contents:
- * 1. Imports
- * 2. ArchiveEntryState
- * 3. ArchiveEligibility
- * 4. Constants and state
- * 5. getArchiveEligibility
- * 6. visibleWikitext
- * 7. utcTimestamp
- * 8. getLatestUtcSignature
- * 9. splitTemplateFields
- * 10. readTemplates
- * 11. isRechecking
- * 12. getWikitextArchiveEligibility
- */
-
-import { getRegistryEntries, queried2NomData } from "./wikitext.ts";
+import {
+    getRegistryEntries,
+    hasNominationCheckResult,
+    queried2NomData,
+} from "./wikitext.ts";
 
 export interface ArchiveEntryState {
     checked: boolean;
@@ -75,7 +60,7 @@ export function getArchiveEligibility(
 /** Preserve offsets while excluding text that MediaWiki does not render. */
 function visibleWikitext(text: string): string {
     return text.replace(
-        /<!--[\s\S]*?(?:-->|$)|<(nowiki|pre|source|syntaxhighlight)\b[^>]*(?<!\/)>[\s\S]*?(?:<\/\1\s*>|$)/giu,
+        /<!--[\s\S]*?(?:-->|$)|<(nowiki|pre|source|syntaxhighlight)\b(?:[^>]*[^/>])?>[\s\S]*?(?:<\/\1\s*>|$)/giu,
         (ignored) => ignored.replace(/[^\r\n]/gu, " "),
     );
 }
@@ -104,9 +89,10 @@ function utcTimestamp(
 export function getLatestUtcSignature(text: string): number | null {
     const source = visibleWikitext(text);
     const timestamps: number[] = [];
-    for (const match of source.matchAll(
-        /(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日(?:\s*[（(][^()（）]*[)）])?\s*(\d{1,2}):(\d{2})\s*[（(]UTC[)）]/gu,
-    )) {
+    const chineseSignature =
+        /(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日(?:\s*[（(][^()（）]*[)）])?\s*(\d{1,2}):(\d{2})\s*[（(]UTC[)）]/gu;
+    let match: RegExpExecArray | null;
+    while ((match = chineseSignature.exec(source)) !== null) {
         const timestamp = utcTimestamp(
             ...(match.slice(1).map(Number) as [
                 number,
@@ -132,9 +118,9 @@ export function getLatestUtcSignature(text: string): number | null {
         "november",
         "december",
     ];
-    for (const match of source.matchAll(
-        /(\d{1,2}):(\d{2}),?\s+(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\s*\(UTC\)/giu,
-    )) {
+    const englishSignature =
+        /(\d{1,2}):(\d{2}),?\s+(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\s*\(UTC\)/giu;
+    while ((match = englishSignature.exec(source)) !== null) {
         const timestamp = utcTimestamp(
             Number(match[5]),
             months.indexOf(match[4]!.toLowerCase()) + 1,
@@ -158,7 +144,7 @@ function splitTemplateFields(source: string): string[] {
             braces.push(width);
             index += width - 1;
         } else if (source.startsWith("}}", index) && braces.length) {
-            const width = braces.at(-1)!;
+            const width = braces.slice(-1)[0]!;
             if (width === 3 && !source.startsWith("}}}", index)) continue;
             braces.pop();
             index += width - 1;
@@ -191,7 +177,7 @@ function readTemplates(source: string): Array<{
             braces.push({ start: index, width });
             index += width - 1;
         } else if (source.startsWith("}}", index) && braces.length) {
-            const opening = braces.at(-1)!;
+            const opening = braces.slice(-1)[0]!;
             if (opening.width === 3 && !source.startsWith("}}}", index))
                 continue;
             braces.pop();
@@ -237,7 +223,7 @@ export function getWikitextArchiveEligibility(
             queried2NomData(entry)?.checkWikitext ?? "",
         ).trim();
         return {
-            checked: Boolean(check),
+            checked: hasNominationCheckResult(check),
             rechecking: isRechecking(check),
             latestCheckTimestamp: getLatestUtcSignature(check),
         };

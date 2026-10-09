@@ -1,11 +1,3 @@
-/**
- * @file src/index.ts
- * Purpose: Deliberate pure API; importing this module never starts the gadget.
- *
- * Table of contents:
- * 1. Exports
- */
-
 export {
     NominationRules,
     NominationRuleSet,

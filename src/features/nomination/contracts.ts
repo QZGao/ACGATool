@@ -1,27 +1,3 @@
-/**
- * @file src/features/nomination/contracts.ts
- * Purpose: src / features / nomination / contracts module.
- *
- * Table of contents:
- * 1. Imports
- * 2. DialogModelServices
- * 3. DialogServices
- * 4. CodexModule
- * 5. DialogRuntime
- * 6. NominationIdentity
- * 7. NominationData
- * 8. NewNominationTable
- * 9. SavedNominationDraft
- * 10. NominationDraftStore
- * 11. NewNominationBatch
- * 12. NominationTarget
- * 13. CheckBatchEntry
- * 14. RawNominationFields
- * 15. ConfirmationOptions
- * 16. DialogOperations
- * 17. NominationDialogs
- */
-
 import type { App, Component } from "vue";
 import type { CheckOutcome } from "./check-batch.ts";
 
@@ -88,13 +64,15 @@ export interface SavedNominationDraft {
     tables: Array<NewNominationTable & { id?: string; activeTab: string }>;
     activeTableIndex: number;
     view: "main" | "nomination-summary";
+    recoveredComments?: Array<{ tableId: string; comment: string }>;
 }
 
 /** Explicit browser saves are independent of wiki submission. */
 export interface NominationDraftStore {
     load(): SavedNominationDraft | null;
     save(draft: SavedNominationDraft): void;
-    remove(submittedIds?: readonly string[]): void;
+    /** Returns the number of comments recovered from completed submissions. */
+    remove(submittedIds?: readonly string[]): number | void;
     subscribe?(listener: () => void): () => void;
 }
 

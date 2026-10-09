@@ -1,4 +1,9 @@
 {
+    "nomination_draft_comments_recovered": "提名已提交，但提交期間在其他頁面暫存的評語未送出。請重新開啟提名視窗以取回評語。",
+    "nomination_draft_recovered_comments_help": "這些評語在所屬提名提交期間被修改，因此未送出。移除前請複製需要保留的文字。已提交的提名不會再次提交。",
+    "nomination_draft_recovered_comment": "未送出的評語 {number}",
+    "nomination_draft_dismiss_recovered_comment": "移除未送出的評語 {number}",
+    "nomination_draft_dismiss_comment": "移除評語",
     "save_nomination_draft": "暫存",
     "nomination_draft_help": "將整批提名暫存至此瀏覽器並關閉視窗。在其他頁面開啟時，會繼續新增該頁的提名。",
     "nomination_draft_saved": "已暫存至此瀏覽器。在任意頁面重新開啟提名即可繼續。",

@@ -1,16 +1,3 @@
-/**
- * @file src/domain/score-list.ts
- * Purpose: Conservative source edits for the simple Lua table used by Module:ACGaward/list.
- *
- * Table of contents:
- * 1. ScoreDelta
- * 2. ScoreChange
- * 3. ScoreListUpdate
- * 4. decodeLuaName
- * 5. quoteLuaName
- * 6. applyScoreDeltas
- */
-
 export interface ScoreDelta {
     userName: string;
     score: number;
@@ -93,7 +80,7 @@ export function applyScoreDeltas(
     if (!wrapper)
         return { ok: false, error: { code: "unsupported-score-list" } };
     const body = wrapper[2];
-    const lines = body.split(/(?<=\n)/u);
+    const lines = body.match(/[^\n]*\n|[^\n]+$/gu) ?? [];
     const entries = new Map<
         string,
         { line: number; prefix: string; suffix: string; score: number }
@@ -140,7 +127,7 @@ export function applyScoreDeltas(
             );
     }
     if (additions.length > 0) {
-        const lastEntry = [...entries.values()].at(-1);
+        const lastEntry = [...entries.values()].slice(-1)[0];
         if (lastEntry && !/^\s*,/u.test(lastEntry.suffix)) {
             // A Lua final entry may omit its comma. Add it before appending a new entry.
             const currentLine = lines[lastEntry.line];

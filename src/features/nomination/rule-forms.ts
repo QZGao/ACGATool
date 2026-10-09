@@ -1,11 +1,4 @@
-/**
- * @file src/features/nomination/rule-forms.ts
- * Purpose: src / features / nomination / rule forms module.
- *
- * Table of contents:
- * 1. Imports
- * 2. createRuleFormComponents
- */
+import { fromEntries } from "../../shared/collections.ts";
 
 import type { NominationRule } from "../../domain/rules.ts";
 import type { ComponentOptions } from "vue";
@@ -295,7 +288,7 @@ export function createRuleFormComponents(
                       : review.general;
             return {
                 selectedTier: review.presetTier ?? initial?.tier ?? "none",
-                scoreText: Object.fromEntries(
+                scoreText: fromEntries(
                     ["general", ...REVIEW_ASPECT_ROWS, "complete"].map(
                         (row) => [
                             row,
@@ -443,7 +436,7 @@ export function createRuleFormComponents(
                     ...review,
                     general: { ...review.general },
                     complete: { ...review.complete },
-                    aspects: Object.fromEntries(
+                    aspects: fromEntries(
                         REVIEW_ASPECT_ROWS.map((aspect) => [
                             aspect,
                             { ...review.aspects[aspect] },

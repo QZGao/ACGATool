@@ -1,19 +1,4 @@
-/**
- * @file src/platform/browser/nomination-draft-storage.ts
- * Purpose: src / platform / browser / nomination draft storage module.
- *
- * Table of contents:
- * 1. Imports
- * 2. DraftStorageHost
- * 3. JsonValue
- * 4. Constants and state
- * 5. invalidDraft
- * 6. record
- * 7. encode
- * 8. decode
- * 9. validatedDraft
- * 10. createBrowserNominationDraftStore
- */
+import { flatMap } from "../../shared/collections.ts";
 
 import type {
     NominationData,
@@ -95,7 +80,7 @@ function decode(value: unknown, depth = 0): unknown {
         return value.map((item) => decode(item, depth + 1));
     if (!record(value)) return value;
     const entries = Object.entries(value);
-    if (Object.hasOwn(value, NUMBER_MARKER)) {
+    if (Object.prototype.hasOwnProperty.call(value, NUMBER_MARKER)) {
         if (entries.length !== 1) invalidDraft();
         const number = value[NUMBER_MARKER];
         if (number === "NaN") return NaN;
@@ -117,12 +102,31 @@ function validatedDraft(value: unknown): SavedNominationDraft {
         !record(value) ||
         value.version !== 1 ||
         !Array.isArray(value.tables) ||
-        value.tables.length === 0 ||
         !Number.isInteger(value.activeTableIndex) ||
         (value.activeTableIndex as number) < 0 ||
-        (value.activeTableIndex as number) >= value.tables.length ||
+        (value.activeTableIndex as number) >=
+            Math.max(1, value.tables.length) ||
         (value.view !== "main" && value.view !== "nomination-summary")
     )
+        invalidDraft();
+    if (
+        value.recoveredComments !== undefined &&
+        !Array.isArray(value.recoveredComments)
+    )
+        invalidDraft();
+    const recoveredComments = (value.recoveredComments ?? []).map(
+        (item: unknown) => {
+            if (
+                !record(item) ||
+                typeof item.tableId !== "string" ||
+                !SAFE_ID.test(item.tableId) ||
+                typeof item.comment !== "string"
+            )
+                invalidDraft();
+            return { tableId: item.tableId, comment: item.comment };
+        },
+    );
+    if (value.tables.length === 0 && recoveredComments.length === 0)
         invalidDraft();
     const ids = new Set<string>();
     const tableIds = new Set<string>();
@@ -174,6 +178,7 @@ function validatedDraft(value: unknown): SavedNominationDraft {
         tables,
         activeTableIndex: value.activeTableIndex as number,
         view: value.view as SavedNominationDraft["view"],
+        ...(recoveredComments.length ? { recoveredComments } : {}),
     };
 }
 
@@ -246,7 +251,7 @@ export function createBrowserNominationDraftStore(
                     decode(JSON.parse(previousSource)),
                 );
                 const previousItems = new Map(
-                    previous.tables.flatMap((table) =>
+                    flatMap(previous.tables, (table) =>
                         table.nominations.map(
                             (nomination) =>
                                 [
@@ -254,6 +259,7 @@ export function createBrowserNominationDraftStore(
                                     {
                                         tableId:
                                             table.id ?? table.nominations[0].id,
+                                        comment: table.comment,
                                         source: JSON.stringify(
                                             encode(nomination),
                                         ),
@@ -268,7 +274,7 @@ export function createBrowserNominationDraftStore(
                 // version. Legacy saves without stable group IDs retain the
                 // field-only match because their first item can change.
                 const submitted = new Set(
-                    draft.tables.flatMap((table) =>
+                    flatMap(draft.tables, (table) =>
                         table.nominations
                             .filter((nomination) => {
                                 const previousItem = previousItems.get(
@@ -286,11 +292,39 @@ export function createBrowserNominationDraftStore(
                     ),
                 );
                 if (submitted.size === 0) return;
-                const tables = draft.tables.flatMap((table, index) => {
+                const recoveredComments = [...(draft.recoveredComments ?? [])];
+                let recoveredCount = 0;
+                const tables = flatMap(draft.tables, (table, index) => {
                     const nominations = table.nominations.filter(
                         (nomination) => !submitted.has(nomination.id),
                     );
-                    if (nominations.length === 0) return [];
+                    if (nominations.length === 0) {
+                        // The wiki received the old table comment. Keep a later
+                        // comment separately, never by restoring submitted rows.
+                        const previousItem = previousItems.get(
+                            table.nominations[0].id,
+                        );
+                        if (
+                            previousItem &&
+                            table.comment !== previousItem.comment
+                        ) {
+                            const recovered = {
+                                tableId: table.id ?? previousItem.tableId,
+                                comment: table.comment,
+                            };
+                            if (
+                                !recoveredComments.some(
+                                    (item) =>
+                                        item.tableId === recovered.tableId &&
+                                        item.comment === recovered.comment,
+                                )
+                            ) {
+                                recoveredComments.push(recovered);
+                                recoveredCount++;
+                            }
+                        }
+                        return [];
+                    }
                     return [
                         {
                             index,
@@ -307,7 +341,7 @@ export function createBrowserNominationDraftStore(
                         },
                     ];
                 });
-                if (tables.length === 0) {
+                if (tables.length === 0 && recoveredComments.length === 0) {
                     storage.removeItem(storageKey);
                     return;
                 }
@@ -321,14 +355,15 @@ export function createBrowserNominationDraftStore(
                         activeTableIndex < 0
                             ? Math.min(
                                   draft.activeTableIndex,
-                                  tables.length - 1,
+                                  Math.max(0, tables.length - 1),
                               )
                             : activeTableIndex,
+                    ...(recoveredComments.length ? { recoveredComments } : {}),
                 };
                 const remainingSource = JSON.stringify(encode(remaining));
                 if (remainingSource !== source)
                     storage.setItem(storageKey, remainingSource);
-                return;
+                return recoveredCount;
             }
             // Submission may finish after another tab saves a newer draft.
             if (

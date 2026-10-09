@@ -1,19 +1,4 @@
-/**
- * @file src/features/nomination/draft-batch.ts
- * Purpose: src / features / nomination / draft batch module.
- *
- * Table of contents:
- * 1. Imports
- * 2. DraftTable
- * 3. IdentifiedTable
- * 4. DraftEntry
- * 5. equal
- * 6. tableId
- * 7. tables
- * 8. entries
- * 9. localOrderChanged
- * 10. mergeNominationDrafts
- */
+import { flatMap } from "../../shared/collections.ts";
 
 import type { NominationData, SavedNominationDraft } from "./contracts.ts";
 
@@ -42,7 +27,7 @@ function equal(left: unknown, right: unknown): boolean {
         leftFields.length === rightFields.length &&
         leftFields.every(
             ([key, value]) =>
-                Object.hasOwn(right, key) &&
+                Object.prototype.hasOwnProperty.call(right, key) &&
                 equal(value, (right as Record<string, unknown>)[key]),
         )
     );
@@ -53,7 +38,7 @@ function tableId(table: DraftTable | undefined): string | undefined {
 }
 
 function tables(draft: SavedNominationDraft | null): IdentifiedTable[] {
-    return (draft?.tables ?? []).flatMap((table) => {
+    return flatMap(draft?.tables ?? [], (table) => {
         const id = tableId(table);
         return id && table.nominations.length ? [{ ...table, id }] : [];
     });
@@ -61,7 +46,7 @@ function tables(draft: SavedNominationDraft | null): IdentifiedTable[] {
 
 function entries(groups: IdentifiedTable[]): Map<string, DraftEntry> {
     return new Map(
-        groups.flatMap((table) =>
+        flatMap(groups, (table) =>
             table.nominations.map((nomination) => [
                 nomination.id as string,
                 { nomination, tableId: table.id },
@@ -179,7 +164,7 @@ export function mergeNominationDrafts(
         ...remoteTables.map((table) => table.id),
         ...localTables.map((table) => localGroupId(table.id)),
     ]);
-    const mergedTables = [...order].flatMap((id) => {
+    const mergedTables = flatMap([...order], (id) => {
         const current = localGroups.get(id);
         const localTable =
             current ?? (combinedInitialId === id ? initialLocal : undefined);
@@ -192,8 +177,8 @@ export function mergeNominationDrafts(
             ? [localTable, saved]
             : [saved, localTable];
         const included = new Set<string>();
-        const nominations = sourceTables.flatMap((table) =>
-            (table?.nominations ?? []).flatMap((nomination) => {
+        const nominations = flatMap(sourceTables, (table) =>
+            flatMap(table?.nominations ?? [], (nomination) => {
                 const nominationId = nomination.id as string;
                 const merged = mergedEntries.get(nominationId);
                 if (
@@ -237,9 +222,33 @@ export function mergeNominationDrafts(
     const remoteActiveIndex = mergedTables.findIndex(
         (table) => table.id === activeRemoteId,
     );
+    const commentKey = (item: { tableId: string; comment: string }) =>
+        JSON.stringify([item.tableId, item.comment]);
+    const localComments = new Map(
+        (local.recoveredComments ?? []).map((item) => [commentKey(item), item]),
+    );
+    const remoteComments = new Map(
+        (remote?.recoveredComments ?? []).map((item) => [
+            commentKey(item),
+            item,
+        ]),
+    );
+    const previousComments = new Set(
+        (baseline?.recoveredComments ?? []).map(commentKey),
+    );
+    const recoveredComments = [
+        ...new Set([...remoteComments.keys(), ...localComments.keys()]),
+    ]
+        .filter(
+            (key) =>
+                !previousComments.has(key) ||
+                (localComments.has(key) && remoteComments.has(key)),
+        )
+        .map((key) => localComments.get(key) ?? remoteComments.get(key)!);
     return {
         version: 1,
         tables: mergedTables,
+        ...(recoveredComments.length ? { recoveredComments } : {}),
         activeTableIndex:
             activeNominationIndex >= 0
                 ? activeNominationIndex

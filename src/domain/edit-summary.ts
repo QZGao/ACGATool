@@ -1,19 +1,3 @@
-/**
- * @file src/domain/edit-summary.ts
- * Purpose: src / domain / edit summary module.
- *
- * Table of contents:
- * 1. Imports
- * 2. Constants and state
- * 3. NominationSummaryItem
- * 4. byteLength
- * 5. attributed
- * 6. plainText
- * 7. totalScore
- * 8. boundedToolSummary
- * 9. formatNominationEditSummary
- */
-
 import {
     allRuleOccurrences,
     NominationRuleSet,
@@ -41,11 +25,15 @@ function attributed(summary: string): string {
 }
 
 function plainText(value: unknown): string {
-    return String(value ?? "")
-        .replace(/[[\]{}|]/gu, " ")
-        .replace(/\p{Cc}/gu, " ")
-        .replace(/\s+/gu, " ")
-        .trim();
+    return (
+        String(value ?? "")
+            .replace(/[[\]{}|]/gu, " ")
+            // Unicode category Cc consists of these exact control-code ranges.
+            // eslint-disable-next-line no-control-regex
+            .replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ")
+            .replace(/\s+/gu, " ")
+            .trim()
+    );
 }
 
 function totalScore(scores: readonly (number | null)[]): number | null {
@@ -79,7 +67,7 @@ export function boundedToolSummary(summary: string): string {
         shortened += character;
         used += bytes;
     }
-    return attributed(`${shortened.trimEnd()}…`);
+    return attributed(`${shortened.replace(/\s+$/u, "")}…`);
 }
 
 /** Choose the richest complete summary that fits, including the tool attribution. */

@@ -1,20 +1,3 @@
-/**
- * @file src/domain/registry.ts
- * Purpose: Deterministic insertion and deduplication of registration and archive sections.
- *
- * Table of contents:
- * 1. Imports
- * 2. Constants and state
- * 3. insertBlock
- * 4. insertNominationIntoRegistry
- * 5. parseNumericDateHeading
- * 6. dateOrdinal
- * 7. withoutHeading
- * 8. normalizedArchiveBody
- * 9. sectionContainsArchiveBody
- * 10. insertArchiveSection
- */
-
 import { getDateSections } from "./wikitext.ts";
 const ARCHIVE_HEADER = "{{Talk archive|WikiProject:ACG/維基ACG專題獎/登記處}}";
 function insertBlock(text: string, index: number, block: string): string {
@@ -46,7 +29,11 @@ export function insertNominationIntoRegistry(
         (section) => section.date === date,
     );
     if (matchingSections.length > 0) {
-        return insertBlock(text, matchingSections.at(-1).end, nominationText);
+        return insertBlock(
+            text,
+            matchingSections.slice(-1)[0].end,
+            nominationText,
+        );
     }
     return insertBlock(text, text.length, `=== ${date} ===\n${nominationText}`);
 }
@@ -150,7 +137,7 @@ export function insertArchiveSection(
             }
             return insertBlock(
                 text,
-                sameDate.at(-1)!.section.end,
+                sameDate.slice(-1)[0]!.section.end,
                 withoutHeading(sectionText),
             );
         }
@@ -162,7 +149,7 @@ export function insertArchiveSection(
         if (datedSections.length > 0) {
             return insertBlock(
                 text,
-                datedSections.at(-1)!.section.end,
+                datedSections.slice(-1)[0]!.section.end,
                 sectionText,
             );
         }

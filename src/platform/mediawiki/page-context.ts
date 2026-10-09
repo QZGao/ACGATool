@@ -1,14 +1,3 @@
-/**
- * @file src/platform/mediawiki/page-context.ts
- * Purpose: The nomination target and recipient lookup derived from the viewed page.
- *
- * Table of contents:
- * 1. NominationPageContext
- * 2. PageConfiguration
- * 3. revisionNumber
- * 4. nominationPageContext
- */
-
 export interface NominationPageContext {
     pageName: string;
     initialCategory: "article" | "media";
@@ -45,13 +34,13 @@ export function nominationPageContext(
     }
     if (mediaTitle)
         return {
-            pageName: mediaTitle.replaceAll("_", " "),
+            pageName: mediaTitle.replace(/_/gu, " "),
             initialCategory: "media",
             recipientScope: "media",
         };
     const filePage = configuration.namespaceNumber === 6;
     const pageName = filePage
-        ? configuration.pageName.replaceAll("_", " ")
+        ? configuration.pageName.replace(/_/gu, " ")
         : [0, 1].includes(configuration.namespaceNumber)
           ? configuration.title
           : "";

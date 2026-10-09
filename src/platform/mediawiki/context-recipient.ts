@@ -1,14 +1,4 @@
-/**
- * @file src/platform/mediawiki/context-recipient.ts
- * Purpose: src / platform / mediawiki / context recipient module.
- *
- * Table of contents:
- * 1. Imports
- * 2. queryPages
- * 3. visibleUser
- * 4. getLatestFileUploader
- * 5. getRevisionEditor
- */
+import { flatMap } from "../../shared/collections.ts";
 
 import type { ApiClient } from "./api.ts";
 
@@ -80,7 +70,7 @@ export async function getRevisionEditor(
             rvprop: "ids|user",
         }),
     );
-    const revisions = pages.flatMap((page) => {
+    const revisions = flatMap(pages, (page) => {
         if (page.revisions === undefined) return [];
         if (!Array.isArray(page.revisions))
             throw new Error("MediaWiki returned invalid revision metadata");

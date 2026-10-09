@@ -1,15 +1,3 @@
-/**
- * @file src/app/main.ts
- * Purpose: Composition root; importing it does not initialize a MediaWiki page.
- *
- * Table of contents:
- * 1. Imports
- * 2. StartupHost
- * 3. Constants and state
- * 4. start
- * 5. initialize
- */
-
 import { createMediaWikiApi } from "../platform/mediawiki/api.ts";
 import { createBrowserNominationDraftStore } from "../platform/browser/nomination-draft-storage.ts";
 import { createNominationDialogs } from "../features/nomination/dialog.ts";
@@ -51,7 +39,7 @@ const active = new WeakMap<Document, Promise<() => void>>();
 
 export function start(host: StartupHost): Promise<() => void> {
     if (
-        (host.pageName.replaceAll("_", " ") !== REGISTRY_PAGE &&
+        (host.pageName.replace(/_/gu, " ") !== REGISTRY_PAGE &&
             ![0, 1, 6].includes(host.namespaceNumber ?? -1)) ||
         host.action !== "view"
     )
@@ -185,7 +173,7 @@ async function initialize(host: StartupHost): Promise<() => void> {
     let disposeRegistry = () => {};
     function mount() {
         disposeRegistry();
-        if (host.pageName.replaceAll("_", " ") !== REGISTRY_PAGE) return;
+        if (host.pageName.replace(/_/gu, " ") !== REGISTRY_PAGE) return;
         const root =
             host.document.querySelector<HTMLElement>(
                 "#mw-content-text .mw-parser-output",
