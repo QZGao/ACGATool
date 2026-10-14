@@ -5,7 +5,7 @@ let mwApi;
 /**
  * 延後到第一次請求才建立 mw.Api，讓 ResourceLoader 先完成 API 模組載入。
  */
-function getApi() {
+export function getWikiApi() {
     if (!mwApi) mwApi = new mw.Api({userAgent: 'ACGATool/2.0.0'});
     return mwApi;
 }
@@ -16,7 +16,7 @@ function getApi() {
  * @returns {Promise<string>} 包含完整wikitext的Promise。
  */
 export async function getFullText(pageName = '') {
-    let response = await getApi().get({
+    let response = await getWikiApi().get({
         action: 'query',
         titles: pageName || 'WikiProject:ACG/維基ACG專題獎/登記處',
         prop: 'revisions',
@@ -571,7 +571,7 @@ export async function getXToolsInfo(pageName) {
 }
 
 export async function editPage(pageName, newText, editSummary) {
-    let response = await getApi().postWithToken('csrf', {
+    let response = await getWikiApi().postWithToken('csrf', {
         action: 'edit', title: pageName, text: newText, summary: editSummary,
     });
     if (response.edit && response.edit.result === 'Success') {
@@ -583,7 +583,7 @@ export async function editPage(pageName, newText, editSummary) {
 }
 
 export async function appendToPage(pageName, appendText, editSummary) {
-    let response = await getApi().postWithToken('csrf', {
+    let response = await getWikiApi().postWithToken('csrf', {
         action: 'edit', title: pageName, appendtext: appendText, summary: editSummary,
     });
     if (response.edit && response.edit.result === 'Success') {

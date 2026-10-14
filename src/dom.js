@@ -13,12 +13,10 @@ import {
     updateEntryParameters
 } from "./api.js";
 import {
-    getNewNominationDialogAdditionalMessage,
     showCheckNominations,
     showEditNominationDialog,
     showNewNominationDialog
 } from "./dialog.js";
-import {generateReason} from "./rules.js";
 
 
 /**
@@ -39,7 +37,8 @@ function editNomination(date, index) {
                 }),
             });
         } else {
-            showEditNominationDialog(nomData, queried);
+            nomData.source = {date, index, values: entryValues(queried)};
+            showEditNominationDialog(nomData);
         }
     });
 }
@@ -339,167 +338,4 @@ export function addEditButtonsToPage() {
             });
         });
     });
-}
-
-/**
- * 保存新提名。
- * @returns {Promise<boolean>} 是否成功提交。
- */
-export async function saveNewNomination() {
-    let proposedWikitext = '{{ACG提名2';
-
-    for (let i = 0; i < state.nominations.length; i++) {
-        let nomination = state.nominations[i];
-        if (nomination.awarder === '' || nomination.pageName === '') {
-            mw.notify(state.convByVar({
-                hant: '得分者或得分條目未填寫，請檢查！', hans: '得分者或得分条目未填写，请检查！',
-            }), {
-                type: 'error', title: state.convByVar({
-                    hant: '錯誤', hans: '错误',
-                }),
-            });
-            return true;
-        }
-        let reasonText = generateReason(nomination.ruleStatus);
-        if (reasonText == null) {
-            return true;
-        }
-        if (reasonText === '') {
-            mw.notify(state.convByVar({
-                hant: '未選擇任何評審規則，請檢查！', hans: '未选择任何评审规则，请检查！',
-            }), {
-                type: 'error', title: state.convByVar({
-                    hant: '錯誤', hans: '错误',
-                }),
-            });
-            return true;
-        }
-        proposedWikitext += '\n|條目名稱' + (i + 1) + ' = ' + nomination.pageName.trim();
-        proposedWikitext += '\n|用戶名稱' + (i + 1) + ' = ' + nomination.awarder.trim();
-        proposedWikitext += '\n|提名理由' + (i + 1) + ' = {{ACG提名2/request|ver=1|' + reasonText + '}}';
-        proposedWikitext += '\n|核對用' + (i + 1) + ' = {{ACG提名2/check|ver=1|}}';
-    }
-
-    const signature = '~' + '~' + '~' + '~';
-    proposedWikitext += "\n}}\n'''提名人：'''" + signature;
-
-    // 附加說明
-    let message = getNewNominationDialogAdditionalMessage();
-    if (message !== '') {
-        proposedWikitext += "\n: {{說明}}：" + message + '--' + signature;
-    }
-
-    // 是否已有今日的date
-    let today = new Date();
-    let todayDate = (today.getMonth() + 1) + '月' + today.getDate() + '日';
-    let fulltext = await getFullText();
-    if (!fulltext.includes('=== ' + todayDate + ' ===')) {
-        // 沒有今日的date，先新增一個
-        proposedWikitext = '=== ' + todayDate + ' ===\n' + proposedWikitext;
-    }
-
-    // 提交
-    let success = await appendToPage('WikiProject:ACG/維基ACG專題獎/登記處', '\n' + proposedWikitext, '[[User:SuperGrey/gadgets/ACGATool|新提名]]');
-    if (success) {
-        mw.notify(state.convByVar({
-            hant: '新提名已成功提交！', hans: '新提名已成功提交！',
-        }), {
-            title: state.convByVar({
-                hant: '成功', hans: '成功',
-            }), autoHide: true,
-        });
-        refreshPage();
-        return false;
-    } else {
-        mw.notify(state.convByVar({
-            hant: '新提名提交失敗：', hans: '新提名提交失败：',
-        }), {
-            type: 'error', title: state.convByVar({
-                hant: '錯誤', hans: '错误',
-            }),
-        });
-        return true;
-    }
-}
-
-/**
- * 保存修改提名。
- * @returns {Promise<boolean>} 是否成功提交。
- */
-export async function saveModifiedNomination() {
-    let nomination = state.nominations[0];
-    if (nomination.awarder === '' || nomination.pageName === '') {
-        mw.notify(state.convByVar({
-            hant: '得分者或得分條目未填寫，請檢查！', hans: '得分者或得分条目未填写，请检查！',
-        }), {
-            type: 'error', title: state.convByVar({
-                hant: '錯誤', hans: '错误',
-            }),
-        });
-        return true;
-    }
-
-    let reasonText = generateReason(nomination.ruleStatus);
-    if (reasonText == null) {
-        return true;
-    }
-    if (reasonText === '') {
-        mw.notify(state.convByVar({
-            hant: '未選擇任何評審規則，請檢查！', hans: '未选择任何评审规则，请检查！',
-        }), {
-            type: 'error', title: state.convByVar({
-                hant: '錯誤', hans: '错误',
-            }),
-        });
-        return true;
-    }
-
-    let fulltext = await getFullText(), updatedText;
-    if (state.queried.type === 'main' || state.queried.type === 'extra') {
-        let changes = {
-            '條目名稱': nomination.pageName,
-            '用戶名稱': nomination.awarder,
-            '提名理由': '{{ACG提名2/request|ver=1|' + reasonText + '}}',
-        };
-        updatedText = updateEntryParameters(fulltext, state.queried, changes);
-    } else if (state.queried.type === 'acg2') {
-        let changes = {
-            '條目名稱': nomination.pageName,
-            '用戶名稱': nomination.awarder,
-            '提名理由': '{{ACG提名2/request|ver=1|' + reasonText + '}}',
-        };
-        updatedText = updateEntryParameters(fulltext, state.queried, changes);
-    }
-    if (updatedText === fulltext) {
-        mw.notify(state.convByVar({
-            hant: '提名並未改動！', hans: '提名并未改动！',
-        }), {
-            type: 'warn', title: state.convByVar({
-                hant: '提示', hans: '提示',
-            }),
-        });
-        return true;
-    }
-
-    let success = await editPage('WikiProject:ACG/維基ACG專題獎/登記處', updatedText, '[[User:SuperGrey/gadgets/ACGATool|編輯提名]]');
-    if (success) {
-        mw.notify(state.convByVar({
-            hant: '提名已成功修改！', hans: '提名已成功修改！',
-        }), {
-            title: state.convByVar({
-                hant: '成功', hans: '成功',
-            }), autoHide: true,
-        });
-        refreshPage();
-        return false;
-    } else {
-        mw.notify(state.convByVar({
-            hant: '提名修改失敗！', hans: '提名修改失败！',
-        }), {
-            type: 'error', title: state.convByVar({
-                hant: '錯誤', hans: '错误',
-            }),
-        });
-        return true;
-    }
 }

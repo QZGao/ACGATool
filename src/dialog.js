@@ -1,12 +1,16 @@
 import state from "./state.js";
 import {getOrderedRuleStatus, NominationRules, NominationRuleSet} from "./rules.js";
-import {saveModifiedNomination, saveNewNomination} from "./dom.js";
-import {saveChecks} from "./submission.js";
+import {submitWorkspace} from "./submission.js";
+import {newId} from "./scoring.js";
+import {createDraftStore, clearSubmittedDraft} from "./drafts.js";
 import {getXToolsInfo} from "./api.js";
 
 let windowManager = null;  // Window manager for OOUI dialogs
 let $editor = null;
 let messageInput = null;
+let draftStore = null;
+let $draftList = null;
+let $draftStatus = null;
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
 
 export function initOOUI() {
@@ -18,6 +22,7 @@ export function initOOUI() {
     initEditorStyles();
     // Initialize window manager
     initWindowManager();
+    initDrafts();
 }
 
 function initWindowManager() {
@@ -81,7 +86,7 @@ function RuleCheckboxInputWidget(config) {
             state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].desc = this.ruleset.desc;
         }
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].ogDesc = this.ruleset.desc;
-        if (state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score == null) {
+        if (!Object.prototype.hasOwnProperty.call(state.nominations[this.nomidx].ruleStatus[this.ruleset.rule], 'score')) {
             state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score = this.ruleset.score;
         }
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].maxScore = this.ruleset.score;
@@ -99,7 +104,7 @@ function RuleCheckboxInputWidget(config) {
         'vertical-align': 'baseline', 'border-bottom': '2px solid #fff',
     });
     this.scoreInputWidget = new DynamicWidthTextInputWidget({
-        value: state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score,
+        value: state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].scoreInput ?? state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score,
         disabled: this.check ? false : (!this.isSelected()),
     });
     this.scoreInputWidget.$input.attr('aria-label', this.ruleset.rule + ' ' + t('分數', '分数'));
@@ -129,6 +134,7 @@ function initRuleCheckboxInputWidget() {
 
     RuleCheckboxInputWidget.prototype.handleCheckboxChange = function (isChecked) {
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].selected = isChecked;
+        state.changed();
         let disableCheck = this.check ? false : (!isChecked);
         this.ruleInputWidget.setDisabled(disableCheck);
         this.scoreInputWidget.setDisabled(disableCheck);
@@ -142,9 +148,12 @@ function initRuleCheckboxInputWidget() {
     };
     RuleCheckboxInputWidget.prototype.handleRuleInputChange = function (newValue) {
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].desc = newValue;
+        state.changed();
     };
     RuleCheckboxInputWidget.prototype.handleScoreInputChange = function (newValue) {
-        state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score = parseFloat(newValue);
+        state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].scoreInput = newValue;
+        state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score = newValue.trim() === '' ? null : Number(newValue);
+        state.changed();
     };
 }
 
@@ -167,7 +176,7 @@ function generateNominationFieldset(nomData = null) {
 
     const currentNomidx = state.nominations.length;
     state.nominations.push({
-        awarder: awarder, pageName: pageName, ruleStatus: ruleStatus,
+        ...nomData, id: nomData?.id || newId(), awarder, pageName, ruleStatus,
     });
 
     // 得分者
@@ -355,7 +364,7 @@ async function generateChecklistFieldset(nomData, nomidx) {
 
     // 附加說明
     let messageInput = new OO.ui.MultilineTextInputWidget({
-        autosize: true, rows: 1,
+        autosize: true, rows: 1, value: nomData.message || '',
     });
     messageInput.on('change', function (newValue) {
         state.nominations[nomidx].message = newValue;
@@ -472,76 +481,171 @@ function mountEditor(title) {
 }
 
 /**
- * 管理提交、關閉與附加操作，並在請求期間鎖定操作按鈕。
+ * 將草稿保存與提交流程接到編輯器操作；保存失敗時保留內容。
  */
-function addEditorActions($panel, save, extras = []) {
+function addEditorActions($panel, extras = []) {
+    $draftStatus = $('<p>').attr('role', 'status');
     const $status = $('<p>').attr('role', 'status');
-    const saveButton = new OO.ui.ButtonWidget({label: t('儲存', '储存'), flags: ['primary', 'progressive']});
-    const closeButton = new OO.ui.ButtonWidget({label: t('關閉', '关闭')});
-    const buttons = [saveButton, ...extras, closeButton];
-    closeButton.on('click', () => $panel.hide());
+    const saveButton = new OO.ui.ButtonWidget({label: t('提交', '提交'), flags: ['primary', 'progressive']});
+    const closeButton = new OO.ui.ButtonWidget({label: t('關閉並保留草稿', '关闭并保留草稿')});
+    const forkButton = new OO.ui.ButtonWidget({label: t('另存目前草稿', '另存当前草稿')});
+    const buttons = [saveButton, ...extras, closeButton, forkButton];
+    forkButton.on('click', () => {
+        state.workspace.id = newId();
+        state.workspace.storageVersion = 0;
+        state.changed();
+    });
+    closeButton.on('click', () => { state.changed(); $panel.hide(); });
     saveButton.on('click', async () => {
+        const controls = $panel.find(':input').toArray().map(element => [element, element.disabled]);
+        $panel.find(':input').prop('disabled', true);
         buttons.forEach(button => button.setDisabled(true));
-        $status.text(t('正在儲存…', '正在储存…'));
+        $status.text(t('正在儲存或確認上次提交結果…', '正在储存或确认上次提交结果…'));
         try {
-            if (!await save()) $panel.hide();
-            else $status.text(t('尚未儲存，請檢查填寫內容。', '尚未储存，请检查填写内容。'));
+            persistWorkspace();
+            const success = await submitWorkspace(state.workspace, persistWorkspace);
+            if (success) {
+                clearSubmittedDraft(draftStore, state.workspace, state.workspace.operation.submitted);
+                state.nominations = state.workspace.nominations;
+                refreshDraftList();
+                $status.text(t('已儲存。', '已储存。'));
+                if (!state.nominations.length) $panel.hide();
+            } else {
+                const step = state.workspace.operation.steps.find(item => item.status !== 'succeeded');
+                $status.text(step.error || t('儲存尚未完成。', '储存尚未完成。'));
+            }
         } catch (error) {
             $status.text(t('儲存未完成：', '储存未完成：') + (error.message || String(error)));
         } finally {
+            controls.forEach(([element, disabled]) => { element.disabled = disabled; });
             buttons.forEach(button => button.setDisabled(false));
+            lockPendingForm($panel);
         }
     });
-    $panel.append($('<div>').addClass('acga-actions').append(buttons.map(button => button.$element)), $status);
+    $panel.append($('<div>').addClass('acga-actions').append(buttons.map(button => button.$element)), $draftStatus, $status);
+    $panel.on('input change', () => state.changed());
+    state.changed();
+    lockPendingForm($panel);
+}
+
+/**
+ * 已有未完成的提交時鎖住編輯內容，避免恢復或重試時改變原請求的含義。
+ * 使用者仍可透過儲存操作區查詢結果、重試或關閉。
+ */
+function lockPendingForm($panel) {
+    if (state.workspace.operation) $panel.find(':input').not($panel.find('.acga-actions :input')).prop('disabled', true);
+}
+
+/**
+ * 綁定目前草稿與畫面使用的共享陣列。
+ * state.nominations 與 workspace.nominations 指向同一陣列，不另保留一份可分歧的表單資料。
+ */
+function activateWorkspace(workspace) {
+    state.workspace = workspace;
+    state.nominations = workspace.nominations;
+    state.changed = () => {
+        try { persistWorkspace(); }
+        catch (error) { $draftStatus?.text(t('草稿尚未保存：', '草稿尚未保存：') + error.message); }
+    };
+}
+
+/**
+ * 同步保存草稿，再更新畫面狀態。
+ * 錯誤必須往上傳：提交流程需先成功保存請求狀態，才可以開始遠端寫入。
+ */
+function persistWorkspace() {
+    if (!draftStore) throw new Error(t('瀏覽器無法使用本機儲存。', '浏览器无法使用本机储存。'));
+    draftStore.save(state.workspace);
+    $draftStatus?.text(t('草稿已保存於此瀏覽器。', '草稿已保存于此浏览器。'));
+    refreshDraftList();
+}
+
+/**
+ * 依維基站點及登入帳號隔離本機草稿，讀取失敗時保留原儲存資料並提示。
+ */
+function initDrafts() {
+    $draftList = $('<div>').addClass('acga-drafts');
+    $('#mw-content-text').prepend($draftList);
+    try {
+        const prefix = `ACGATool:v1:${mw.config.get('wgDBname')}:${mw.config.get('wgUserName') || 'anonymous'}`;
+        draftStore = createDraftStore(window.localStorage, prefix);
+        refreshDraftList();
+    } catch (error) {
+        $draftList.text(t('無法讀取本機草稿：', '无法读取本机草稿：') + error.message);
+    }
+}
+
+function refreshDraftList() {
+    const drafts = draftStore.list();
+    $draftList.empty();
+    if (!drafts.length) return;
+    $draftList.append($('<strong>').text(t('未完成的草稿：', '未完成的草稿：')));
+    for (const draft of drafts) {
+        const label = `${draft.mode === 'check' ? t('核對', '核对') : draft.mode === 'new' ? t('新提名') : t('編輯', '编辑')}：${draft.nominations.map(n => n.pageName || t('未填條目', '未填条目')).join('、')}`;
+        const button = new OO.ui.ButtonWidget({label});
+        button.on('click', () => {
+            if (draft.mode === 'check') showCheckNominations(draft.nominations, draft);
+            else if (draft.mode === 'new') showNewNominationDialog(draft);
+            else showEditNominationDialog(draft.nominations[0], draft);
+        });
+        $draftList.append(button.$element);
+    }
 }
 
 /**
  * 在頁面內開啟可新增多筆提名的編輯器。
+ * @param {object} [workspace] 要恢復的草稿；省略時建立新的草稿識別。
  */
-export function showNewNominationDialog() {
+export function showNewNominationDialog(workspace) {
     const $panel = mountEditor(t('新提名'));
     if (!$panel) return;
-    state.nominations = [];
+    workspace ||= {id: newId(), mode: 'new', nominations: [], message: ''};
+    const nominations = workspace.nominations.length ? workspace.nominations : [null];
+    workspace.nominations = [];
+    activateWorkspace(workspace);
     const content = new OO.ui.FieldsetLayout();
-    content.addItems([generateNominationFieldset()]);
-    messageInput = new OO.ui.MultilineTextInputWidget({autosize: true});
+    nominations.forEach(nomination => content.addItems([generateNominationFieldset(nomination)]));
+    messageInput = new OO.ui.MultilineTextInputWidget({autosize: true, value: workspace.message});
+    messageInput.on('change', value => { workspace.message = value; });
     $panel.append(content.$element, new OO.ui.FieldLayout(messageInput, {label: t('附加說明', '附加说明'), align: 'top'}).$element);
     const add = new OO.ui.ButtonWidget({label: t('新增一筆', '新增一项')});
-    add.on('click', () => content.addItems([generateNominationFieldset()]));
+    add.on('click', () => {
+        if (workspace.operation || state.nominations.length >= 25) return;
+        content.addItems([generateNominationFieldset()]); state.changed();
+    });
     const remove = new OO.ui.ButtonWidget({label: t('移除末筆', '移除末项')});
     remove.on('click', () => {
-        if (state.nominations.length <= 1) return;
+        if (workspace.operation || state.nominations.length <= 1) return;
         content.removeItems([content.items[content.items.length - 1]]);
-        state.nominations.pop();
+        state.nominations.pop(); state.changed();
     });
-    addEditorActions($panel, saveNewNomination, [add, remove]);
-}
-
-export function getNewNominationDialogAdditionalMessage() {
-    return messageInput?.getValue().trim() || '';
+    addEditorActions($panel, [add, remove]);
 }
 
 /**
  * 在頁面內開啟單筆提名編輯器。
- * @param {object} nomData 從頁面解析的提名內容。
+ * @param {object} nomData 提名內容與來源快照。
+ * @param {object} [workspace] 要恢復的草稿，沿用其識別與儲存版本。
  */
-export function showEditNominationDialog(nomData, queried) {
+export function showEditNominationDialog(nomData, workspace) {
     const $panel = mountEditor(t('編輯提名', '编辑提名'));
     if (!$panel) return;
-    state.queried = queried;
-    state.nominations = [];
+    workspace ||= {id: newId(), mode: 'edit', nominations: [], message: ''};
+    workspace.nominations = [];
+    activateWorkspace(workspace);
     $panel.append(generateNominationFieldset(nomData).$element);
-    addEditorActions($panel, saveModifiedNomination);
+    addEditorActions($panel);
 }
 
 /**
  * 建立批次核對介面；完成標記只寫入草稿，直到使用者統一提交才發布。
  * @param {object[]} nominations 含來源快照的待核對項目。
+ * @param {object} [workspace] 恢復既有草稿及未完成的儲存步驟。
  */
-export async function showCheckNominations(nominations) {
+export async function showCheckNominations(nominations, workspace) {
     const $panel = mountEditor(t('核對分數', '核对分数'));
     if (!$panel) return;
-    state.nominations = nominations;
+    activateWorkspace(workspace || {id: newId(), mode: 'check', nominations, message: ''});
     const $progress = $('<p>').attr('role', 'status');
     const $list = $('<div>');
     $panel.append($progress, $list);
@@ -553,15 +657,16 @@ export async function showCheckNominations(nominations) {
         $list.append($item);
         const field = await generateChecklistFieldset(nomination, index);
         $item.append(field.$element);
-        const done = new OO.ui.CheckboxInputWidget();
+        const done = new OO.ui.CheckboxInputWidget({selected: nomination.reviewed});
         done.on('change', value => {
             nomination.reviewed = value;
             updateProgress();
+            state.changed();
         });
         // Any edits invalidate the prior acknowledgement for this item.
         field.$element.on('input change', () => done.setSelected(false));
         $item.append(new OO.ui.FieldLayout(done, {label: t('已核對此筆，加入待提交清單', '已核对此项，加入待提交清单'), align: 'inline'}).$element);
     }
     updateProgress();
-    addEditorActions($panel, () => saveChecks(state.nominations));
+    addEditorActions($panel);
 }
