@@ -457,9 +457,9 @@ function removeComments(text) {
 /**
  * 根據用戶的提名理由，解析出規則狀態。
  * @param reason {string} 用戶的提名理由。
- * @returns {object} 規則狀態。
+ * @returns {object|null} 含預設說明、分數及上限的規則狀態；無法解析時為 null。
  */
-function parseUserReason(reason) {
+export function parseUserReason(reason) {
     reason = removeComments(reason);
     let ruleStatus = {};
     if (reason.startsWith('{{ACG提名2/request|ver=1|')) {
@@ -502,7 +502,7 @@ function parseUserReason(reason) {
             }
             if (ruleScoreMod !== '') {
                 ruleStatus[rule].score = parseFloat(ruleScoreMod);
-                if (isNaN(ruleStatus[rule].score)) {
+                if (!Number.isFinite(ruleStatus[rule].score)) {
                     console.log('[ACGATool] 分數不是數字', ruleScoreMod);  // 分數不是數字，報錯
                     return null;
                 }
@@ -511,6 +511,13 @@ function parseUserReason(reason) {
             console.log('[ACGATool] 不在提名規則中', rule);  // 不在提名規則中，報錯
             return null;
         }
+    }
+    for (const [key, value] of Object.entries(ruleStatus)) {
+        const rule = ruleSet.ruleDict[key];
+        value.desc ??= rule.desc;
+        value.ogDesc = rule.desc;
+        value.score ??= rule.score;
+        value.maxScore = rule.score;
     }
     return ruleStatus;
 }
@@ -584,61 +591,6 @@ export async function appendToPage(pageName, appendText, editSummary) {
     } else {
         console.error('Edit failed:', response);
         return false;
-    }
-}
-
-/**
- * 編輯 Module:ACGaward/list。
- * @param {string} awarder 得分者。
- * @param {number} score 得分。
- * @return {Promise<boolean>} 是否成功提交。
- */
-export async function editACGAScoreList(awarder, score) {
-    let scorelistText = await getFullText('Module:ACGaward/list');
-    let scorelistLines = scorelistText.trim().split('\n').slice(1, -1);  // 去掉 'return {' 和 '}' 行
-    let scorelist = {};
-    for (let line of scorelistLines) {
-        let match = line.match(/^\s*\[?(?:'([^']+)'|"([^"]+)")\]?\s*=\s*([+-]?[\d.]+)\s*,?\s*$/);
-        if (match) {
-            let name = match[1] || match[2];  // 使用第一個捕獲組或第二個捕獲組
-            scorelist[name] = parseFloat(match[3]);
-        }
-    }
-    let originalScore = scorelist[awarder] || 0;  // 獲取原始分數
-    scorelist[awarder] = originalScore + score;  // 更新分數
-    let editSummary = awarder + ' ' + originalScore + '+' + score + '=' + scorelist[awarder];
-
-    let sortedNames = Object.keys(scorelist).sort((a, b) => {
-        // 按照名稱排序，忽略大小寫
-        return a.toLowerCase().localeCompare(b.toLowerCase(), "en");
-    });
-    let newScorelistText = 'return {\n';
-    for (let name of sortedNames) {
-        let nameQuoted = name.includes('"') ? "'" + name + "'" : '"' + name + '"';  // 確保名稱被正確引用
-        newScorelistText += '    [' + nameQuoted + '] = ' + scorelist[name].toString() + ',\n';
-    }
-    newScorelistText += '}';
-
-    // 提交修改
-    let success = await editPage('Module:ACGaward/list', newScorelistText, editSummary + '（[[User:SuperGrey/gadgets/ACGATool|核對分數]]）');
-    if (success) {
-        mw.notify(state.convByVar({
-            hant: 'Module:ACGaward/list 已成功更新！', hans: 'Module:ACGaward/list 已成功更新！',
-        }), {
-            title: state.convByVar({
-                hant: '成功', hans: '成功',
-            }), autoHide: true,
-        });
-        return false;  // 成功提交
-    } else {
-        mw.notify(state.convByVar({
-            hant: 'Module:ACGaward/list 更新失敗！', hans: 'Module:ACGaward/list 更新失败！',
-        }), {
-            type: 'error', title: state.convByVar({
-                hant: '錯誤', hans: '错误',
-            }),
-        });
-        return true;  // 提交失敗
     }
 }
 

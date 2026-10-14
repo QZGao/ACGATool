@@ -231,44 +231,20 @@ async function generateChecklistFieldset(nomData, nomidx) {
     let ruleStatus = nomData.ruleStatus;
 
 
-    // 得分者
-    let userNameLinkLabelWidget = new OO.ui.LabelWidget({label: $('<a>').attr('href', mw.util.getUrl('User:' + awarder)).text(awarder)});
-    let userTalkLinkLabelWidget = new OO.ui.LabelWidget({
-        label: $('<a>').attr('href', mw.util.getUrl('User talk:' + awarder)).text(state.convByVar({
-            hant: '討論', hans: '讨论',
-        })),
-    });
-    let userContribsLinkLabelWidget = new OO.ui.LabelWidget({
-        label: $('<a>').attr('href', mw.util.getUrl('Special:用户贡献/' + awarder)).text(state.convByVar({
-            hant: '貢獻', hans: '贡献',
-        })),
-    });
-    let userNameHorizontalLayout = new OO.ui.HorizontalLayout({
-        items: [
-            userNameLinkLabelWidget,
-            new OO.ui.LabelWidget({label: '（'}),
-            userTalkLinkLabelWidget,
-            new OO.ui.LabelWidget({label: '·'}),
-            userContribsLinkLabelWidget,
-            new OO.ui.LabelWidget({label: '）'}),
-        ],
-    });
-    userNameHorizontalLayout.$element.css({
-        'gap': '4px', 'width': '80%', 'flex-shrink': '0', 'flex-wrap': 'wrap',
-    });
-    let userNameLabelWidget = new OO.ui.LabelWidget({
-        label: state.convByVar({
-            hant: '得分者', hans: '得分者',
-        }),
-    });
-    userNameLabelWidget.$element.css({
-        'flex-grow': 1, 'align-self': 'stretch',
-    });
-    let userNameField = new OO.ui.HorizontalLayout({
-        items: [
-            userNameLabelWidget, userNameHorizontalLayout,
-        ],
-    });
+    const userNameInput = new OO.ui.TextInputWidget({value: awarder});
+    userNameInput.on('change', value => { nomData.awarder = value; });
+    const userNameField = new OO.ui.FieldLayout(userNameInput, {label: t('得分者'), align: 'top'});
+    const originalInfo = new OO.ui.LabelWidget({label: nomData.original
+        ? `${t('原核定', '原核定')}：${awarder}，${nomData.original.score} ${t('分')} ${nomData.original.status === 'rechecking' ? t('（覆核中）', '（复核中）') : ''}`
+        : t('首次核對', '首次核对')});
+    const booking = new OO.ui.DropdownInputWidget({value: nomData.booking, options: nomData.baseline
+        ? [{data: 'recorded', label: `${t('已確認入帳', '已确认入账')}：${nomData.baseline.awarder} ${nomData.baseline.score} ${t('分')}`}]
+        : [{data: 'unknown', label: t('請確認原核分是否已入帳', '请确认原核分是否已入账')},
+            {data: 'booked', label: t('原核分已登記到積分榜', '原核分已登记到积分榜')},
+            {data: 'unbooked', label: t('原核分尚未登記到積分榜', '原核分尚未登记到积分榜')}]});
+    booking.setDisabled(!!nomData.baseline || !nomData.original?.score);
+    booking.on('change', value => { nomData.booking = value; });
+    const bookingField = new OO.ui.FieldLayout(booking, {label: t('原分數入帳狀態', '原分数入账状态'), align: 'top'});
 
     // 條目名稱
     let pageNameHorizontalLayout, pageNameLabelWidget;
@@ -333,7 +309,7 @@ async function generateChecklistFieldset(nomData, nomidx) {
     pageNameField.$element.css({'margin-top': '15px'});
 
     // 提名無效
-    let invalidToggleSwitchWidget = new OO.ui.ToggleSwitchWidget({value: false});
+    let invalidToggleSwitchWidget = new OO.ui.ToggleSwitchWidget({value: nomData.invalid});
     invalidToggleSwitchWidget.on('change', function (isChecked) {
         state.nominations[nomidx].invalid = isChecked;
     });
@@ -396,7 +372,7 @@ async function generateChecklistFieldset(nomData, nomidx) {
 
     let nominationFieldset = new OO.ui.FieldsetLayout({
         items: [
-            userNameField, pageNameField, invalidField, reasonField, messageField,
+            userNameField, originalInfo, bookingField, pageNameField, invalidField, reasonField, messageField,
         ],
     });
     nominationFieldset.$element.css({'margin-top': 0});
@@ -565,7 +541,7 @@ export function showEditNominationDialog(nomData, queried) {
 export async function showCheckNominations(nominations) {
     const $panel = mountEditor(t('核對分數', '核对分数'));
     if (!$panel) return;
-    state.nominations = nominations.map(nomination => ({...nomination, invalid: false, message: '', reviewed: false}));
+    state.nominations = nominations;
     const $progress = $('<p>').attr('role', 'status');
     const $list = $('<div>');
     $panel.append($progress, $list);

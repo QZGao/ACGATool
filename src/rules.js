@@ -422,9 +422,9 @@ export function getOrderedRuleStatus(ruleNames, ruleStatus) {
 
 /**
  * 生成提名理由。
- * @param ruleStatus
- * @param check
- * @returns {{reasonText: string, unselectedReasonText: string}|string|null}
+ * @param {object} ruleStatus 規則選取、說明及分數。
+ * @param {boolean} [check=false] 核對模式同時輸出否決規則及總分。
+ * @returns {{reasonText: string, unselectedReasonText: string, reasonScore: number}|string|null} 核對結果、提名理由字串，或驗證失敗的 null。
  */
 export function generateReason(ruleStatus, check = false) {
     // 拼湊提名理由
@@ -434,7 +434,7 @@ export function generateReason(ruleStatus, check = false) {
     let orderedRuleStatus = getOrderedRuleStatus(ruleNames, ruleStatus);
     for (const ruleItem of orderedRuleStatus) {
         if (check || ruleItem.selected) {
-            if (isNaN(ruleItem.score) || ruleItem.score < 0) {
+            if (!Number.isFinite(ruleItem.score) || ruleItem.score < 0) {
                 mw.notify(state.convByVar({
                     hant: '規則', hans: '规则',
                 }) + '「' + ruleItem.rule + '」' + state.convByVar({

@@ -1,4 +1,6 @@
 import state from "./state.js";
+import {reviewData} from "./scoring.js";
+import {SCORES} from "./submission.js";
 import {
     appendToPage,
     entryValues,
@@ -59,12 +61,12 @@ async function checkNomination(date, index) {
  */
 async function openCheckQueue(targets) {
     try {
-        const fulltext = await getFullText();
+        const [fulltext, scoreText] = await Promise.all([getFullText(), getFullText(SCORES)]);
         const nominations = targets.map(({date, index}) => {
             const entry = queryEntry(fulltext, date, index);
             const data = queried2NomData(entry);
             if (!data) throw new Error('小工具無法讀取該提名，請手動編輯。');
-            return {...data, source: {date, index, values: entryValues(entry)}};
+            return reviewData(data, {date, index, values: entryValues(entry)}, scoreText);
         });
         await showCheckNominations(nominations);
     } catch (error) {
@@ -312,7 +314,7 @@ export function addEditButtonsToPage() {
                     let checkButton = $('<a>').css({
                         'display': 'inline-block', 'margin-left': '5px', 'font-size': '.857em', 'font-weight': 'bold',
                     }).append(checkIcon).append(' ').append(state.convByVar({
-                        hant: '核對', hans: '核对',
+                        hant: row.is('.done, .rechecking') ? '覆核／更正得分' : '核對', hans: row.is('.done, .rechecking') ? '复核／更正得分' : '核对',
                     })).attr('href', 'javascript:void(0)').click(async function () {
                         await checkNomination(date, currentIndex);
                     });
