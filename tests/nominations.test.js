@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {entryValues, queryEntry, updateEntries} from '../src/api.js';
-import {prepareChecks} from '../src/submission.js';
+import {prepareChecks, getNewNominationPlacement} from '../src/submission.js';
 
 const row = (number, title) => `\n|條目名稱${number} = ${title}\n|用戶名稱${number} = Example\n|提名理由${number} = {{ACG提名2/request|ver=1|1a}}\n|核對用${number} = {{ACG提名2/check|ver=1|}}`;
 const text = `=== 10月14日 ===\n{{ACG提名2${row(1, '甲')}${row(2, '乙')}\n}}\n提名人：[[User:Nominator]]`;
@@ -9,6 +9,13 @@ const nomination = index => ({
     pageName: index === 1 ? '甲' : '乙', awarder: 'Example', reviewed: true, message: '',
     source: {date: '10月14日', index, values: entryValues(queryEntry(text, '10月14日', index))},
     ruleStatus: {'1a': {selected: true, desc: '短新增', ogDesc: '短新增', score: 1, maxScore: 1}},
+});
+
+test('new nomination placement follows UTC across local midnight and year boundaries', () => {
+    const localMidnight = new Date('2026-10-15T00:30:00+08:00');
+    assert.deepEqual(getNewNominationPlacement(['10月14日'], localMidnight), {date: '10月14日', newSection: false});
+    assert.deepEqual(getNewNominationPlacement(['10月13日'], localMidnight), {date: '10月14日', newSection: true});
+    assert.deepEqual(getNewNominationPlacement([], new Date('2027-01-01T01:00:00+08:00')), {date: '12月31日', newSection: true});
 });
 
 test('batch updates relocate entries and apply every replacement against the same source', () => {

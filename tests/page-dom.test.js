@@ -28,6 +28,7 @@ test('native and CD-wrapped nomination tables keep the same section and page ord
 test('editor previews and nested tables do not alter section boundaries or duplicate table discovery', () => {
     const html = table('before-any-date') + heading('10月1日') +
         `<div class="acga-editor"><h2>編輯器</h2><h3>草稿</h3>${table('preview')}</div>` +
+        `<aside class="acga-dock"><h2>儲存進度</h2><h3>草稿</h3>${table('dock-preview')}</aside>` +
         `<div><table id="outer" class="acgnom-table"><tr><td><h3>表格內標題</h3>${table('nested')}</td></tr></table></div>` +
         `<h2>其他內容</h2>${table('outside-section')}` + heading('10月2日') + table('next-date');
     assert.deepEqual(scan(html), [

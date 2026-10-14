@@ -1,6 +1,8 @@
 import state from "./state.js";
+import {createDock} from "./dock.js";
+import {getArticleRoot, getNominationSections} from "./page-dom.js";
 import {NominationRules, NominationRuleSet} from "./rules.js";
-import {submitWorkspace} from "./submission.js";
+import {submitWorkspace, getNewNominationPlacement} from "./submission.js";
 import {newId} from "./scoring.js";
 import {reloadForReview} from "./conflicts.js";
 import {wikiTransport} from "./transport.js";
@@ -15,6 +17,8 @@ let $draftList = null;
 let $draftStatus = null;
 let reviewWidgets = new Map();
 let hiddenSources = new Map();
+let dock = null;
+let previewTimer = null;
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
 /**
  * 任何核對內容的修改都撤銷該筆的完成標記，並觸發草稿保存。
@@ -36,6 +40,8 @@ export function initOOUI() {
     initRuleDialog();
     initEditorStyles();
     // Initialize window manager
+    dock = createDock(getArticleRoot());
+    dock.jumpButton.on('click', () => { $editor?.[0].scrollIntoView({block: 'start'}); $editor?.trigger('focus'); });
     initWindowManager();
     initDrafts();
 }
@@ -43,8 +49,9 @@ export function initOOUI() {
 function initWindowManager() {
     windowManager = new OO.ui.WindowManager();
 
-    // Append the window manager element to the body
-    $(document.body).append(windowManager.$element);
+    // 規則視窗同樣掛在正文容器內，但由 OOUI 以浮層呈現，並排除 CD 的留言解析。
+    windowManager.$element.addClass('acga-dialogs mw-notalk');
+    $(getArticleRoot()).append(windowManager.$element);
 }
 
 /**
@@ -56,7 +63,7 @@ function DynamicWidthTextInputWidget(config) {
     DynamicWidthTextInputWidget.parent.call(this, config);
     this.$measure = $('<span>').css({
         position: 'absolute', visibility: 'hidden', whiteSpace: 'pre', fontSize: '14px', fontFamily: 'sans-serif',
-    }).appendTo(document.body);  // Create a hidden element for measuring text width.
+    }).appendTo(windowManager.$element);  // 量測用節點留在規則浮層內，不混入正文。
     this.$input.on('input', this.adjustWidth.bind(this));  // Bind the adjustWidth function to the 'input' event.
 }
 
@@ -176,7 +183,23 @@ function initRuleCheckboxInputWidget() {
 function initEditorStyles() {
     mw.util.addCSS(`
         .acga-editor { margin: 1.5em 0; }
-        .acga-editor h2 { margin-top: 0; }
+        .acga-dock-host { padding-bottom: calc(var(--acga-original-padding, 0px) + var(--acga-dock-clearance, 0px)); }
+        .acga-editor { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
+        .acga-dock { position: fixed; bottom: max(8px, env(safe-area-inset-bottom)); z-index: 100; box-sizing: border-box; color: var(--color-base, #202122); background: var(--background-color-base, #fff); border: 1px solid var(--border-color-base, #a2a9b1); border-radius: 2px; }
+        /* OOUI 模態視窗開啟時暫藏底欄，避免底欄遮住視窗或接受提交操作。 */
+        .oo-ui-windowManager-modal-active .acga-dock { visibility: hidden; }
+        .acga-dock-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5em 1em; padding: .6em .8em; }
+        .acga-dock-heading { display: flex; flex: 1 1 auto; align-items: baseline; flex-wrap: wrap; gap: .5em 1em; }
+        .acga-dock-panel { max-height: min(55vh, 32em); overflow: auto; padding: .8em; border-bottom: 1px solid var(--border-color-base, #a2a9b1); }
+        .acga-dock-panel > section > :first-child { margin-top: 0; }
+        .acga-dock-panel p { margin-block: .4em; }
+        .acga-dock-panel .oo-ui-textInputWidget { max-width: none; }
+        .acga-dock-panel .acga-actions { margin-top: .6em; }
+        .acga-dock .oo-ui-buttonElement { margin: 0; }
+        .acga-dock .acga-drafts { display: flex; flex-wrap: wrap; gap: .5em; }
+        .acga-dock .acga-drafts > strong { flex-basis: 100%; }
+        .acga-dock-archives { display: flex; flex-wrap: wrap; gap: .5em; }
+        .acga-dock-options { margin-bottom: .8em; }
         .acga-conflicts { overflow-x: auto; }
         .acga-conflicts:empty { display: none; }
         .acga-conflicts table { width: 100%; border-collapse: collapse; }
@@ -204,7 +227,7 @@ function initEditorStyles() {
         .acga-drafts .oo-ui-buttonElement { max-width: 100%; }
         .acga-drafts .oo-ui-labelElement-label { white-space: normal; }
         .acga-editor .oo-ui-horizontalLayout { min-width: 0; }
-        .acga-actions { display: flex; flex-wrap: wrap; gap: .5em; margin-top: 1em; }
+        .acga-actions { display: flex; flex-wrap: wrap; gap: .5em; margin: 0; }
         .acga-rules details { margin: .75em 0; }
         .acga-rules summary { cursor: pointer; font-weight: bold; }
         .acga-rules .oo-ui-horizontalLayout { display: flex; flex-wrap: wrap; gap: .5em; }
@@ -273,7 +296,7 @@ async function openRules(nomidx, onClose) {
 }
 
 /**
- * 在原提名表格旁建立編輯區；新提名或找不到原表格時放在登記處內容頂端。
+ * 在原提名表格旁建立編輯區；新提名或找不到原表格時放在登記處內容末尾。
  * 已有開啟的編輯器時只移回該處，避免後續初始化覆寫其共享狀態。
  * @returns {jQuery|null} 新編輯區；已有編輯器時為 null。
  */
@@ -284,23 +307,32 @@ function mountEditor(title, source) {
         return null;
     }
     restoreSourceRows();
+    clearTimeout(previewTimer);
     $editor?.remove();
     $editor = $('<section>').addClass('acga-editor').attr({'aria-label': title, tabindex: '-1'});
-    $editor.append($('<h2>').text(title));
+    dock.$title.text(title);
+    dock.$summary.empty();
+    dock.panes.details.empty();
+    dock.showPanel(null);
+    dock.setActive(true);
     const $source = sourceRows(source).closest('table').first();
     if ($source.length) $source.before($editor);
-    else $('#mw-content-text').prepend($editor);
+    else $(getArticleRoot()).append($editor);
     $editor[0].scrollIntoView({block: 'start'});
     $editor.trigger('focus');
     return $editor;
 }
 
 /**
- * 將每個頁面的儲存狀態接到進度介面；已完成項目不再提供重送操作。
+ * 將每個頁面的儲存狀態接到懸浮面板；操作按鈕固定於底欄，不隨表格插入正文。
+ * 已完成項目不再提供重送操作。
  * 回應未明的項目只查證原請求。使用者關閉或重新載入後，仍可由草稿恢復。
  */
 function addEditorActions($panel, extras = []) {
-    $panel.children().not('h2').wrapAll('<div class="acga-fields"></div>');
+    // 正文保留提名表格與新日期預覽；提交、說明與結果使用固定懸浮區的內容槽。
+    $panel.children().wrapAll('<div class="acga-fields"></div>');
+    const $details = dock.panes.details;
+    const $options = $details.children('.acga-dock-options');
     $draftStatus = $('<p>').attr('role', 'status');
     const $status = $('<p>').attr('role', 'status');
     const $conflicts = $('<div>').attr('role', 'alert').addClass('acga-conflicts');
@@ -316,6 +348,7 @@ function addEditorActions($panel, extras = []) {
         saveButton.toggle(!operation);
         saveButton.setDisabled(saving || completed || !!state.workspace.conflicts?.length);
         showConflicts($conflicts, $panel);
+        if (state.workspace.conflicts?.length) dock.showPanel('details');
         if (!operation) return;
         operation.steps.forEach((step, index) => {
             const labels = {pending: t('等待儲存', '等待储存'), saving: t('正在儲存', '正在储存'), succeeded: t('✓ 已完成'), failed: t('儲存失敗', '储存失败'), unknown: t('結果未明', '结果未明'), conflict: t('內容已變更，需重新核對', '内容已变更，需重新核对')};
@@ -339,8 +372,12 @@ function addEditorActions($panel, extras = []) {
     const runSave = async () => {
         if (saving || completed) return;
         saving = true;
-        const controls = $panel.find(':input').toArray().map(element => [element, element.disabled]);
-        $panel.find(':input').prop('disabled', true);
+        const $inputs = $panel.add($options).find(':input');
+        const controls = $inputs.toArray().map(element => [element, element.disabled]);
+        $inputs.prop('disabled', true);
+        $options.prop('inert', true).attr('inert', '');
+        dock.toggles.drafts.setDisabled(true);
+        dock.showPanel('details');
         // 部分 OOUI 控制項是連結而非 input；inert 同時阻止其滑鼠與鍵盤操作。
         $panel.find('.acga-fields').prop('inert', true).attr('inert', '');
         buttons.forEach(button => button.setDisabled(true));
@@ -354,6 +391,7 @@ function addEditorActions($panel, extras = []) {
                 clearSubmittedDraft(draftStore, state.workspace, completedOperation.submitted);
                 state.nominations = state.workspace.nominations;
                 completed = true;
+                clearTimeout(previewTimer);
                 refreshDraftList();
                 $draftStatus.text(state.nominations.length ? t('尚未提交的修改已保留。', '尚未提交的修改已保留。') : t('已清除本次提交的草稿。', '已清除本次提交的草稿。'));
                 $status.text(t('本次提交已全部完成。', '本次提交已全部完成。'));
@@ -365,7 +403,8 @@ function addEditorActions($panel, extras = []) {
             saving = false;
             controls.forEach(([element, disabled]) => { element.disabled = disabled; });
             buttons.forEach(button => button.setDisabled(completed && button !== closeButton));
-            if (completed) $panel.find(':input').not(closeButton.$element.find(':input')).prop('disabled', true);
+            dock.toggles.drafts.setDisabled(false);
+            if (completed) $panel.add($options).find(':input').prop('disabled', true);
             else lockPendingForm($panel);
             showProgress();
         }
@@ -376,11 +415,13 @@ function addEditorActions($panel, extras = []) {
     });
     closeButton.on('click', () => {
         if (!completed) state.changed();
-        $panel.hide(); restoreSourceRows();
+        clearTimeout(previewTimer);
+        $panel.hide(); restoreSourceRows(); dock.setActive(false);
         if (completed) location.reload();
     });
     saveButton.on('click', runSave);
-    $panel.append($conflicts, $('<div>').addClass('acga-actions').append(buttons.map(button => button.$element)), $draftStatus, $progress, $status);
+    dock.$actions.empty().append([saveButton, ...extras, closeButton].map(button => button.$element));
+    $details.append($conflicts, $draftStatus, $progress, $status, $('<div>').addClass('acga-actions').append(forkButton.$element));
     $panel.on('input change', () => { if (!completed) state.changed(); });
     state.changed();
     lockPendingForm($panel);
@@ -393,9 +434,10 @@ function addEditorActions($panel, extras = []) {
  */
 function lockPendingForm($panel) {
     const locked = !!state.workspace.operation;
-    $panel.find('.acga-fields').prop('inert', locked);
-    if (locked) $panel.find('.acga-fields').attr('inert', '');
-    else $panel.find('.acga-fields').removeAttr('inert');
+    const $fields = $panel.find('.acga-fields').add(dock.panes.details.children('.acga-dock-options'));
+    $fields.prop('inert', locked);
+    if (locked) $fields.attr('inert', '');
+    else $fields.removeAttr('inert');
 }
 
 /**
@@ -409,7 +451,7 @@ function activateWorkspace(workspace) {
     state.nominations = workspace.nominations;
     state.changed = () => {
         try { persistWorkspace(); }
-        catch (error) { $draftStatus?.text(t('草稿尚未保存：', '草稿尚未保存：') + error.message); }
+        catch (error) { $draftStatus?.text(t('草稿尚未保存：', '草稿尚未保存：') + error.message); dock.showPanel('details'); }
     };
 }
 
@@ -429,21 +471,23 @@ function persistWorkspace() {
  * 依維基站點及登入帳號隔離本機草稿，讀取失敗時保留原儲存資料並提示。
  */
 function initDrafts() {
-    $draftList = $('<div>').addClass('acga-drafts');
-    $('#mw-content-text').prepend($draftList);
+    $draftList = dock.panes.drafts.addClass('acga-drafts');
+    if (mw.config.get('wgPageName') !== 'WikiProject:ACG/維基ACG專題獎/登記處') { dock.toggles.drafts.toggle(false); return; }
     try {
         const prefix = `ACGATool:v1:${mw.config.get('wgDBname')}:${mw.config.get('wgUserName') || 'anonymous'}`;
         draftStore = createDraftStore(window.localStorage, prefix);
         refreshDraftList();
     } catch (error) {
         $draftList.text(t('無法讀取本機草稿：', '无法读取本机草稿：') + error.message);
+        dock.showPanel('drafts');
     }
 }
 
 function refreshDraftList() {
     const drafts = draftStore.list();
     $draftList.empty();
-    if (!drafts.length) return;
+    dock.toggles.drafts.setLabel(`${t('草稿')} (${drafts.length})`);
+    if (!drafts.length) { $draftList.text(t('沒有未完成的草稿。', '没有未完成的草稿。')); return; }
     $draftList.append($('<strong>').text(t('未完成的草稿：', '未完成的草稿：')));
     for (const draft of drafts) {
         const label = `${draft.mode === 'check' ? t('核對', '核对') : draft.mode === 'new' ? t('新提名') : t('編輯', '编辑')}：${draft.nominations.map(n => n.pageName || t('未填條目', '未填条目')).join('、')}`;
@@ -502,13 +546,25 @@ export function showNewNominationDialog(workspace) {
     const nominations = workspace.nominations.length ? workspace.nominations : [null];
     workspace.nominations = [];
     activateWorkspace(workspace);
+    const $dateHeading = $('<div>').addClass('mw-heading mw-heading3').append($('<h3>'));
+    $panel.append($dateHeading);
+    const refreshPlacement = () => {
+        const now = new Date();
+        const dates = getNominationSections(getArticleRoot()).map(section => section.heading.textContent.trim());
+        const {date, newSection} = getNewNominationPlacement(dates, now);
+        $dateHeading.toggle(newSection).find('h3').text(date);
+        dock.$summary.text(newSection ? t(`新增「${date}」小節`, `新增「${date}」小节`) : t(`接在「${date}」小節末尾`, `接在「${date}」小节末尾`));
+        // 草稿跨 UTC 午夜仍保持日期預覽正確；關閉或切換編輯器時取消計時。
+        previewTimer = setTimeout(refreshPlacement, Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) - now.getTime() + 50);
+    };
+    refreshPlacement();
     const $table = createNominationTable();
     $panel.append($('<div>').addClass('acga-table-scroll').append($table));
     nominations.forEach(nomination => appendEditableNomination($table, nomination));
     messageInput = new OO.ui.MultilineTextInputWidget({autosize: true, rows: 1, value: workspace.message, placeholder: t('提名說明（選填，無須簽名）', '提名说明（选填，无须签名）')});
     messageInput.$input.attr('aria-label', t('提名說明', '提名说明'));
     messageInput.on('change', value => { workspace.message = value; state.changed(); });
-    $panel.append(messageInput.$element);
+    dock.panes.details.append($('<div>').addClass('acga-dock-options').append($('<label>').attr('for', messageInput.getInputId()).text(t('提名說明', '提名说明')), messageInput.$element));
     const add = new OO.ui.ButtonWidget({label: t('新增一筆', '新增一项')});
     add.on('click', () => {
         if (workspace.operation || state.nominations.length >= 25) return;
@@ -522,6 +578,8 @@ export function showNewNominationDialog(workspace) {
         state.changed();
     });
     addEditorActions($panel, [add, remove]);
+    // 建好日期標題與表格後再捲動，避免空編輯區的頁尾位置把新內容留在視窗下方。
+    $panel[0].scrollIntoView({block: 'start'});
 }
 
 /**
@@ -550,9 +608,9 @@ export async function showCheckNominations(nominations, workspace) {
     const $panel = mountEditor(t('核對分數', '核对分数'), nominations[0]?.source);
     if (!$panel) return;
     activateWorkspace(workspace || {id: newId(), mode: 'check', nominations, message: ''});
-    const $progress = $('<p>').attr('role', 'status');
+    const $progress = dock.$summary;
     const $table = createNominationTable();
-    $panel.append($progress, $('<div>').addClass('acga-table-scroll').append($table));
+    $panel.append($('<div>').addClass('acga-table-scroll').append($table));
     const updateProgress = () => $progress.text(`${t('已核對', '已核对')} ${state.nominations.filter(n => n.reviewed).length} / ${state.nominations.length}`);
     state.nominations.forEach((nomination, index) => {
         const rows = appendNominationRows($table, nomination, index, {
@@ -608,4 +666,15 @@ function showConflicts($container, $panel) {
         } catch (error) { $error.text(error.message); reload.setDisabled(false); }
     });
     $container.append(reload.$element, $error);
+}
+
+/** 按日期歸檔的入口集中於懸浮條，不向正文標題附加操作連結。 */
+export function setArchiveActions(archives = []) {
+    dock.panes.archives.empty().addClass('acga-dock-archives');
+    for (const {date, action} of archives) {
+        const button = new OO.ui.ButtonWidget({label: `${date} · ${t('歸檔', '归档')}`});
+        button.on('click', action);
+        dock.panes.archives.append(button.$element);
+    }
+    dock.setActive(!!$editor?.is(':visible'));
 }

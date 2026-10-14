@@ -16,7 +16,8 @@ import {
 import {
     showCheckNominations,
     showEditNominationDialog,
-    showNewNominationDialog
+    showNewNominationDialog,
+    setArchiveActions
 } from "./dialog.js";
 
 
@@ -248,24 +249,18 @@ function archiveChapter(date) {
  * 附在原始列上的日期與位置只供 DOM 對接，不作為跨版本儲存識別。
  */
 export async function addEditButtonsToPage() {
-    // 找到<span role"button">登記新提名</span>
-    let newNominationButton = $('span[role="button"]').filter(function () {
+    // 保留使用者熟悉的頁首雙按鈕：手動入口在前，小工具的藍色入口在後。
+    const newNominationButton = $('span[role="button"]').filter(function () {
         return $(this).text() === '登記新提名' || $(this).text() === '登记新提名';
     });
     if (newNominationButton.length > 0) {
-        // 修改原本按鈕的文本為「手動登記新提名」
-        newNominationButton.text(state.convByVar({
-            hant: '手動登記新提名', hans: '手动登记新提名',
-        }));
+        newNominationButton.text(state.convByVar({hant: '手動登記新提名', hans: '手动登记新提名'}));
         newNominationButton.removeClass('mw-ui-progressive');
-
-        // 父節點的父節點是<span>，在後面加入編輯按鈕
-        let newNominationButtonParent = newNominationButton.parent().parent();
-        let editUIButton = $('<span>').addClass('mw-ui-button').addClass('mw-ui-progressive').attr('role', 'button').text(state.convByVar({
+        const editUIButton = $('<span>').addClass('mw-ui-button mw-ui-progressive').attr('role', 'button').text(state.convByVar({
             hant: '登記新提名', hans: '登记新提名',
         }));
-        let editButton = $('<a>').attr('href', 'javascript:void(0)').append(editUIButton).click(newNomination);
-        newNominationButtonParent.append(' ').append(editButton);
+        const editButton = $('<a>').attr('href', 'javascript:void(0)').append(editUIButton).click(newNomination);
+        newNominationButton.parent().parent().append(' ', editButton);
     }
 
     if (mw.config.get('wgPageName') !== 'WikiProject:ACG/維基ACG專題獎/登記處') return;
@@ -275,22 +270,15 @@ export async function addEditButtonsToPage() {
 
     const content = document.getElementById('mw-content-text');
     if (!content) return;
-    for (const section of getNominationSections(content)) {
+    const sections = getNominationSections(content);
+    setArchiveActions(sections.filter(section => section.tables.length).map(section => {
+        const date = section.heading.textContent.trim();
+        return {date, action: () => archiveChapter(date)};
+    }));
+    for (const section of sections) {
         const h3 = $(section.heading);
-        const headingWrapper = h3.closest('.mw-heading');
-        const h3div = headingWrapper.length ? headingWrapper : h3;
-        let date = h3.text().trim();
+        const date = h3.text().trim();
         let index = 0;
-
-        // 為h3div底下的span.mw-editsection添加歸檔按鈕
-        let editsection = h3div.find('span.mw-editsection').first();
-        let editsectionA = editsection.find('a').first();
-        $('<a>').attr('href', 'javascript:void(0)').click(function () {
-            archiveChapter(date);
-        }).append(state.convByVar({
-            hant: '歸檔', hans: '归档',
-        })).insertAfter(editsectionA);
-        $('<span>&nbsp;|&nbsp;</span>').insertAfter(editsectionA);
 
         // 使用章節掃描取得的表格，容許 CD 將其包在 cd-comment-replacedPart 等容器內。
         for (const tableElement of section.tables) {

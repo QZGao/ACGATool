@@ -2,7 +2,7 @@
  * 編排登記處與積分榜的兩次獨立編輯。
  * operation 保留提交快照、入帳差額及各步驟狀態；部分完成時從未完成步驟恢復。
  */
-import {updateEntries, entryValues, listEntries} from './api.js';
+import {updateEntries, entryValues, listEntries, getDateSections} from './api.js';
 import {ReviewConflict, validateNominations, validateAccounting} from './conflicts.js';
 import {entryOwnership, assertCanCheck} from './ownership.js';
 import {wikiTransport, writeStep} from './transport.js';
@@ -11,6 +11,17 @@ import {newId, readRecord, parseCheck, previousBooking, checkWikitext, prepareSc
 
 export const REGISTER = 'WikiProject:ACG/維基ACG專題獎/登記處';
 export const SCORES = 'Module:ACGaward/list';
+
+/**
+ * 新提名的預覽與儲存共用日期判斷，依 UTC 與維基簽名保持一致。
+ * 登記處按日期排列；當天小節存在時，頁尾的新提名直接接續該節。
+ * @param {string[]} dates 登記處已有的日期標題。
+ * @param {Date} [now] 當前時間；測試可注入固定時刻。
+ */
+export function getNewNominationPlacement(dates, now = new Date()) {
+    const date = `${now.getUTCMonth() + 1}月${now.getUTCDate()}日`;
+    return {date, newSection: !dates.includes(date)};
+}
 
 /**
  * 整批驗證後產生登記處修改與差額入帳資料，不執行寫入。
@@ -59,9 +70,8 @@ function prepareNew(text, draft) {
     });
     block += "\n}}\n'''提名人：'''~~~~";
     if (draft.message) block += '\n: {{說明}}：' + draft.message + '--~~~~';
-    const today = new Date();
-    const date = `${today.getMonth() + 1}月${today.getDate()}日`;
-    if (!new RegExp(`^===\\s*${date}\\s*===`, 'm').test(text)) block = `=== ${date} ===\n` + block;
+    const {date, newSection} = getNewNominationPlacement(getDateSections(text).map(section => section.date));
+    if (newSection) block = `=== ${date} ===\n` + block;
     return text + '\n' + block;
 }
 

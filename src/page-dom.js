@@ -9,7 +9,7 @@ export function getNominationSections(root) {
     const sections = [];
     let current = null;
     for (const element of root.querySelectorAll('h1, h2, h3, table.acgnom-table')) {
-        if (element.closest('.acga-editor') || element.parentElement?.closest('table.acgnom-table')) continue;
+        if (element.closest('.acga-editor, .acga-dock, .acga-dialogs') || element.parentElement?.closest('table.acgnom-table')) continue;
         if (element.matches('h1, h2')) {
             current = null;
         } else if (element.matches('h3')) {
@@ -20,4 +20,9 @@ export function getNominationSections(root) {
         }
     }
     return sections;
+}
+
+/** 取得真正的正文容器，讓表格以外的控制項集中掛載於同一處。 */
+export function getArticleRoot() {
+    return document.querySelector('#mw-content-text .mw-parser-output');
 }

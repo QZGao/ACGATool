@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDraftStore, clearSubmittedDraft} from '../src/drafts.js';
-import {submitWorkspace, REGISTER, SCORES} from '../src/submission.js';
-import {entryValues, queryEntry, queried2NomData} from '../src/api.js';
+import {submitWorkspace, REGISTER, SCORES, getNewNominationPlacement} from '../src/submission.js';
+import {entryValues, queryEntry, queried2NomData, getDateSections} from '../src/api.js';
 import {reviewData} from '../src/scoring.js';
 
 function storage() {
@@ -32,6 +32,22 @@ function fixture() {
     };
     return {draft: {id: 'draft', mode: 'check', nominations: [nomination], message: ''}, io, writes, pages};
 }
+
+test('new nominations append at the bottom and only add a missing UTC date heading', async () => {
+    const {date} = getNewNominationPlacement([]);
+    for (const hasToday of [false, true]) {
+        const {draft, io, writes, pages} = fixture();
+        const original = `頁首\n=== ${hasToday ? date : '舊日期'} ===\n既有提名與說明\n`;
+        pages.set(REGISTER, {text: original, revid: 1});
+        draft.mode = 'new';
+        assert.equal(await submitWorkspace(draft, () => {}, io), true);
+        const saved = pages.get(REGISTER).text;
+        assert.ok(saved.startsWith(original));
+        assert.equal(getDateSections(saved).filter(section => section.date === date).length, 1);
+        assert.equal(entryValues(queryEntry(saved, date, 1))['條目名稱'], 'Test');
+        assert.deepEqual(writes, [REGISTER]);
+    }
+});
 
 test('clearing a submitted snapshot preserves later edits and other drafts', () => {
     const store = createDraftStore(storage(), 'site:user');
