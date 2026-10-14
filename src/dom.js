@@ -1,4 +1,5 @@
 import state from "./state.js";
+import {getNominationSections} from "./page-dom.js";
 import {entryOwnership, isOwnNomination, assertCanCheck} from "./ownership.js";
 import {reviewData, parseCheck} from "./scoring.js";
 import {SCORES} from "./submission.js";
@@ -272,10 +273,12 @@ export async function addEditButtonsToPage() {
     try { fulltext = await getFullText(); }
     catch { mw.notify('無法讀取提名資料，請重新整理後再試。', {type: 'error'}); return; }
 
-    // 識別所有h3
-    $('div.mw-heading3').each(function () {
-        let h3div = $(this);
-        let h3 = h3div.find('h3').first();
+    const content = document.getElementById('mw-content-text');
+    if (!content) return;
+    for (const section of getNominationSections(content)) {
+        const h3 = $(section.heading);
+        const headingWrapper = h3.closest('.mw-heading');
+        const h3div = headingWrapper.length ? headingWrapper : h3;
         let date = h3.text().trim();
         let index = 0;
 
@@ -289,8 +292,9 @@ export async function addEditButtonsToPage() {
         })).insertAfter(editsectionA);
         $('<span>&nbsp;|&nbsp;</span>').insertAfter(editsectionA);
 
-        h3div.nextUntil('div.mw-heading3', 'table.acgnom-table').each(function () {
-            let table = $(this);
+        // 使用章節掃描取得的表格，容許 CD 將其包在 cd-comment-replacedPart 等容器內。
+        for (const tableElement of section.tables) {
+            const table = $(tableElement);
             let rows = table.find('tr').slice(1);  // 去掉表頭
             let title = "";
             rows.each(function () {
@@ -357,6 +361,6 @@ export async function addEditButtonsToPage() {
                     mwNoTalk.append(multiCheckDiv);
                 }
             });
-        });
-    });
+        }
+    }
 }
