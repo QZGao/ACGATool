@@ -3,6 +3,7 @@
  * operation 保留提交快照、入帳差額及各步驟狀態；部分完成時從未完成步驟恢復。
  */
 import {findUnchangedEntry, updateEntries} from './api.js';
+import {entryOwnership, assertCanCheck} from './ownership.js';
 import {wikiTransport, writeStep} from './transport.js';
 import {generateReason} from './rules.js';
 import {newId, previousBooking, checkWikitext, prepareScoreText, scoreDeltas} from './scoring.js';
@@ -23,6 +24,7 @@ export function prepareChecks(text, nominations, operation = newId()) {
     const results = [];
     const updates = nominations.map(nomination => {
         const entry = findUnchangedEntry(text, nomination.source);
+        assertCanCheck(entryOwnership(text, entry), mw.config.get('wgUserName'), nomination.awarder);
         const reason = generateReason(nomination.ruleStatus, true);
         if (!reason) throw new Error('請檢查規則分數。');
         const score = nomination.invalid ? 0 : reason.reasonScore;

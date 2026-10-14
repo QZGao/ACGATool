@@ -304,7 +304,9 @@ export function getDateSections(text) {
  * Each entry is either a main template ({{ACG提名}}), a nested extra template, or an entry from {{ACG提名2}}.
  * @param {string} text The full wikitext.
  * @param {object} section A section object { date, start, end }.
- * @returns {Array} Array of entry objects: { template, start, end, type }.
+ * @returns {Array} Entries with template, start, end, type and containerEnd.
+ * containerEnd points past the enclosing nomination template, whose following signature
+ * is shared by its grouped entries and nested extras.
  */
 function collectEntriesInSection(text, section) {
     let entries = [];
@@ -323,19 +325,19 @@ function collectEntriesInSection(text, section) {
                 for (let entry of template.entries) {
                     entries.push({
                         template: entry, // entry holds the grouped key-value parameters
-                        start: entry.fullLocation.start, end: entry.fullLocation.end, type: 'acg2',
+                        start: entry.fullLocation.start, end: entry.fullLocation.end, type: 'acg2', containerEnd: template.location.end,
                     });
                 }
             }
         } else {
             // For regular ACG提名
             entries.push({
-                template: template, start: template.location.start, end: template.location.end, type: 'main',
+                template: template, start: template.location.start, end: template.location.end, type: 'main', containerEnd: template.location.end,
             });
             if (template.params['額外提名'] && template.params['額外提名'].nestedTemplates) {
                 for (let nested of template.params['額外提名'].nestedTemplates) {
                     entries.push({
-                        template: nested, start: nested.location.start, end: nested.location.end, type: 'extra',
+                        template: nested, start: nested.location.start, end: nested.location.end, type: 'extra', containerEnd: template.location.end,
                     });
                 }
             }

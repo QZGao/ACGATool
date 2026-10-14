@@ -12,7 +12,7 @@ function storage() {
 }
 const clone = value => JSON.parse(JSON.stringify(value));
 function fixture() {
-    const text = '=== 10月14日 ===\n{{ACG提名2\n|條目名稱1 = Test\n|用戶名稱1 = A\n|提名理由1 = {{ACG提名2/request|ver=1|1a}}\n|核對用1 = {{ACG提名2/check|ver=1|}}\n}}';
+    const text = '=== 10月14日 ===\n{{ACG提名2\n|條目名稱1 = Test\n|用戶名稱1 = A\n|提名理由1 = {{ACG提名2/request|ver=1|1a}}\n|核對用1 = {{ACG提名2/check|ver=1|}}\n}}\n提名人：[[User:Nominator]]';
     const scores = 'return {\n ["A"] = 10,\n}';
     const entry = queryEntry(text, '10月14日', 1);
     const nomination = reviewData(queried2NomData(entry), {date: '10月14日', index: 1, values: entryValues(entry)}, scores);

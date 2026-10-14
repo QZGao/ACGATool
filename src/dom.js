@@ -1,4 +1,5 @@
 import state from "./state.js";
+import {entryOwnership, isOwnNomination, assertCanCheck} from "./ownership.js";
 import {reviewData} from "./scoring.js";
 import {SCORES} from "./submission.js";
 import {
@@ -65,7 +66,9 @@ async function openCheckQueue(targets) {
             const entry = queryEntry(fulltext, date, index);
             const data = queried2NomData(entry);
             if (!data) throw new Error('小工具無法讀取該提名，請手動編輯。');
-            return reviewData(data, {date, index, values: entryValues(entry)}, scoreText);
+            const ownership = entryOwnership(fulltext, entry);
+            assertCanCheck(ownership, mw.config.get('wgUserName'), data.awarder);
+            return reviewData(data, {date, index, values: entryValues(entry), ownership}, scoreText);
         });
         await showCheckNominations(nominations);
     } catch (error) {
@@ -235,9 +238,10 @@ function archiveChapter(date) {
 }
 
 /**
- * 在頁面上添加編輯按鈕。
+ * 讀取提名資料後，在頁面加入編輯與核對入口，隱藏自己的核對入口。
+ * 此處的身分判斷只控制顯示；提交時仍須根據最新來源再次檢查。
  */
-export function addEditButtonsToPage() {
+export async function addEditButtonsToPage() {
     // 找到<span role"button">登記新提名</span>
     let newNominationButton = $('span[role="button"]').filter(function () {
         return $(this).text() === '登記新提名' || $(this).text() === '登记新提名';
@@ -257,6 +261,10 @@ export function addEditButtonsToPage() {
         let editButton = $('<a>').attr('href', 'javascript:void(0)').append(editUIButton).click(newNomination);
         newNominationButtonParent.append(' ').append(editButton);
     }
+
+    let fulltext;
+    try { fulltext = await getFullText(); }
+    catch { mw.notify('無法讀取提名資料，請重新整理後再試。', {type: 'error'}); return; }
 
     // 識別所有h3
     $('div.mw-heading3').each(function () {
@@ -305,6 +313,9 @@ export function addEditButtonsToPage() {
                     let td = row.find('td').first();
                     let mwNoTalk = td.find('.mw-notalk').first();
                     const currentIndex = index;
+
+                    const entry = queryEntry(fulltext, date, currentIndex);
+                    if (!entry || isOwnNomination(entryOwnership(fulltext, entry), mw.config.get('wgUserName'))) return;
 
                     // 單項核對
                     let checkIcon = $('<img>').attr('src', 'https://upload.wikimedia.org/wikipedia/commons/3/30/OOjs_UI_icon_highlight-progressive.svg').css({
