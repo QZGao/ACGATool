@@ -393,6 +393,8 @@ function initEditorStyles() {
         .acga-editor { margin: 1.5em 0; padding: 1em; border: 1px solid var(--border-color-base, #a2a9b1); color: var(--color-base, inherit); background: var(--background-color-base, transparent); }
         .acga-editor h2 { margin-top: 0; }
         .acga-editor .oo-ui-fieldsetLayout { margin-bottom: 1em; }
+        .acga-save-progress li { margin-block: .75em; }
+        .acga-save-progress p { margin-block: .25em; }
         .acga-actions { display: flex; flex-wrap: wrap; gap: .5em; margin-top: 1em; }
         .acga-rules details { margin: .75em 0; }
         .acga-rules summary { cursor: pointer; font-weight: bold; }
@@ -481,22 +483,45 @@ function mountEditor(title) {
 }
 
 /**
- * 將草稿保存與提交流程接到編輯器操作；保存失敗時保留內容。
+ * 將每個頁面的儲存狀態接到進度介面；已完成項目不再提供重送操作。
+ * 回應未明的項目只查證原請求。使用者關閉或重新載入後，仍可由草稿恢復。
  */
 function addEditorActions($panel, extras = []) {
     $draftStatus = $('<p>').attr('role', 'status');
     const $status = $('<p>').attr('role', 'status');
-    const saveButton = new OO.ui.ButtonWidget({label: t('提交', '提交'), flags: ['primary', 'progressive']});
+    const $progress = $('<ol>').addClass('acga-save-progress').attr('aria-label', t('儲存進度', '储存进度'));
+    const saveButton = new OO.ui.ButtonWidget({label: t('送出全部', '提交全部'), flags: ['primary', 'progressive']});
     const closeButton = new OO.ui.ButtonWidget({label: t('關閉並保留草稿', '关闭并保留草稿')});
     const forkButton = new OO.ui.ButtonWidget({label: t('另存目前草稿', '另存当前草稿')});
     const buttons = [saveButton, ...extras, closeButton, forkButton];
-    forkButton.on('click', () => {
-        state.workspace.id = newId();
-        state.workspace.storageVersion = 0;
-        state.changed();
-    });
-    closeButton.on('click', () => { state.changed(); $panel.hide(); });
-    saveButton.on('click', async () => {
+    let saving = false, completed = false, completedOperation = null;
+    const showProgress = () => {
+        const operation = state.workspace.operation || completedOperation;
+        $progress.empty();
+        saveButton.toggle(!operation);
+        if (!operation) return;
+        operation.steps.forEach((step, index) => {
+            const labels = {pending: t('等待儲存', '等待储存'), saving: t('正在儲存', '正在储存'), succeeded: t('✓ 已完成'), failed: t('儲存失敗', '储存失败'), unknown: t('結果未明', '结果未明')};
+            const name = step.key === 'registry' ? t('登記處', '登记处') : t('積分榜', '积分榜');
+            const $row = $('<li>').append($('<strong>').text(`${name}：${labels[step.status] || step.status}`));
+            if (step.error) $row.append($('<p>').text(step.error));
+            if (step.status === 'succeeded' && step.revid) {
+                $row.append(' ', $('<a>').attr({href: mw.util.getUrl(step.title, {oldid: step.revid}), target: '_blank', rel: 'noopener'}).text(t('查看已儲存版本', '查看已储存版本')));
+            }
+            if (['failed', 'unknown', 'saving', 'pending'].includes(step.status)) {
+                // 恢復中的 saving 也可能早已寫入；這兩種狀態只能先查詢結果。
+                const uncertain = ['unknown', 'saving'].includes(step.status);
+                const retry = new OO.ui.ButtonWidget({label: uncertain ? t('重新查詢結果', '重新查询结果') : t('重試', '重试')});
+                retry.setDisabled(saving || operation.steps.slice(0, index).some(previous => previous.status !== 'succeeded'));
+                retry.on('click', runSave);
+                $row.append(' ', retry.$element);
+            }
+            $progress.append($row);
+        });
+    };
+    const runSave = async () => {
+        if (saving || completed) return;
+        saving = true;
         const controls = $panel.find(':input').toArray().map(element => [element, element.disabled]);
         $panel.find(':input').prop('disabled', true);
         buttons.forEach(button => button.setDisabled(true));
@@ -505,27 +530,37 @@ function addEditorActions($panel, extras = []) {
             persistWorkspace();
             const success = await submitWorkspace(state.workspace, persistWorkspace);
             if (success) {
-                clearSubmittedDraft(draftStore, state.workspace, state.workspace.operation.submitted);
+                // 草稿完成後會移除 operation，另留畫面快照以繼續顯示完成狀態。
+                completedOperation = state.workspace.operation;
+                clearSubmittedDraft(draftStore, state.workspace, completedOperation.submitted);
                 state.nominations = state.workspace.nominations;
+                completed = true;
                 refreshDraftList();
-                $status.text(t('已儲存。', '已储存。'));
-                if (!state.nominations.length) $panel.hide();
-            } else {
-                const step = state.workspace.operation.steps.find(item => item.status !== 'succeeded');
-                $status.text(step.error || t('儲存尚未完成。', '储存尚未完成。'));
-            }
+                $status.text(t('本次提交已全部完成。', '本次提交已全部完成。'));
+                closeButton.setLabel(t('關閉', '关闭'));
+            } else $status.text(t('儲存尚未完成，草稿和已完成的步驟已保留。', '储存尚未完成，草稿和已完成的步骤已保留。'));
         } catch (error) {
             $status.text(t('儲存未完成：', '储存未完成：') + (error.message || String(error)));
         } finally {
+            saving = false;
             controls.forEach(([element, disabled]) => { element.disabled = disabled; });
-            buttons.forEach(button => button.setDisabled(false));
-            lockPendingForm($panel);
+            buttons.forEach(button => button.setDisabled(completed && button !== closeButton));
+            if (completed) $panel.find(':input').not(closeButton.$element.find(':input')).prop('disabled', true);
+            else lockPendingForm($panel);
+            showProgress();
         }
+    };
+    state.progress = showProgress;
+    forkButton.on('click', () => {
+        state.workspace.id = newId(); state.workspace.storageVersion = 0; state.changed();
     });
-    $panel.append($('<div>').addClass('acga-actions').append(buttons.map(button => button.$element)), $draftStatus, $status);
-    $panel.on('input change', () => state.changed());
+    closeButton.on('click', () => { if (!completed) state.changed(); $panel.hide(); });
+    saveButton.on('click', runSave);
+    $panel.append($('<div>').addClass('acga-actions').append(buttons.map(button => button.$element)), $draftStatus, $progress, $status);
+    $panel.on('input change', () => { if (!completed) state.changed(); });
     state.changed();
     lockPendingForm($panel);
+    showProgress();
 }
 
 /**
@@ -541,6 +576,7 @@ function lockPendingForm($panel) {
  * state.nominations 與 workspace.nominations 指向同一陣列，不另保留一份可分歧的表單資料。
  */
 function activateWorkspace(workspace) {
+    state.progress = () => {};
     state.workspace = workspace;
     state.nominations = workspace.nominations;
     state.changed = () => {
@@ -558,6 +594,7 @@ function persistWorkspace() {
     draftStore.save(state.workspace);
     $draftStatus?.text(t('草稿已保存於此瀏覽器。', '草稿已保存于此浏览器。'));
     refreshDraftList();
+    state.progress?.();
 }
 
 /**

@@ -114,12 +114,26 @@ export async function submitWorkspace(draft, persist, io = wikiTransport) {
     const operation = draft.operation;
     for (const step of operation.steps) {
         if (step.status === 'succeeded') continue;
-        if (step.key === 'scores' && !['saving', 'unknown'].includes(step.status)) {
-            const current = await io.read(SCORES);
-            const text = prepareScoreText(current.text, operation.results, operation.id);
-            if (text === current.text) { step.status = 'succeeded'; persist(); continue; }
-            step.attempt = makeAttempt(SCORES, current, text, operation.id, '[[User:SuperGrey/gadgets/ACGATool|積分調整]]');
-            step.attempt.marker = '"operation":' + JSON.stringify(operation.id);
+        // 確定尚未寫入的步驟才可依最新版本重建；結果未明時必須沿用原 attempt。
+        if (!['saving', 'unknown'].includes(step.status)) {
+            try {
+                const current = await io.read(step.title);
+                if (step.key === 'scores') {
+                    const text = prepareScoreText(current.text, operation.results, operation.id);
+                    if (text === current.text) { step.status = 'succeeded'; step.revid = current.revid; persist(); continue; }
+                    step.attempt = makeAttempt(SCORES, current, text, operation.id, '[[User:SuperGrey/gadgets/ACGATool|積分調整]]');
+                    step.attempt.marker = '"operation":' + JSON.stringify(operation.id);
+                } else {
+                    const submitted = operation.submitted;
+                    let text;
+                    if (operation.mode === 'new') text = prepareNew(current.text, submitted);
+                    else if (operation.mode === 'edit') text = prepareEdit(current.text, submitted);
+                    else text = prepareChecks(current.text, submitted.nominations, operation.id).text;
+                    step.attempt = makeAttempt(REGISTER, current, text + '\n' + registryMarker(operation.id), operation.id, '[[User:SuperGrey/gadgets/ACGATool|提名與核分]]');
+                }
+            } catch (error) {
+                step.status = 'failed'; step.error = error.message; persist(); return false;
+            }
         }
         if (!await writeStep(step, persist, io)) return false;
     }
