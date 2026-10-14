@@ -1,14 +1,13 @@
 import state from "./state.js";
 import {getOrderedRuleStatus, NominationRules, NominationRuleSet} from "./rules.js";
-import {saveModifiedNomination, saveNewNomination, saveNominationCheck} from "./dom.js";
+import {saveModifiedNomination, saveNewNomination} from "./dom.js";
+import {saveChecks} from "./submission.js";
 import {getXToolsInfo} from "./api.js";
 
 let windowManager = null;  // Window manager for OOUI dialogs
 let $editor = null;
 let messageInput = null;
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
-let checkNominationDialog = null;  // 檢查提名dialog
-let checkNominationDialogContent = null;
 
 export function initOOUI() {
     // Initialize OOUI custom widgets
@@ -17,8 +16,6 @@ export function initOOUI() {
     // Initialize dialogs
     initRuleDialog();
     initEditorStyles();
-    checkNominationDialogContent = new OO.ui.FieldsetLayout();
-    initCheckNominationDialog();
     // Initialize window manager
     initWindowManager();
 }
@@ -228,13 +225,11 @@ function generateNominationFieldset(nomData = null) {
  * @param nomData 提名資料。
  * @returns {OO.ui.FieldsetLayout} 提名檢查單。
  */
-async function generateChecklistFieldset(nomData) {
+async function generateChecklistFieldset(nomData, nomidx) {
     let awarder = nomData.awarder;
     let pageName = nomData.pageName;
     let ruleStatus = nomData.ruleStatus;
-    state.nominations.push({
-        awarder: awarder, pageName: pageName, ruleStatus: ruleStatus, invalid: false, message: '',
-    });
+
 
     // 得分者
     let userNameLinkLabelWidget = new OO.ui.LabelWidget({label: $('<a>').attr('href', mw.util.getUrl('User:' + awarder)).text(awarder)});
@@ -302,8 +297,8 @@ async function generateChecklistFieldset(nomData) {
             })),
         });
         // 更多頁面資訊 from XTools
-        let xtoolsData = await getXToolsInfo(pageName);
-        let xtoolsPageInfoLabelWidget = new OO.ui.LabelWidget({label: $('<div>').html(xtoolsData)});
+        let xtoolsPageInfoLabelWidget = new OO.ui.LabelWidget();
+        getXToolsInfo(pageName).then(html => xtoolsPageInfoLabelWidget.setLabel($('<div>').html(html)));
         xtoolsPageInfoLabelWidget.$element.css({'font-size': '0.9em'});
         pageNameHorizontalLayout = new OO.ui.HorizontalLayout({
             items: [
@@ -340,7 +335,7 @@ async function generateChecklistFieldset(nomData) {
     // 提名無效
     let invalidToggleSwitchWidget = new OO.ui.ToggleSwitchWidget({value: false});
     invalidToggleSwitchWidget.on('change', function (isChecked) {
-        state.nominations[0].invalid = isChecked;
+        state.nominations[nomidx].invalid = isChecked;
     });
     let invalidField = new OO.ui.FieldLayout(invalidToggleSwitchWidget, {
         label: state.convByVar({
@@ -370,7 +365,7 @@ async function generateChecklistFieldset(nomData) {
     for (const ruleItem of orderedRuleStatus) {
         let ruleSet = ruleDict[ruleItem.rule];
         let ruleCheckbox = new RuleCheckboxInputWidget({
-            value: ruleItem.rule, ruleset: ruleSet, nomidx: 0, check: true,
+            value: ruleItem.rule, ruleset: ruleSet, nomidx, check: true,
         });
         ruleItems.push(ruleCheckbox);
     }
@@ -387,14 +382,7 @@ async function generateChecklistFieldset(nomData) {
         autosize: true, rows: 1,
     });
     messageInput.on('change', function (newValue) {
-        state.nominations[0].message = newValue;
-    });
-    messageInput.on('resize', function () {
-        try {
-            checkNominationDialog.updateSize();
-        } catch (error) {
-            console.error('[ACGATool] Error updating dialog size:', error);
-        }
+        state.nominations[nomidx].message = newValue;
     });
     let messageField = new OO.ui.FieldLayout(messageInput, {
         label: state.convByVar({
@@ -561,121 +549,43 @@ export function getNewNominationDialogAdditionalMessage() {
  * 在頁面內開啟單筆提名編輯器。
  * @param {object} nomData 從頁面解析的提名內容。
  */
-export function showEditNominationDialog(nomData) {
+export function showEditNominationDialog(nomData, queried) {
     const $panel = mountEditor(t('編輯提名', '编辑提名'));
     if (!$panel) return;
+    state.queried = queried;
     state.nominations = [];
     $panel.append(generateNominationFieldset(nomData).$element);
     addEditorActions($panel, saveModifiedNomination);
 }
 
 /**
- * 核分提名對話框。
- * @param config
- * @constructor
+ * 建立批次核對介面；完成標記只寫入草稿，直到使用者統一提交才發布。
+ * @param {object[]} nominations 含來源快照的待核對項目。
  */
-function CheckNominationDialog(config) {
-    CheckNominationDialog.super.call(this, config);
-}
-
-/**
- * 初始化核分提名對話框。在腳本啟動時執行一次。
- */
-function initCheckNominationDialog() {
-    OO.inheritClass(CheckNominationDialog, OO.ui.ProcessDialog);
-
-    CheckNominationDialog.static.name = 'CheckNominationDialog';
-    CheckNominationDialog.static.title = state.convByVar({
-        hant: '核對分數（維基ACG專題獎小工具）', hans: '核对分数（维基ACG专题奖小工具）',
-    });
-    CheckNominationDialog.static.actions = [
-        {
-            action: 'save', label: state.convByVar({
-                hant: '儲存', hans: '储存',
-            }), flags: [
-                'primary', 'progressive',
-            ],
-        }, {
-            action: 'cancel', label: state.convByVar({
-                hant: '取消', hans: '取消',
-            }), flags: 'safe',
-        },
-    ];
-    CheckNominationDialog.prototype.initialize = function () {
-        CheckNominationDialog.super.prototype.initialize.call(this);
-        this._header = this.$body.find('.oo-ui-processDialog-title');
-        this.panel = new OO.ui.PanelLayout({
-            padded: true, expanded: false,
+export async function showCheckNominations(nominations) {
+    const $panel = mountEditor(t('核對分數', '核对分数'));
+    if (!$panel) return;
+    state.nominations = nominations.map(nomination => ({...nomination, invalid: false, message: '', reviewed: false}));
+    const $progress = $('<p>').attr('role', 'status');
+    const $list = $('<div>');
+    $panel.append($progress, $list);
+    const updateProgress = () => $progress.text(`${t('已核對', '已核对')} ${state.nominations.filter(n => n.reviewed).length} / ${state.nominations.length}`);
+    for (const [index, nomination] of state.nominations.entries()) {
+        const $item = $('<details>').prop('open', index === 0);
+        const $summary = $('<summary>').text(`${index + 1}. ${nomination.pageName} · ${nomination.awarder}`);
+        $item.append($summary);
+        $list.append($item);
+        const field = await generateChecklistFieldset(nomination, index);
+        $item.append(field.$element);
+        const done = new OO.ui.CheckboxInputWidget();
+        done.on('change', value => {
+            nomination.reviewed = value;
+            updateProgress();
         });
-        this.panel.$element.append(checkNominationDialogContent.$element);
-        this.$body.append(this.panel.$element);
-    };
-
-    CheckNominationDialog.prototype.getSetupProcess = function (data) {
-        return CheckNominationDialog.super.prototype.getSetupProcess.call(this, data)
-            .next(function () {
-                if (data.title) {
-                    this._header.innerText = data.title;
-                }
-            }, this);
-    };
-
-    CheckNominationDialog.prototype.onMessageInputResize = function () {
-        this.updateSize();
-    };
-
-    CheckNominationDialog.prototype.getBodyHeight = function () {
-        return this.panel.$element.outerHeight(true);
-    };
-
-    CheckNominationDialog.prototype.getActionProcess = function (action) {
-        if (action === 'save') {
-            return new OO.ui.Process(async function () {
-                let response = await saveNominationCheck();
-                if (!response) {
-                    this.close();
-                }
-            }, this);
-        } else if (action === 'cancel') {
-            return new OO.ui.Process(function () {
-                this.close();
-            }, this);
-        }
-        return CheckNominationDialog.super.prototype.getActionProcess.call(this, action);
-    };
-
-    CheckNominationDialog.prototype.getTearnDownProcess = function (data) {
-        return CheckNominationDialog.super.prototype.getTearnDownProcess.call(this, data);
-    };
-
-    mw.util.addCSS('.checklist-field .oo-ui-fieldLayout-field { width: 80% !important; }');
-}
-
-/**
- * 顯示核分提名對話框。
- * @param nomData 提名資料。
- * @param multiCheckStatus 多選核對狀態字串。
- */
-export async function showCheckNominationDialog(nomData, multiCheckStatus) {
-    // 清空原有的items
-    checkNominationDialogContent.clearItems();
-    state.nominations.length = 0;
-
-    checkNominationDialog = new CheckNominationDialog({
-        size: 'large', padded: true, scrollable: true,
-    });
-
-    // 加入新的items
-    const field = await generateChecklistFieldset(nomData);
-    checkNominationDialogContent.addItems([field]);
-
-    windowManager.addWindows([checkNominationDialog]);
-
-    const instance = windowManager.openWindow(checkNominationDialog, multiCheckStatus ? {
-        title: state.convByVar({
-            hant: '核對分數，' + multiCheckStatus + '（維基ACG專題獎小工具）',
-            hans: '核对分数，' + multiCheckStatus + '（维基ACG专题奖小工具）',
-        }),
-    } : undefined);
-    await instance.closed;
+        // Any edits invalidate the prior acknowledgement for this item.
+        field.$element.on('input change', () => done.setSelected(false));
+        $item.append(new OO.ui.FieldLayout(done, {label: t('已核對此筆，加入待提交清單', '已核对此项，加入待提交清单'), align: 'inline'}).$element);
+    }
+    updateProgress();
+    addEditorActions($panel, () => saveChecks(state.nominations));
 }

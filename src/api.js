@@ -192,6 +192,8 @@ function parseTemplate(text, start) {
             group.fullLocation = {
                 start: startPos, end: endPos,
             };
+            // 保留來源的實際編號；補寫缺少的欄位時不能用陣列位置重新編號。
+            group.parameterSuffix = String(num);
             entries.push(group);
         }
         templateObj.entries = entries;
@@ -367,7 +369,7 @@ export function queryEntry(text, date, index) {
 /**
  * Given an entry (from queryEntry) and a set of changes (mapping parameter key to new value),
  * updates only those parameter values in the original wikitext by using the precise location data.
- * This function does not replace the entire entry substring—only the changed parameter values.
+ * Existing parameters are changed in place; missing parameters are inserted with the original suffix.
  *
  * For main or extra entries, changes should be provided as an object where keys are parameter names
  * (e.g. "條目名稱") and values are the new text.
@@ -380,37 +382,66 @@ export function queryEntry(text, date, index) {
  * @returns {string} The updated wikitext.
  */
 export function updateEntryParameters(original, entry, changes) {
-    let mods = [];
-    if (entry.type === 'main' || entry.type === 'extra') {
-        let params = entry.template.params;
-        for (let key in changes) {
-            if (params[key] && params[key].valueLocation) {
-                mods.push({
-                    start: params[key].valueLocation.start,
-                    end: params[key].valueLocation.end,
-                    replacement: changes[key],
-                });
-            }
-        }
-    } else if (entry.type === 'acg2') {
-        // For ACG提名2 grouped entry, keys are like "條目名稱1", "用戶名稱1", etc.
-        for (let key in changes) {
-            if (entry.template[key]) {
-                let token = entry.template[key];
-                // Use token.valueLocation for precise updating.
-                mods.push({
-                    start: token.valueLocation.start, end: token.valueLocation.end, replacement: changes[key],
-                });
+    return updateEntries(original, [{entry, changes}]);
+}
+
+/**
+ * 批次改寫提名參數；所有 entry 的字元位置必須來自同一份 original。
+ * 先收集全部替換，再由後往前套用，避免前一筆修改使後面的字元位置失效。
+ * 缺少的參數會補入原模板，ACG提名2 沿用原參數編號。
+ * @param {string} original 產生 entry 位置的完整 wikitext。
+ * @param {Array<{entry: object, changes: Object<string, string>}>} updates 待修改的參數。
+ * @returns {string} 修改後的完整 wikitext，不執行儲存。
+ */
+export function updateEntries(original, updates) {
+    const mods = [];
+    for (const {entry, changes} of updates) {
+        const params = entry.type === 'acg2' ? entry.template : entry.template.params;
+        for (const [key, value] of Object.entries(changes)) {
+            if (params[key]?.valueLocation) {
+                mods.push({...params[key].valueLocation, replacement: value});
+            } else {
+                const end = entry.type === 'acg2' ? entry.end : entry.template.location.end - 2;
+                const suffix = entry.type === 'acg2' ? entry.template.parameterSuffix : '';
+                mods.push({start: end, end, replacement: `\n|${key}${suffix} = ${value}\n`});
             }
         }
     }
-    // Apply modifications in descending order of start position.
     mods.sort((a, b) => b.start - a.start);
     let updated = original;
-    for (let mod of mods) {
-        updated = updated.slice(0, mod.start) + mod.replacement + updated.slice(mod.end);
-    }
+    for (const mod of mods) updated = updated.slice(0, mod.start) + mod.replacement + updated.slice(mod.end);
     return updated;
+}
+
+/**
+ * 取出供草稿與變更比對使用的四個原始欄位。
+ * 保留 wikitext 與註解，使核對結果、說明及識別資訊的變更都能被發現。
+ * @param {object} entry 已解析的提名。
+ * @returns {Object<string, string>} 欄位名稱到原始文字的對應。
+ */
+export function entryValues(entry) {
+    const params = entry.type === 'acg2' ? entry.template : entry.template.params;
+    return Object.fromEntries(['條目名稱', '用戶名稱', '提名理由', '核對用'].map(key => [key, params[key]?.value || '']));
+}
+
+/**
+ * 依頁面順序列出各日期章節的提名，附上日期與章節內從 1 起算的 index。
+ * index 是當次讀取的位置，不能當成跨版本不變的提名識別。
+ */
+export function listEntries(text) {
+    return getDateSections(text).flatMap(section => collectEntriesInSection(text, section)
+        .map((entry, index) => ({...entry, date: section.date, index: index + 1})));
+}
+
+/**
+ * 以日期與原始四欄快照，從最新本文重新找出唯一且未變更的提名。
+ * 找不到或有多筆相符時停止，避免將舊的字元位置套到其他提名。
+ */
+export function findUnchangedEntry(text, source) {
+    const matches = listEntries(text).filter(entry => entry.date === source.date &&
+        JSON.stringify(entryValues(entry)) === JSON.stringify(source.values));
+    if (matches.length !== 1) throw new Error('提名已變更、移除或無法唯一辨識，請重新核對。');
+    return matches[0];
 }
 
 /**
@@ -490,6 +521,7 @@ function parseUserReason(reason) {
  * @returns {object} 提名數據。
  */
 export function queried2NomData(queried) {
+    if (!queried) return null;
     let nomData = {};
 
     if (queried.type === 'main' || queried.type === 'extra') {

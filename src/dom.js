@@ -1,7 +1,7 @@
 import state from "./state.js";
 import {
     appendToPage,
-    editACGAScoreList,
+    entryValues,
     editPage,
     getDateSections,
     getFullText,
@@ -12,7 +12,7 @@ import {
 } from "./api.js";
 import {
     getNewNominationDialogAdditionalMessage,
-    showCheckNominationDialog,
+    showCheckNominations,
     showEditNominationDialog,
     showNewNominationDialog
 } from "./dialog.js";
@@ -26,8 +26,8 @@ import {generateReason} from "./rules.js";
  */
 function editNomination(date, index) {
     getFullText().then(function (fulltext) {
-        state.queried = queryEntry(fulltext, date, index);
-        let nomData = queried2NomData(state.queried);
+        const queried = queryEntry(fulltext, date, index);
+        let nomData = queried2NomData(queried);
         if (nomData == null) {
             mw.notify(state.convByVar({
                 hant: '小工具無法讀取該提名，請手動編輯。', hans: '小工具无法读取该提名，请手动编辑。',
@@ -37,7 +37,7 @@ function editNomination(date, index) {
                 }),
             });
         } else {
-            showEditNominationDialog(nomData);
+            showEditNominationDialog(nomData, queried);
         }
     });
 }
@@ -47,23 +47,29 @@ function editNomination(date, index) {
  * @param date 日期（章節標題）
  * @param index 該章節下第X個提名
  * @param multiCheckStatus 多選核對狀態字串
- * @return {Promise} 返回一個Promise，當核對完成時解析。
+ * @return {Promise<void>} 核對介面建立後解析；不等待使用者提交。
  */
-async function checkNomination(date, index, multiCheckStatus = null) {
-    const fulltext = await getFullText();
-    state.queried = queryEntry(fulltext, date, index);
-    const nomData = queried2NomData(state.queried);
-    if (nomData == null) {
-        mw.notify(state.convByVar({
-            hant: '小工具無法讀取該提名，請手動編輯。', hans: '小工具无法读取该提名，请手动编辑。',
-        }), {
-            type: 'error', title: state.convByVar({
-                hant: '錯誤', hans: '错误',
-            }),
+async function checkNomination(date, index) {
+    await openCheckQueue([{date, index}]);
+}
+
+/**
+ * 讀取選取項目的最新資料與來源快照，交給編輯器逐筆核對。
+ * 此處只準備草稿；不因為開啟或切換核對項目而寫入維基頁面。
+ */
+async function openCheckQueue(targets) {
+    try {
+        const fulltext = await getFullText();
+        const nominations = targets.map(({date, index}) => {
+            const entry = queryEntry(fulltext, date, index);
+            const data = queried2NomData(entry);
+            if (!data) throw new Error('小工具無法讀取該提名，請手動編輯。');
+            return {...data, source: {date, index, values: entryValues(entry)}};
         });
-        return;
+        await showCheckNominations(nominations);
+    } catch (error) {
+        mw.notify(error.message || String(error), {type: 'error'});
     }
-    await showCheckNominationDialog(nomData, multiCheckStatus);
 }
 
 /**
@@ -104,19 +110,7 @@ function multiCheckNomination() {
                 });
                 return;
             }
-            state.multiNomCheckOngoing = true;
-            state.multiNomCheckChanged = false;
-            for (let i = 0; i < $checkboxes.length; i++) {
-                const $checkbox = $($checkboxes[i]);
-                const date = $checkbox.data('date');
-                const index = $checkbox.data('index');
-                const status = `${i + 1}/${$checkboxes.length}`;
-                await checkNomination(date, index, status);
-            }
-            state.multiNomCheckOngoing = false;
-            if (state.multiNomCheckChanged) {
-                refreshPage();
-            }
+            await openCheckQueue($checkboxes.toArray().map(element => ({date: $(element).data('date'), index: $(element).data('index')})));
         });
         $this.empty(); // 清空之前的內容
         $this.append(checkbox);
@@ -499,82 +493,6 @@ export async function saveModifiedNomination() {
     } else {
         mw.notify(state.convByVar({
             hant: '提名修改失敗！', hans: '提名修改失败！',
-        }), {
-            type: 'error', title: state.convByVar({
-                hant: '錯誤', hans: '错误',
-            }),
-        });
-        return true;
-    }
-}
-
-/**
- * 保存核分。
- * @returns {Promise<boolean>} 是否成功提交。
- */
-export async function saveNominationCheck() {
-    let nomination = state.nominations[0];
-    let checkText = '{{ACG提名2/check|ver=1|';
-    let reasonScore = 0;
-    // 是否選擇「提名無效」
-    if (nomination.invalid) {
-        checkText += '0';
-    } else {
-        let reasonObject = generateReason(nomination.ruleStatus, true);
-        if (reasonObject == null) {
-            return true;
-        }
-        let reasonText = reasonObject.reasonText;
-        let unselectedReasonText = reasonObject.unselectedReasonText;
-        reasonScore = reasonObject.reasonScore;
-        checkText += reasonText;
-        if (unselectedReasonText !== '') {
-            checkText += '|no=' + unselectedReasonText;
-        }
-    }
-    checkText += '}}' + nomination.message;
-    let signature = '~' + '~' + '~' + '~';
-    checkText += '--' + signature;
-
-    let fulltext = await getFullText(), updatedText;
-    if (state.queried.type === 'main' || state.queried.type === 'extra') {
-        let changes = {'核對用': checkText};
-        updatedText = updateEntryParameters(fulltext, state.queried, changes);
-    } else if (state.queried.type === 'acg2') {
-        let changes = {'核對用': checkText};
-        updatedText = updateEntryParameters(fulltext, state.queried, changes);
-    }
-    if (updatedText === fulltext) {
-        mw.notify(state.convByVar({
-            hant: '核分並未改動！', hans: '核分并未改动！',
-        }), {
-            type: 'warn', title: state.convByVar({
-                hant: '提示', hans: '提示',
-            }),
-        });
-        return true;
-    }
-
-    let success = await editPage('WikiProject:ACG/維基ACG專題獎/登記處', updatedText, '[[User:SuperGrey/gadgets/ACGATool|核對分數]]');
-    if (success) {
-        mw.notify(state.convByVar({
-            hant: '核分已成功提交！', hans: '核分已成功提交！',
-        }), {
-            title: state.convByVar({
-                hant: '成功', hans: '成功',
-            }), autoHide: false,
-        });
-        if (reasonScore > 0) {
-            await editACGAScoreList(nomination.awarder, reasonScore);
-        }
-        if (!state.multiNomCheckOngoing) {
-            refreshPage();
-        }
-        state.multiNomCheckChanged = true;
-        return false;
-    } else {
-        mw.notify(state.convByVar({
-            hant: '核分提交失敗！', hans: '核分提交失败！',
         }), {
             type: 'error', title: state.convByVar({
                 hant: '錯誤', hans: '错误',
