@@ -1,11 +1,11 @@
 import state from "./state.js";
-import {getOrderedRuleStatus, NominationRules, NominationRuleSet} from "./rules.js";
+import {NominationRules, NominationRuleSet} from "./rules.js";
 import {submitWorkspace} from "./submission.js";
 import {newId} from "./scoring.js";
 import {reloadForReview} from "./conflicts.js";
 import {wikiTransport} from "./transport.js";
 import {createDraftStore, clearSubmittedDraft} from "./drafts.js";
-import {getXToolsInfo} from "./api.js";
+import {appendNominationRows, createNominationTable, sourceRows} from "./table-editor.js";
 
 let windowManager = null;  // Window manager for OOUI dialogs
 let $editor = null;
@@ -14,6 +14,7 @@ let draftStore = null;
 let $draftList = null;
 let $draftStatus = null;
 let reviewWidgets = new Map();
+let hiddenSources = new Map();
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
 /**
  * 任何核對內容的修改都撤銷該筆的完成標記，並觸發草稿保存。
@@ -92,7 +93,7 @@ function RuleCheckboxInputWidget(config) {
             desc: this.ruleset.desc,
             ogDesc: this.ruleset.desc,
             score: this.ruleset.score,
-            maxScore: this.ruleset.score,
+            maxScore: this.ruleset.score, applicable: !this.check,
         };
     } else {
         this.setSelected(state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].selected);
@@ -148,6 +149,7 @@ function initRuleCheckboxInputWidget() {
 
     RuleCheckboxInputWidget.prototype.handleCheckboxChange = function (isChecked) {
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].selected = isChecked;
+        if (isChecked) state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].applicable = true;
         touchNomination(this.nomidx);
         let disableCheck = this.check ? false : (!isChecked);
         this.ruleInputWidget.setDisabled(disableCheck);
@@ -171,261 +173,42 @@ function initRuleCheckboxInputWidget() {
     };
 }
 
-/**
- * 生成提名表單。
- * @param {object} nomData 提名資料（非必須）。無資料時為新提名。
- * @returns {OO.ui.FieldsetLayout} 提名表單。
- */
-function generateNominationFieldset(nomData = null) {
-    let awarder, pageName, ruleStatus;
-    if (nomData) {
-        awarder = nomData.awarder;
-        pageName = nomData.pageName;
-        ruleStatus = nomData.ruleStatus;
-    } else {
-        awarder = mw.config.get('wgUserName');
-        pageName = '';
-        ruleStatus = {};
-    }
-
-    const currentNomidx = state.nominations.length;
-    state.nominations.push({
-        ...nomData, id: nomData?.id || newId(), awarder, pageName, ruleStatus,
-    });
-
-    // 得分者
-    let userNameInput = new OO.ui.TextInputWidget({value: state.nominations[currentNomidx].awarder});
-    userNameInput.on('change', function (newValue) {
-        state.nominations[currentNomidx].awarder = newValue;
-        touchNomination(currentNomidx);
-    });
-    let userNameField = new OO.ui.FieldLayout(userNameInput, {
-        label: state.convByVar({
-            hant: '得分者', hans: '得分者',
-        }), align: 'left',
-    });
-
-    // 條目名稱
-    let pageNameInput = new OO.ui.TextInputWidget({value: state.nominations[currentNomidx].pageName});
-    pageNameInput.on('change', function (newValue) {
-        state.nominations[currentNomidx].pageName = newValue;
-        touchNomination(currentNomidx);
-    });
-    let pageNameField = new OO.ui.FieldLayout(pageNameInput, {
-        label: state.convByVar({
-            hant: '得分條目', hans: '得分条目',
-        }), align: 'left', help: state.convByVar({
-            hant: '可填「他薦」', hans: '可填「他荐」',
-        }), helpInline: true,
-    });
-
-    const reasonFieldsetLayout = new OO.ui.FieldsetLayout();
-    const summary = new OO.ui.LabelWidget();
-    const updateSummary = () => summary.setLabel(ruleSummary(state.nominations[currentNomidx].ruleStatus));
-    const choose = new OO.ui.ButtonWidget({label: t('選擇規則', '选择规则')});
-    choose.on('click', () => openRules(currentNomidx, updateSummary));
-    updateSummary();
-    reasonFieldsetLayout.addItems([summary, choose]);
-
-    let nominationFieldset = new OO.ui.FieldsetLayout({
-        items: [
-            userNameField, pageNameField, reasonFieldsetLayout,
-        ],
-    });
-    nominationFieldset.$element.css({'margin-top': 0});
-
-    if (!nomData) {
-        let hr = $('<hr>').css({
-            'margin-top': '15px', 'margin-bottom': '15px',
-        });  // 頂部的 <hr>
-        nominationFieldset.$element.prepend(hr);
-    }
-
-    return nominationFieldset;
-}
-
-
-/**
- * 生成提名檢查單。
- * @param nomData 提名資料。
- * @returns {OO.ui.FieldsetLayout} 提名檢查單。
- */
-async function generateChecklistFieldset(nomData, nomidx) {
-    let awarder = nomData.awarder;
-    let pageName = nomData.pageName;
-    let ruleStatus = nomData.ruleStatus;
-
-
-    const userNameInput = new OO.ui.TextInputWidget({value: awarder});
-    userNameInput.on('change', value => { nomData.awarder = value; touchNomination(nomidx); });
-    const userNameField = new OO.ui.FieldLayout(userNameInput, {label: t('得分者'), align: 'top'});
-    const originalInfo = new OO.ui.LabelWidget({label: nomData.original
-        ? `${t('原核定', '原核定')}：${awarder}，${nomData.original.score} ${t('分')} ${nomData.original.status === 'rechecking' ? t('（覆核中）', '（复核中）') : ''}`
-        : t('首次核對', '首次核对')});
-    const booking = new OO.ui.DropdownInputWidget({value: nomData.booking, options: nomData.baseline
-        ? [{data: 'recorded', label: `${t('已確認入帳', '已确认入账')}：${nomData.baseline.awarder} ${nomData.baseline.score} ${t('分')}`}]
-        : [{data: 'unknown', label: t('請確認原核分是否已入帳', '请确认原核分是否已入账')},
-            {data: 'booked', label: t('原核分已登記到積分榜', '原核分已登记到积分榜')},
-            {data: 'unbooked', label: t('原核分尚未登記到積分榜', '原核分尚未登记到积分榜')}]});
-    booking.setDisabled(!!nomData.baseline || !nomData.original?.score);
-    booking.on('change', value => { nomData.booking = value; touchNomination(nomidx); });
-    const bookingField = new OO.ui.FieldLayout(booking, {label: t('原分數入帳狀態', '原分数入账状态'), align: 'top'});
-
-    // 條目名稱
-    let pageNameHorizontalLayout, pageNameLabelWidget;
-    if (pageName === '他薦' || pageName === '他荐') {
-        pageNameLabelWidget = new OO.ui.LabelWidget({
-            label: state.convByVar({
-                hant: '他薦', hans: '他荐',
-            }),
-        });
-        pageNameHorizontalLayout = new OO.ui.HorizontalLayout({items: [pageNameLabelWidget]});
-    } else {
-        pageNameLabelWidget = new OO.ui.LabelWidget({label: $('<a>').attr('href', mw.util.getUrl(pageName)).text(pageName)});
-        let pageTalkLabelWidget = new OO.ui.LabelWidget({
-            label: $('<a>').attr('href', mw.util.getUrl('Talk:' + pageName)).text(state.convByVar({
-                hant: '討論', hans: '讨论',
-            })),
-        });
-        let pageHistoryLabelWidget = new OO.ui.LabelWidget({
-            label: $('<a>').attr('href', mw.util.getUrl(pageName, {action: 'history'})).text(state.convByVar({
-                hant: '歷史', hans: '历史',
-            })),
-        });
-        let pagesLinkedToPageLabelWidget = new OO.ui.LabelWidget({
-            label: $('<a>').attr('href', mw.util.getUrl('Special:链入页面/' + pageName)).text(state.convByVar({
-                hant: '連入', hans: '链入',
-            })),
-        });
-        // 更多頁面資訊 from XTools
-        let xtoolsPageInfoLabelWidget = new OO.ui.LabelWidget();
-        getXToolsInfo(pageName).then(html => xtoolsPageInfoLabelWidget.setLabel($('<div>').html(html)));
-        xtoolsPageInfoLabelWidget.$element.css({'font-size': '0.9em'});
-        pageNameHorizontalLayout = new OO.ui.HorizontalLayout({
-            items: [
-                pageNameLabelWidget,
-                new OO.ui.LabelWidget({label: '（'}),
-                pageTalkLabelWidget,
-                new OO.ui.LabelWidget({label: '·'}),
-                pageHistoryLabelWidget,
-                new OO.ui.LabelWidget({label: '·'}),
-                pagesLinkedToPageLabelWidget,
-                new OO.ui.LabelWidget({label: '）'}),
-                xtoolsPageInfoLabelWidget,
-            ],
-        });
-    }
-    pageNameHorizontalLayout.$element.css({
-        'gap': '4px', 'width': '80%', 'flex-shrink': '0', 'flex-wrap': 'wrap',
-    });
-    let pageLabelLabelWidget = new OO.ui.LabelWidget({
-        label: state.convByVar({
-            hant: '得分條目', hans: '得分条目',
-        }),
-    });
-    pageLabelLabelWidget.$element.css({
-        'flex-grow': 1, 'align-self': 'stretch',
-    });
-    let pageNameField = new OO.ui.HorizontalLayout({
-        items: [
-            pageLabelLabelWidget, pageNameHorizontalLayout,
-        ],
-    });
-    pageNameField.$element.css({'margin-top': '15px'});
-
-    // 提名無效
-    let invalidToggleSwitchWidget = new OO.ui.ToggleSwitchWidget({value: nomData.invalid});
-    invalidToggleSwitchWidget.on('change', function (isChecked) {
-        state.nominations[nomidx].invalid = isChecked;
-        touchNomination(nomidx);
-    });
-    let invalidField = new OO.ui.FieldLayout(invalidToggleSwitchWidget, {
-        label: state.convByVar({
-            hant: '提名無效', hans: '提名无效',
-        }), align: 'left',
-    });
-    invalidField.$element.css({'margin-top': '15px'});
-    invalidField.$element.addClass('checklist-field');
-
-    // 提名理由
-    let reasonField = new OO.ui.HorizontalLayout();
-    reasonField.$element.css({'margin-top': '15px'});
-    let reasonLabelWidget = new OO.ui.LabelWidget({
-        label: state.convByVar({
-            hant: '提名理由', hans: '提名理由',
-        }),
-    });
-    reasonLabelWidget.$element.css({
-        'flex-grow': 1, 'align-self': 'stretch',
-    });
-
-    let ruleItems = [];
-    let {
-        ruleNames, ruleDict,
-    } = NominationRuleSet();
-    let orderedRuleStatus = getOrderedRuleStatus(ruleNames, ruleStatus);
-    for (const ruleItem of orderedRuleStatus) {
-        let ruleSet = ruleDict[ruleItem.rule];
-        let ruleCheckbox = new RuleCheckboxInputWidget({
-            value: ruleItem.rule, ruleset: ruleSet, nomidx, check: true,
-        });
-        ruleItems.push(ruleCheckbox);
-    }
-    let horizontalLayout = new OO.ui.HorizontalLayout({items: ruleItems});
-    horizontalLayout.$element.css({
-        'width': '80%', 'flex-shrink': '0', 'flex-wrap': 'wrap',
-    });
-    reasonField.addItems([
-        reasonLabelWidget, horizontalLayout,
-    ]);
-
-    // 附加說明
-    let messageInput = new OO.ui.MultilineTextInputWidget({
-        autosize: true, rows: 1, value: nomData.message || '',
-    });
-    messageInput.on('change', function (newValue) {
-        state.nominations[nomidx].message = newValue;
-        touchNomination(nomidx);
-    });
-    let messageField = new OO.ui.FieldLayout(messageInput, {
-        label: state.convByVar({
-            hant: '附加說明', hans: '附加说明',
-        }), align: 'left', help: state.convByVar({
-            hant: '可不填；無須簽名', hans: '可不填；无须签名',
-        }), helpInline: true,
-    });
-    messageField.$element.css({'margin-top': '15px'});
-    messageField.$element.addClass('checklist-field');
-
-    let nominationFieldset = new OO.ui.FieldsetLayout({
-        items: [
-            userNameField, originalInfo, bookingField, pageNameField, invalidField, reasonField, messageField,
-        ],
-    });
-    nominationFieldset.$element.css({'margin-top': 0});
-    return nominationFieldset;
-}
-
 function initEditorStyles() {
     mw.util.addCSS(`
-        .acga-editor { margin: 1.5em 0; padding: 1em; border: 1px solid var(--border-color-base, #a2a9b1); color: var(--color-base, inherit); background: var(--background-color-base, transparent); }
+        .acga-editor { margin: 1.5em 0; }
         .acga-editor h2 { margin-top: 0; }
-        .acga-editor .oo-ui-fieldsetLayout { margin-bottom: 1em; }
         .acga-conflicts { overflow-x: auto; }
         .acga-conflicts:empty { display: none; }
         .acga-conflicts table { width: 100%; border-collapse: collapse; }
         .acga-conflicts th, .acga-conflicts td { text-align: left; vertical-align: baseline; padding: .5em; border: 1px solid var(--border-color-base, #a2a9b1); overflow-wrap: anywhere; white-space: pre-wrap; }
         .acga-conflicts mark { background: var(--background-color-warning-subtle, #fef6e7); color: var(--color-base, #202122); }
-        .acga-needs-review > summary { font-weight: bold; color: var(--color-error, #b32424); }
+        .acga-needs-review > .acgnom-check-cell { outline: 2px solid var(--color-error, #b32424); outline-offset: -2px; }
         .acga-save-progress li { margin-block: .75em; }
         .acga-save-progress p { margin-block: .25em; }
-        .acga-fields > div > details { padding-block: .75em; border-bottom: 1px solid var(--border-color-base, #a2a9b1); }
+        .acga-edit-table { width: 100%; }
+        .acga-edit-table .acgnom-title-heading, .acga-edit-table .acgnom-user-heading { width: 25%; }
+        .acga-edit-table .acga-cell-input { width: 100%; max-width: none; }
+        .acga-edit-table .acga-cell-input input { min-width: 0; background: transparent; color: inherit; font: inherit; padding: .25em; }
+        .acga-inline-action { border: 0; background: transparent; padding: 0; color: var(--color-progressive, #36c); cursor: pointer; font: inherit; font-size: smaller; }
+        .acga-inline-action::before { content: '［'; } .acga-inline-action::after { content: '］'; }
+        .acga-inline-action:hover { text-decoration: underline; }
+        .acga-inline-action:focus-visible { outline: 2px solid var(--color-progressive, #36c); }
+        .acga-inline-option { display: inline-flex; align-items: baseline; gap: .25em; margin: .4em .75em .25em 0; }
+        .acga-check-message { max-width: none; margin-top: .4em; }
+        .acga-original-check { margin-block: .4em; }
+        .acga-booking { margin-block: .4em; }
+        .acga-booking select { max-width: 100%; font: inherit; }
+        .acga-edit-table th, .acga-edit-table td { overflow-wrap: anywhere; }
+        .acga-edit-table .acgnom-title-cell { text-align: center; }
+        .acga-table-scroll { overflow-x: auto; }
+        .acga-drafts .oo-ui-buttonElement { max-width: 100%; }
+        .acga-drafts .oo-ui-labelElement-label { white-space: normal; }
         .acga-editor .oo-ui-horizontalLayout { min-width: 0; }
         .acga-actions { display: flex; flex-wrap: wrap; gap: .5em; margin-top: 1em; }
         .acga-rules details { margin: .75em 0; }
         .acga-rules summary { cursor: pointer; font-weight: bold; }
         .acga-rules .oo-ui-horizontalLayout { display: flex; flex-wrap: wrap; gap: .5em; }
-        @media (max-width: 600px) { .acga-editor { padding: .75em; } .acga-editor .oo-ui-fieldLayout-align-left { display: block; } .acga-editor .oo-ui-fieldsetLayout-group > .oo-ui-horizontalLayout { display: flex; flex-wrap: wrap; } .acga-editor .oo-ui-horizontalLayout { max-width: 100%; } }
+        @media (max-width: 600px) { .acga-edit-table { min-width: 340px; } .acga-editor .oo-ui-horizontalLayout { max-width: 100%; } }
     `);
 }
 
@@ -457,7 +240,7 @@ function initRuleDialog() {
             $details.append($('<summary>').text(group.group));
             $details.append($('<p>').text(group.explanation));
             const addRules = items => {
-                const widgets = items.map(rule => new RuleCheckboxInputWidget({ruleset: rule, value: rule.rule, nomidx: this.nomidx}));
+                const widgets = items.map(rule => new RuleCheckboxInputWidget({ruleset: rule, value: rule.rule, nomidx: this.nomidx, check: this.check}));
                 $details.append(new OO.ui.HorizontalLayout({items: widgets}).$element);
             };
             if (group.rules) addRules(group.rules);
@@ -482,6 +265,7 @@ function initRuleDialog() {
 async function openRules(nomidx, onClose) {
     const dialog = new RulesDialog({size: 'large'});
     dialog.nomidx = nomidx;
+    dialog.check = state.workspace.mode === 'check';
     windowManager.addWindows([dialog]);
     await windowManager.openWindow(dialog).closed;
     onClose();
@@ -489,20 +273,23 @@ async function openRules(nomidx, onClose) {
 }
 
 /**
- * 在頁面內建立編輯區。
+ * 在原提名表格旁建立編輯區；新提名或找不到原表格時放在登記處內容頂端。
  * 已有開啟的編輯器時只移回該處，避免後續初始化覆寫其共享狀態。
  * @returns {jQuery|null} 新編輯區；已有編輯器時為 null。
  */
-function mountEditor(title) {
+function mountEditor(title, source) {
     if ($editor?.is(':visible')) {
         $editor[0].scrollIntoView({block: 'start'});
         mw.notify(t('請先完成或關閉目前的編輯器。', '请先完成或关闭当前编辑器。'));
         return null;
     }
+    restoreSourceRows();
     $editor?.remove();
     $editor = $('<section>').addClass('acga-editor').attr({'aria-label': title, tabindex: '-1'});
     $editor.append($('<h2>').text(title));
-    $('#mw-content-text').prepend($editor);
+    const $source = sourceRows(source).closest('table').first();
+    if ($source.length) $source.before($editor);
+    else $('#mw-content-text').prepend($editor);
     $editor[0].scrollIntoView({block: 'start'});
     $editor.trigger('focus');
     return $editor;
@@ -587,7 +374,11 @@ function addEditorActions($panel, extras = []) {
     forkButton.on('click', () => {
         state.workspace.id = newId(); state.workspace.storageVersion = 0; state.changed();
     });
-    closeButton.on('click', () => { if (!completed) state.changed(); $panel.hide(); });
+    closeButton.on('click', () => {
+        if (!completed) state.changed();
+        $panel.hide(); restoreSourceRows();
+        if (completed) location.reload();
+    });
     saveButton.on('click', runSave);
     $panel.append($conflicts, $('<div>').addClass('acga-actions').append(buttons.map(button => button.$element)), $draftStatus, $progress, $status);
     $panel.on('input change', () => { if (!completed) state.changed(); });
@@ -667,7 +458,41 @@ function refreshDraftList() {
 }
 
 /**
- * 在頁面內開啟可新增多筆提名的編輯器。
+ * 恢復開啟編輯器前的 display 值，避免把原本隱藏的頁面內容一併顯示。
+ */
+function restoreSourceRows() {
+    for (const [element, display] of hiddenSources) element.style.display = display;
+    hiddenSources.clear();
+}
+
+/**
+ * 暫時隱藏被編輯的原提名列；整張表都已搬入編輯器時也隱藏原表頭。
+ * 保留原 DOM 與 display 值，關閉未提交草稿時可以原樣恢復。
+ */
+function hideSourceRows(source) {
+    const $rows = sourceRows(source);
+    const hide = element => {
+        if (!hiddenSources.has(element)) hiddenSources.set(element, element.style.display);
+        element.style.display = 'none';
+    };
+    $rows.each((_, element) => hide(element));
+    $rows.closest('table').each((_, table) => {
+        if ($(table).find('tr').slice(1).toArray().every(row => row.style.display === 'none')) hide(table);
+    });
+}
+
+/**
+ * 將新提名或恢復的資料加入共享草稿，再建立與該陣列位置綁定的表格列。
+ */
+function appendEditableNomination($table, data = null) {
+    const nomination = {...data, id: data?.id || newId(), awarder: data?.awarder ?? mw.config.get('wgUserName') ?? '', pageName: data?.pageName || '', ruleStatus: data?.ruleStatus || {}};
+    const index = state.nominations.push(nomination) - 1;
+    appendNominationRows($table, nomination, index, {checking: false, touch: () => touchNomination(index), openRules: refresh => openRules(index, refresh)});
+    hideSourceRows(nomination.source);
+}
+
+/**
+ * 在登記處建立原生提名表格，供新增多筆提名。
  * @param {object} [workspace] 要恢復的草稿；省略時建立新的草稿識別。
  */
 export function showNewNominationDialog(workspace) {
@@ -677,76 +502,66 @@ export function showNewNominationDialog(workspace) {
     const nominations = workspace.nominations.length ? workspace.nominations : [null];
     workspace.nominations = [];
     activateWorkspace(workspace);
-    const content = new OO.ui.FieldsetLayout();
-    nominations.forEach(nomination => content.addItems([generateNominationFieldset(nomination)]));
-    messageInput = new OO.ui.MultilineTextInputWidget({autosize: true, value: workspace.message});
-    messageInput.on('change', value => { workspace.message = value; });
-    $panel.append(content.$element, new OO.ui.FieldLayout(messageInput, {label: t('附加說明', '附加说明'), align: 'top'}).$element);
+    const $table = createNominationTable();
+    $panel.append($('<div>').addClass('acga-table-scroll').append($table));
+    nominations.forEach(nomination => appendEditableNomination($table, nomination));
+    messageInput = new OO.ui.MultilineTextInputWidget({autosize: true, rows: 1, value: workspace.message, placeholder: t('提名說明（選填，無須簽名）', '提名说明（选填，无须签名）')});
+    messageInput.$input.attr('aria-label', t('提名說明', '提名说明'));
+    messageInput.on('change', value => { workspace.message = value; state.changed(); });
+    $panel.append(messageInput.$element);
     const add = new OO.ui.ButtonWidget({label: t('新增一筆', '新增一项')});
     add.on('click', () => {
         if (workspace.operation || state.nominations.length >= 25) return;
-        content.addItems([generateNominationFieldset()]); state.changed();
+        appendEditableNomination($table); state.changed();
     });
     const remove = new OO.ui.ButtonWidget({label: t('移除末筆', '移除末项')});
     remove.on('click', () => {
         if (workspace.operation || state.nominations.length <= 1) return;
-        content.removeItems([content.items[content.items.length - 1]]);
-        state.nominations.pop(); state.changed();
+        const removed = state.nominations.pop();
+        $table.find('[data-acga-id]').filter((_, element) => element.getAttribute('data-acga-id') === removed.id).remove();
+        state.changed();
     });
     addEditorActions($panel, [add, remove]);
 }
 
 /**
- * 在頁面內開啟單筆提名編輯器。
+ * 在原表格位置編輯一筆提名，關閉時恢復原頁面列。
  * @param {object} nomData 提名內容與來源快照。
  * @param {object} [workspace] 要恢復的草稿，沿用其識別與儲存版本。
  */
 export function showEditNominationDialog(nomData, workspace) {
-    const $panel = mountEditor(t('編輯提名', '编辑提名'));
+    const $panel = mountEditor(t('編輯提名', '编辑提名'), nomData.source);
     if (!$panel) return;
     workspace ||= {id: newId(), mode: 'edit', nominations: [], message: ''};
     workspace.nominations = [];
     activateWorkspace(workspace);
-    $panel.append(generateNominationFieldset(nomData).$element);
+    const $table = createNominationTable();
+    $panel.append($('<div>').addClass('acga-table-scroll').append($table));
+    appendEditableNomination($table, nomData);
     addEditorActions($panel);
 }
 
 /**
- * 建立批次核對介面；完成標記只寫入草稿，直到使用者統一提交才發布。
+ * 將選中的提名組成原生表格；逐筆完成標記只寫入草稿，統一提交時才發布。
  * @param {object[]} nominations 含來源快照的待核對項目。
  * @param {object} [workspace] 恢復既有草稿及未完成的儲存步驟。
  */
 export async function showCheckNominations(nominations, workspace) {
-    const $panel = mountEditor(t('核對分數', '核对分数'));
+    const $panel = mountEditor(t('核對分數', '核对分数'), nominations[0]?.source);
     if (!$panel) return;
     activateWorkspace(workspace || {id: newId(), mode: 'check', nominations, message: ''});
     const $progress = $('<p>').attr('role', 'status');
-    const $list = $('<div>');
-    $panel.append($progress, $list);
+    const $table = createNominationTable();
+    $panel.append($progress, $('<div>').addClass('acga-table-scroll').append($table));
     const updateProgress = () => $progress.text(`${t('已核對', '已核对')} ${state.nominations.filter(n => n.reviewed).length} / ${state.nominations.length}`);
-    for (const [index, nomination] of state.nominations.entries()) {
-        const $item = $('<details>').attr('data-acga-id', nomination.id).prop('open', index === 0);
-        const $summary = $('<summary>').text(`${index + 1}. ${nomination.pageName} · ${nomination.awarder}`);
-        $item.append($summary);
-        $list.append($item);
-        const field = await generateChecklistFieldset(nomination, index);
-        $item.append(field.$element);
-        if (nomination.previousProposal) {
-            const $previous = $('<details>').append($('<summary>').text(t('先前草稿的核對內容', '先前草稿的核对内容')));
-            $previous.append($('<p>').text(nomination.previousProposal.awarder + '：' + ruleSummary(nomination.previousProposal.ruleStatus)), $('<p>').text(nomination.previousProposal.message || ''));
-            $item.append($previous);
-        }
-        const done = new OO.ui.CheckboxInputWidget({selected: nomination.reviewed});
-        reviewWidgets.set(nomination.id, done);
-        done.on('change', value => {
-            nomination.reviewed = value;
-            updateProgress();
-            state.changed();
+    state.nominations.forEach((nomination, index) => {
+        const rows = appendNominationRows($table, nomination, index, {
+            checking: true, touch: () => touchNomination(index), openRules: refresh => openRules(index, refresh),
+            onReviewed: () => { updateProgress(); state.changed(); },
         });
-        // Any edits invalidate the prior acknowledgement for this item.
-        field.$element.on('input change', () => done.setSelected(false));
-        $item.append(new OO.ui.FieldLayout(done, {label: t('已核對此筆，加入待提交清單', '已核对此项，加入待提交清单'), align: 'inline'}).$element);
-    }
+        reviewWidgets.set(nomination.id, rows.reviewWidget);
+        hideSourceRows(nomination.source);
+    });
     updateProgress();
     addEditorActions($panel);
 }

@@ -433,6 +433,8 @@ export function generateReason(ruleStatus, check = false) {
     let {ruleNames} = NominationRuleSet();
     let orderedRuleStatus = getOrderedRuleStatus(ruleNames, ruleStatus);
     for (const ruleItem of orderedRuleStatus) {
+        // 規則彈窗會建立所有選項；從未申請或採用的未選項不能自動寫成「不符合」。
+        if (check && ruleItem.applicable === false && !ruleItem.selected) continue;
         if (check || ruleItem.selected) {
             if (!Number.isFinite(ruleItem.score) || ruleItem.score < 0) {
                 mw.notify(state.convByVar({

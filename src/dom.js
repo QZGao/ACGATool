@@ -1,6 +1,6 @@
 import state from "./state.js";
 import {entryOwnership, isOwnNomination, assertCanCheck} from "./ownership.js";
-import {reviewData} from "./scoring.js";
+import {reviewData, parseCheck} from "./scoring.js";
 import {SCORES} from "./submission.js";
 import {
     appendToPage,
@@ -36,11 +36,13 @@ function editNomination(date, index) {
                     hant: '錯誤', hans: '错误',
                 }),
             });
+        } else if (parseCheck(entryValues(queried)['核對用'])) {
+            return openCheckQueue([{date, index}]);
         } else {
             nomData.source = {date, index, values: entryValues(queried)};
             showEditNominationDialog(nomData);
         }
-    });
+    }).catch(error => mw.notify(error.message || String(error), {type: 'error'}));
 }
 
 /**
@@ -125,6 +127,10 @@ function multiCheckNomination() {
  * 點擊登記新提名按鈕時的事件處理。
  */
 function newNomination() {
+    if (mw.config.get('wgPageName') !== 'WikiProject:ACG/維基ACG專題獎/登記處') {
+        location.href = mw.util.getUrl('WikiProject:ACG/維基ACG專題獎/登記處') + '#acga-new';
+        return;
+    }
     showNewNominationDialog();
 }
 
@@ -238,6 +244,7 @@ function archiveChapter(date) {
 /**
  * 讀取提名資料後，在頁面加入編輯與核對入口，隱藏自己的核對入口。
  * 此處的身分判斷只控制顯示；提交時仍須根據最新來源再次檢查。
+ * 附在原始列上的日期與位置只供 DOM 對接，不作為跨版本儲存識別。
  */
 export async function addEditButtonsToPage() {
     // 找到<span role"button">登記新提名</span>
@@ -260,6 +267,7 @@ export async function addEditButtonsToPage() {
         newNominationButtonParent.append(' ').append(editButton);
     }
 
+    if (mw.config.get('wgPageName') !== 'WikiProject:ACG/維基ACG專題獎/登記處') return;
     let fulltext;
     try { fulltext = await getFullText(); }
     catch { mw.notify('無法讀取提名資料，請重新整理後再試。', {type: 'error'}); return; }
@@ -305,6 +313,8 @@ export async function addEditButtonsToPage() {
                     let editButton = $('<a>').attr('href', 'javascript:void(0)').append(editIcon).click(function () {
                         editNomination(date, currentIndex);
                     });
+                    editButton.addClass('acga-control');
+                    row.attr({'data-acga-date': date, 'data-acga-source-index': currentIndex});
                     nomEntry.append(' ').append(editButton);
                 } else {
                     // 核對行
@@ -312,6 +322,7 @@ export async function addEditButtonsToPage() {
                     let mwNoTalk = td.find('.mw-notalk').first();
                     const currentIndex = index;
 
+                    row.attr({'data-acga-date': date, 'data-acga-source-index': currentIndex});
                     const entry = queryEntry(fulltext, date, currentIndex);
                     if (!entry || isOwnNomination(entryOwnership(fulltext, entry), mw.config.get('wgUserName'))) return;
 
@@ -326,6 +337,7 @@ export async function addEditButtonsToPage() {
                     })).attr('href', 'javascript:void(0)').click(async function () {
                         await checkNomination(date, currentIndex);
                     });
+                    checkButton.addClass('acga-control');
                     mwNoTalk.append(checkButton);
 
                     // 多選核對

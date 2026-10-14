@@ -1,5 +1,5 @@
 import state from "./state.js";
-import {initOOUI} from "./dialog.js";
+import {initOOUI, showNewNominationDialog} from "./dialog.js";
 import {addEditButtonsToPage} from "./dom.js";
 
 function init() {
@@ -10,9 +10,10 @@ function init() {
         const {convByVar} = require('ext.gadget.HanAssist');
         state.init(convByVar);
 
-        initOOUI();
-
-        addEditButtonsToPage();  // 添加提名按鈕
+        if (pageName.endsWith('/登記處')) initOOUI();
+        addEditButtonsToPage().then(() => {
+            if (pageName.endsWith('/登記處') && location.hash === '#acga-new') showNewNominationDialog();
+        });
     });
 }
 

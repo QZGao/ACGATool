@@ -18,9 +18,9 @@ export function entryOwnership(text, entry) {
     const values = entryValues(entry);
     // One nomination template can contain several items sharing the following signature.
     const tail = text.slice(entry.containerEnd || entry.end).split(/\n\s*(?:===|{{ACG提名)/, 1)[0];
-    const line = tail.match(/(?:提名人|提名者)[：:]([^\n]*)/);
+    const line = tail.match(/(?:提名人|提名者)(?:'{2,3})?\s*[：:]([^\n]*)/);
     const nominators = [];
-    for (const match of (line?.[1] || '').matchAll(/\[\[\s*(?:User(?:[ _]talk)?|用户(?:讨论)?|用戶(?:討論)?|使用者(?:討論)?|Special:Contributions|特殊:用[戶户][貢贡][獻献])\s*[:/]\s*([^\]|#]+)(?:[^\]]*)\]\]/gi)) {
+    for (const match of (line?.[1] || '').matchAll(/\[\[\s*(?:User(?:[ _]talk)?|U|UT|用户(?:讨论)?|用戶(?:討論)?|使用者(?:討論)?|Special:Contributions|特殊:用[戶户][貢贡][獻献])\s*[:/]\s*([^\]|#]+)(?:[^\]]*)\]\]/gi)) {
         nominators.push(normalizeUser(match[1]));
     }
     return {awarder: normalizeUser(values['用戶名稱'].replace(/<!--[\s\S]*?-->/g, '')), nominators: [...new Set(nominators)]};

@@ -51,3 +51,11 @@ test('review retains the signed previous result as rescinded and can be read aga
     const restored = reviewData({awarder: 'A'}, {values: {'核對用': result, '用戶名稱': 'A'}}, 'return {\n}');
     assert.deepEqual(restored.baseline, {awarder: 'A', score: 10});
 });
+
+test('opening all rules does not reject unrequested default rules in the saved check', () => {
+    const rules = parseUserReason('1a');
+    rules['2-b'] = {...parseUserReason('2-b')['2-b'], selected: false, applicable: false};
+    assert.equal(generateReason(rules, true).unselectedReasonText, '');
+    rules['2-b'].selected = true;
+    assert.equal(generateReason(rules, true).reasonScore, 4);
+});

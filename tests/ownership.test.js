@@ -11,7 +11,11 @@ test('all grouped entries use the shared nominator signature and either identity
         assert.equal(isOwnNomination(owner, 'Other'), false);
         assert.throws(() => assertCanCheck(owner, 'Example_User', 'Someone'));
     }
-    const owner = entryOwnership(text, queryEntry(text, '10月14日', 1));
+    const formatted = text.replace('提名人：', "'''提名人'''：");
+    const owner = entryOwnership(formatted, queryEntry(formatted, '10月14日', 1));
+    assert.equal(isOwnNomination(owner, 'Example User'), true);
+    const aliases = formatted.replace('User:Example_User', 'U:Example_User');
+    assert.equal(isOwnNomination(entryOwnership(aliases, queryEntry(aliases, '10月14日', 1)), 'Example User'), true);
     assert.equal(isOwnNomination(owner, 'Awarder'), true);
     assert.throws(() => assertCanCheck(owner, 'Reviewer', 'Reviewer'));
     assert.doesNotThrow(() => assertCanCheck(owner, 'Reviewer', 'Someone'));
