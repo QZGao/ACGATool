@@ -4,19 +4,20 @@ import {saveModifiedNomination, saveNewNomination, saveNominationCheck} from "./
 import {getXToolsInfo} from "./api.js";
 
 let windowManager = null;  // Window manager for OOUI dialogs
-let newNominationDialog = null;  // 新提名dialog
-let editNominationDialog = null;  // 修改提名dialog
-let editNominationDialogContent = new OO.ui.FieldsetLayout(); // 修改提名dialog的內容池
+let $editor = null;
+let messageInput = null;
+const t = (hant, hans = hant) => state.convByVar({hant, hans});
 let checkNominationDialog = null;  // 檢查提名dialog
-let checkNominationDialogContent = new OO.ui.FieldsetLayout(); // 檢查提名dialog的內容池
+let checkNominationDialogContent = null;
 
 export function initOOUI() {
     // Initialize OOUI custom widgets
     initDynamicWidthTextInputWidget();
     initRuleCheckboxInputWidget();
     // Initialize dialogs
-    initNewNominationDialog();
-    initEditNominationDialog();
+    initRuleDialog();
+    initEditorStyles();
+    checkNominationDialogContent = new OO.ui.FieldsetLayout();
     initCheckNominationDialog();
     // Initialize window manager
     initWindowManager();
@@ -63,6 +64,9 @@ function initDynamicWidthTextInputWidget() {
  */
 function RuleCheckboxInputWidget(config) {
     RuleCheckboxInputWidget.parent.call(this, config);
+    this.checkbox = new OO.ui.CheckboxInputWidget({selected: config.selected || false});
+    this.checkbox.$input.attr('aria-label', config.ruleset.rule + ' ' + config.ruleset.desc);
+    this.$element.append(this.checkbox.$element);
     this.ruleset = config.ruleset;
     this.nomidx = config.nomidx;
     this.check = config.check || false;
@@ -80,7 +84,7 @@ function RuleCheckboxInputWidget(config) {
             state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].desc = this.ruleset.desc;
         }
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].ogDesc = this.ruleset.desc;
-        if (!state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score) {
+        if (state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score == null) {
             state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score = this.ruleset.score;
         }
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].maxScore = this.ruleset.score;
@@ -89,6 +93,7 @@ function RuleCheckboxInputWidget(config) {
         value: state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].desc,
         disabled: this.check ? false : (!this.isSelected()),
     });
+    this.ruleInputWidget.$input.attr('aria-label', this.ruleset.rule + ' ' + t('規則說明', '规则说明'));
     this.ruleInputWidget.$element.addClass('DynamicWidthTextInputWidget');
     this.ruleInputWidget.$element.css({'margin-left': '5px'});
     this.ruleInputWidget.adjustWidth();
@@ -100,6 +105,7 @@ function RuleCheckboxInputWidget(config) {
         value: state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score,
         disabled: this.check ? false : (!this.isSelected()),
     });
+    this.scoreInputWidget.$input.attr('aria-label', this.ruleset.rule + ' ' + t('分數', '分数'));
     this.scoreInputWidget.$element.addClass('DynamicWidthTextInputWidget');
     this.scoreInputWidget.adjustWidth();
     this.rightBracketLabelWidget = new OO.ui.LabelWidget({label: '分)'});
@@ -111,7 +117,7 @@ function RuleCheckboxInputWidget(config) {
     this.$element.append(this.leftBracketLabelWidget.$element);
     this.$element.append(this.scoreInputWidget.$element);
     this.$element.append(this.rightBracketLabelWidget.$element);
-    this.on('change', this.handleCheckboxChange.bind(this));
+    this.checkbox.on('change', this.handleCheckboxChange.bind(this));
     this.ruleInputWidget.on('change', this.handleRuleInputChange.bind(this));
     this.scoreInputWidget.on('change', this.handleScoreInputChange.bind(this));
 }
@@ -120,7 +126,9 @@ function RuleCheckboxInputWidget(config) {
  * 初始化規則選框。在腳本啟動時執行一次。
  */
 function initRuleCheckboxInputWidget() {
-    OO.inheritClass(RuleCheckboxInputWidget, OO.ui.CheckboxInputWidget);
+    OO.inheritClass(RuleCheckboxInputWidget, OO.ui.HorizontalLayout);
+    RuleCheckboxInputWidget.prototype.isSelected = function () { return this.checkbox.isSelected(); };
+    RuleCheckboxInputWidget.prototype.setSelected = function (value) { this.checkbox.setSelected(value); };
 
     RuleCheckboxInputWidget.prototype.handleCheckboxChange = function (isChecked) {
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].selected = isChecked;
@@ -189,51 +197,13 @@ function generateNominationFieldset(nomData = null) {
         }), helpInline: true,
     });
 
-    // 提名理由
-    let reasonFieldsetLayout = new OO.ui.FieldsetLayout();
-    reasonFieldsetLayout.$element.css({'padding-top': '15px'});  // 讓理由區域與上方的輸入框有點距離
-
-    let rules = NominationRules();
-    for (let i = 0; i < rules.length; i++) {
-        let ruleGroup = rules[i];
-        let ruleGroupFieldset = new OO.ui.FieldsetLayout({
-            label: ruleGroup.group, align: 'top', help: ruleGroup.explanation, helpInline: true,
-        });
-
-        if (ruleGroup.rules) {
-            let ruleItems = [];
-            for (let j = 0; j < ruleGroup.rules.length; j++) {
-                let rule = ruleGroup.rules[j];
-                let ruleCheckbox = new RuleCheckboxInputWidget({
-                    value: rule.rule, ruleset: rule, nomidx: currentNomidx,
-                });
-                ruleItems.push(ruleCheckbox);
-            }
-            let horizontalLayout = new OO.ui.HorizontalLayout({items: ruleItems});
-            ruleGroupFieldset.addItems(horizontalLayout);
-
-        } else {
-            // 處理 (5) 條目評審
-            for (let j = 0; j < ruleGroup.tabs.length; j++) {
-                let tab = ruleGroup.tabs[j];
-                let tabFieldset = new OO.ui.FieldsetLayout({label: tab.tab});
-                tabFieldset.$element.find('legend > span').css({'font-size': '1.05em'});
-
-                let ruleItems = [];
-                for (let k = 0; k < tab.rules.length; k++) {
-                    let rule = tab.rules[k];
-                    let ruleCheckbox = new RuleCheckboxInputWidget({
-                        value: rule.rule, ruleset: rule, nomidx: currentNomidx,
-                    });
-                    ruleItems.push(ruleCheckbox);
-                }
-                let horizontalLayout = new OO.ui.HorizontalLayout({items: ruleItems});
-                tabFieldset.addItems(horizontalLayout);
-                ruleGroupFieldset.addItems([tabFieldset]);
-            }
-        }
-        reasonFieldsetLayout.addItems([ruleGroupFieldset]);
-    }
+    const reasonFieldsetLayout = new OO.ui.FieldsetLayout();
+    const summary = new OO.ui.LabelWidget();
+    const updateSummary = () => summary.setLabel(ruleSummary(state.nominations[currentNomidx].ruleStatus));
+    const choose = new OO.ui.ButtonWidget({label: t('選擇規則', '选择规则')});
+    choose.on('click', () => openRules(currentNomidx, updateSummary));
+    updateSummary();
+    reasonFieldsetLayout.addItems([summary, choose]);
 
     let nominationFieldset = new OO.ui.FieldsetLayout({
         items: [
@@ -445,242 +415,158 @@ async function generateChecklistFieldset(nomData) {
     return nominationFieldset;
 }
 
-/**
- * 新提名對話框。
- * @param config
- * @constructor
- */
-function NewNominationDialog(config) {
-    NewNominationDialog.super.call(this, config);
+function initEditorStyles() {
+    mw.util.addCSS(`
+        .acga-editor { margin: 1.5em 0; padding: 1em; border: 1px solid var(--border-color-base, #a2a9b1); color: var(--color-base, inherit); background: var(--background-color-base, transparent); }
+        .acga-editor h2 { margin-top: 0; }
+        .acga-editor .oo-ui-fieldsetLayout { margin-bottom: 1em; }
+        .acga-actions { display: flex; flex-wrap: wrap; gap: .5em; margin-top: 1em; }
+        .acga-rules details { margin: .75em 0; }
+        .acga-rules summary { cursor: pointer; font-weight: bold; }
+        .acga-rules .oo-ui-horizontalLayout { display: flex; flex-wrap: wrap; gap: .5em; }
+        @media (max-width: 600px) { .acga-editor { padding: .75em; } .acga-editor .oo-ui-fieldLayout-align-left { display: block; } }
+    `);
 }
 
+function ruleSummary(ruleStatus) {
+    const {ruleDict} = NominationRuleSet();
+    return Object.entries(ruleStatus).filter(([, value]) => value.selected)
+        .map(([key, value]) => `${value.desc || ruleDict[key].desc} (${value.score ?? ruleDict[key].score})`).join('、') || t('尚未選擇規則', '尚未选择规则');
+}
+
+function RulesDialog(config) { RulesDialog.super.call(this, config); }
 /**
- * 初始化新提名對話框。在腳本啟動時執行一次。
+ * 建立共用規則彈窗。常用分類與已有選項的分類展開，其餘保留為摺疊區。
+ * 選項直接更新目前提名的狀態；主編輯器的摘要在彈窗關閉後刷新。
  */
-function initNewNominationDialog() {
-    OO.inheritClass(NewNominationDialog, OO.ui.ProcessDialog);
-
-    NewNominationDialog.static.name = 'NewNominationDialog';
-    NewNominationDialog.static.title = state.convByVar({
-        hant: '新提名（維基ACG專題獎小工具）', hans: '新提名（维基ACG专题奖小工具）',
-    });
-    NewNominationDialog.static.actions = [
-        {
-            action: 'save', label: state.convByVar({
-                hant: '儲存', hans: '储存',
-            }), flags: [
-                'primary', 'progressive',
-            ],
-        }, {
-            action: 'cancel', label: state.convByVar({
-                hant: '取消', hans: '取消',
-            }), flags: 'safe',
-        }, {
-            action: 'add', label: state.convByVar({
-                hant: '額外提名 + 1', hans: '额外提名 + 1',
-            }),
-        }, {
-            action: 'minus', label: state.convByVar({
-                hant: '額外提名 − 1', hans: '额外提名 − 1',
-            }),
-        },
-    ];
-    NewNominationDialog.prototype.initialize = function () {
-        NewNominationDialog.super.prototype.initialize.call(this);
-        this.panel = new OO.ui.PanelLayout({
-            padded: true, expanded: false,
+function initRuleDialog() {
+    OO.inheritClass(RulesDialog, OO.ui.ProcessDialog);
+    RulesDialog.static.name = 'ACGARules';
+    RulesDialog.static.title = t('選擇規則', '选择规则');
+    RulesDialog.static.actions = [{action: 'done', label: t('完成'), flags: ['primary', 'progressive']}];
+    RulesDialog.prototype.initialize = function () {
+        RulesDialog.super.prototype.initialize.call(this);
+        this.panel = new OO.ui.PanelLayout({padded: true, expanded: false});
+        this.panel.$element.addClass('acga-rules');
+        const nomination = state.nominations[this.nomidx];
+        NominationRules().forEach((group, index) => {
+            const rules = group.rules || group.tabs.flatMap(tab => tab.rules);
+            const selected = rules.some(rule => nomination.ruleStatus[rule.rule]?.selected);
+            const $details = $('<details>').prop('open', index < 3 || selected);
+            $details.append($('<summary>').text(group.group));
+            $details.append($('<p>').text(group.explanation));
+            const addRules = items => {
+                const widgets = items.map(rule => new RuleCheckboxInputWidget({ruleset: rule, value: rule.rule, nomidx: this.nomidx}));
+                $details.append(new OO.ui.HorizontalLayout({items: widgets}).$element);
+            };
+            if (group.rules) addRules(group.rules);
+            else group.tabs.forEach(tab => {
+                $details.append($('<h3>').text(tab.tab));
+                addRules(tab.rules);
+            });
+            $details.on('toggle', () => this.updateSize());
+            this.panel.$element.append($details);
         });
-        this.content = new OO.ui.FieldsetLayout();
-
-        // 附加說明
-        this.messageInput = new OO.ui.MultilineTextInputWidget({
-            autosize: true, rows: 1,
-        });
-        this.messageInput.connect(this, {resize: 'onMessageInputResize'});
-        this.messageInputField = new OO.ui.FieldLayout(this.messageInput, {
-            label: state.convByVar({
-                hant: '附加說明', hans: '附加说明',
-            }), align: 'top', help: state.convByVar({
-                hant: '可不填；無須簽名', hans: '可不填；无须签名',
-            }), helpInline: true,
-        });
-        this.messageInputFieldSet = new OO.ui.FieldsetLayout({items: [this.messageInputField]});
-
-        this.content.addItems([
-            this.messageInputFieldSet, generateNominationFieldset(),
-        ]);
-
-        this.panel.$element.append(this.content.$element);
         this.$body.append(this.panel.$element);
     };
-
-    NewNominationDialog.prototype.onMessageInputResize = function () {
-        this.updateSize();
-    };
-
-    NewNominationDialog.prototype.getBodyHeight = function () {
-        return this.panel.$element.outerHeight(true);
-    };
-
-    NewNominationDialog.prototype.getActionProcess = function (action) {
-        if (action === 'save') {
-            return new OO.ui.Process(async function () {
-                let response = await saveNewNomination();
-                if (!response) {
-                    this.close();
-                }
-            }, this);
-        } else if (action === 'add') {
-            return new OO.ui.Process(function () {
-                // 新增一個提名
-                let newFieldset = generateNominationFieldset();
-                this.content.addItems([newFieldset]);
-                this.updateSize();
-            }, this);
-        } else if (action === 'minus') {
-            return new OO.ui.Process(function () {
-                if (this.content.items.length <= 2) {
-                    mw.notify(state.convByVar({
-                        hant: '至少需要一個提名！', hans: '至少需要一个提名！',
-                    }), {
-                        type: 'error', title: state.convByVar({
-                            hant: '錯誤', hans: '错误',
-                        }),
-                    });
-                    return;
-                }
-                // 移除最後一個提名
-                this.content.removeItems([this.content.items[this.content.items.length - 1]]);
-                state.nominations.pop();
-                this.updateSize();
-            }, this);
-        } else if (action === 'cancel') {
-            return new OO.ui.Process(function () {
-                this.close();
-            }, this);
-        }
-        return NewNominationDialog.super.prototype.getActionProcess.call(this, action);
-    };
-
-    NewNominationDialog.prototype.getTearnDownProcess = function (data) {
-        return NewNominationDialog.super.prototype.getTearnDownProcess.call(this, data);
-    };
+    RulesDialog.prototype.getBodyHeight = function () { return this.panel.$element.outerHeight(true); };
+    RulesDialog.prototype.getActionProcess = function () { return new OO.ui.Process(() => this.close()); };
 }
 
 /**
- * 顯示新提名對話框。
+ * 開啟某筆提名的規則選擇器，關閉後更新其畫面並釋放視窗。
+ * @param {number} nomidx 目前 nominations 陣列中的位置。
+ * @param {Function} onClose 更新主編輯器規則摘要的回呼。
+ */
+async function openRules(nomidx, onClose) {
+    const dialog = new RulesDialog({size: 'large'});
+    dialog.nomidx = nomidx;
+    windowManager.addWindows([dialog]);
+    await windowManager.openWindow(dialog).closed;
+    onClose();
+    windowManager.removeWindows([dialog]);
+}
+
+/**
+ * 在頁面內建立編輯區。
+ * 已有開啟的編輯器時只移回該處，避免後續初始化覆寫其共享狀態。
+ * @returns {jQuery|null} 新編輯區；已有編輯器時為 null。
+ */
+function mountEditor(title) {
+    if ($editor?.is(':visible')) {
+        $editor[0].scrollIntoView({block: 'start'});
+        mw.notify(t('請先完成或關閉目前的編輯器。', '请先完成或关闭当前编辑器。'));
+        return null;
+    }
+    $editor?.remove();
+    $editor = $('<section>').addClass('acga-editor').attr({'aria-label': title, tabindex: '-1'});
+    $editor.append($('<h2>').text(title));
+    $('#mw-content-text').prepend($editor);
+    $editor[0].scrollIntoView({block: 'start'});
+    $editor.trigger('focus');
+    return $editor;
+}
+
+/**
+ * 管理提交、關閉與附加操作，並在請求期間鎖定操作按鈕。
+ */
+function addEditorActions($panel, save, extras = []) {
+    const $status = $('<p>').attr('role', 'status');
+    const saveButton = new OO.ui.ButtonWidget({label: t('儲存', '储存'), flags: ['primary', 'progressive']});
+    const closeButton = new OO.ui.ButtonWidget({label: t('關閉', '关闭')});
+    const buttons = [saveButton, ...extras, closeButton];
+    closeButton.on('click', () => $panel.hide());
+    saveButton.on('click', async () => {
+        buttons.forEach(button => button.setDisabled(true));
+        $status.text(t('正在儲存…', '正在储存…'));
+        try {
+            if (!await save()) $panel.hide();
+            else $status.text(t('尚未儲存，請檢查填寫內容。', '尚未储存，请检查填写内容。'));
+        } catch (error) {
+            $status.text(t('儲存未完成：', '储存未完成：') + (error.message || String(error)));
+        } finally {
+            buttons.forEach(button => button.setDisabled(false));
+        }
+    });
+    $panel.append($('<div>').addClass('acga-actions').append(buttons.map(button => button.$element)), $status);
+}
+
+/**
+ * 在頁面內開啟可新增多筆提名的編輯器。
  */
 export function showNewNominationDialog() {
-    // 清空原有的items
-    state.nominations.length = 0;
-
-    newNominationDialog = new NewNominationDialog({
-        size: 'large', padded: true, scrollable: true,
+    const $panel = mountEditor(t('新提名'));
+    if (!$panel) return;
+    state.nominations = [];
+    const content = new OO.ui.FieldsetLayout();
+    content.addItems([generateNominationFieldset()]);
+    messageInput = new OO.ui.MultilineTextInputWidget({autosize: true});
+    $panel.append(content.$element, new OO.ui.FieldLayout(messageInput, {label: t('附加說明', '附加说明'), align: 'top'}).$element);
+    const add = new OO.ui.ButtonWidget({label: t('新增一筆', '新增一项')});
+    add.on('click', () => content.addItems([generateNominationFieldset()]));
+    const remove = new OO.ui.ButtonWidget({label: t('移除末筆', '移除末项')});
+    remove.on('click', () => {
+        if (state.nominations.length <= 1) return;
+        content.removeItems([content.items[content.items.length - 1]]);
+        state.nominations.pop();
     });
-    windowManager.addWindows([newNominationDialog]);
-    windowManager.openWindow(newNominationDialog);
+    addEditorActions($panel, saveNewNomination, [add, remove]);
 }
 
-/**
- * 獲取新提名對話框中的附加說明內容。
- * @returns {string} 附加說明內容。
- */
 export function getNewNominationDialogAdditionalMessage() {
-    if (newNominationDialog) {
-        return newNominationDialog.messageInput.getValue().trim();
-    }
-    console.log('[ACGATool] Warning: newNominationDialog is not initialized.');
-    return '';
+    return messageInput?.getValue().trim() || '';
 }
 
 /**
- * 編輯提名對話框。
- * @param config
- * @constructor
- */
-function EditNominationDialog(config) {
-    EditNominationDialog.super.call(this, config);
-}
-
-/**
- * 初始化編輯提名對話框。在腳本啟動時執行一次。
- */
-function initEditNominationDialog() {
-    OO.inheritClass(EditNominationDialog, OO.ui.ProcessDialog);
-
-    EditNominationDialog.static.name = 'EditNominationDialog';
-    EditNominationDialog.static.title = state.convByVar({
-        hant: '編輯提名（維基ACG專題獎小工具）', hans: '编辑提名（维基ACG专题奖小工具）',
-    });
-    EditNominationDialog.static.actions = [
-        {
-            action: 'save', label: state.convByVar({
-                hant: '儲存', hans: '储存',
-            }), flags: [
-                'primary', 'progressive',
-            ],
-        }, {
-            action: 'cancel', label: state.convByVar({
-                hant: '取消', hans: '取消',
-            }), flags: 'safe',
-        },
-    ];
-    EditNominationDialog.prototype.initialize = function () {
-        EditNominationDialog.super.prototype.initialize.call(this);
-        this.panel = new OO.ui.PanelLayout({
-            padded: true, expanded: false,
-        });
-        this.panel.$element.append(editNominationDialogContent.$element);
-        this.$body.append(this.panel.$element);
-    };
-
-    EditNominationDialog.prototype.onMessageInputResize = function () {
-        this.updateSize();
-    };
-
-    EditNominationDialog.prototype.getBodyHeight = function () {
-        return this.panel.$element.outerHeight(true);
-    };
-
-    EditNominationDialog.prototype.getActionProcess = function (action) {
-        if (action === 'save') {
-            return new OO.ui.Process(async function () {
-                let response = await saveModifiedNomination();
-                if (!response) {
-                    this.close();
-                }
-            }, this);
-        } else if (action === 'cancel') {
-            return new OO.ui.Process(function () {
-                this.close();
-            }, this);
-        }
-        return EditNominationDialog.super.prototype.getActionProcess.call(this, action);
-    };
-
-    EditNominationDialog.prototype.getTearnDownProcess = function (data) {
-        return EditNominationDialog.super.prototype.getTearnDownProcess.call(this, data);
-    };
-}
-
-/**
- * 顯示編輯提名對話框。
- * @param nomData 提名資料。
+ * 在頁面內開啟單筆提名編輯器。
+ * @param {object} nomData 從頁面解析的提名內容。
  */
 export function showEditNominationDialog(nomData) {
-    // 清空原有的items
-    editNominationDialogContent.clearItems();
-    state.nominations.length = 0;
-
-    editNominationDialog = new EditNominationDialog({
-        size: 'large', padded: true, scrollable: true,
-    });
-
-    // 加入新的items
-    editNominationDialogContent.addItems([generateNominationFieldset(nomData)]);
-
-    windowManager.addWindows([editNominationDialog]);
-    windowManager.openWindow(editNominationDialog);
+    const $panel = mountEditor(t('編輯提名', '编辑提名'));
+    if (!$panel) return;
+    state.nominations = [];
+    $panel.append(generateNominationFieldset(nomData).$element);
+    addEditorActions($panel, saveModifiedNomination);
 }
 
 /**

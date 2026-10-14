@@ -1,7 +1,14 @@
 import state from "./state.js";
 import {NominationRuleAliases, NominationRuleSet} from "./rules.js";
 
-const mwApi = new mw.Api({userAgent: 'ACGATool/1.1.0'});  // MediaWiki API實例
+let mwApi;
+/**
+ * 延後到第一次請求才建立 mw.Api，讓 ResourceLoader 先完成 API 模組載入。
+ */
+function getApi() {
+    if (!mwApi) mwApi = new mw.Api({userAgent: 'ACGATool/2.0.0'});
+    return mwApi;
+}
 
 /**
  * 獲取完整的wikitext。
@@ -9,7 +16,7 @@ const mwApi = new mw.Api({userAgent: 'ACGATool/1.1.0'});  // MediaWiki API實例
  * @returns {Promise<string>} 包含完整wikitext的Promise。
  */
 export async function getFullText(pageName = '') {
-    let response = await mwApi.get({
+    let response = await getApi().get({
         action: 'query',
         titles: pageName || 'WikiProject:ACG/維基ACG專題獎/登記處',
         prop: 'revisions',
@@ -525,7 +532,7 @@ export async function getXToolsInfo(pageName) {
 }
 
 export async function editPage(pageName, newText, editSummary) {
-    let response = await mwApi.postWithToken('csrf', {
+    let response = await getApi().postWithToken('csrf', {
         action: 'edit', title: pageName, text: newText, summary: editSummary,
     });
     if (response.edit && response.edit.result === 'Success') {
@@ -537,7 +544,7 @@ export async function editPage(pageName, newText, editSummary) {
 }
 
 export async function appendToPage(pageName, appendText, editSummary) {
-    let response = await mwApi.postWithToken('csrf', {
+    let response = await getApi().postWithToken('csrf', {
         action: 'edit', title: pageName, appendtext: appendText, summary: editSummary,
     });
     if (response.edit && response.edit.result === 'Success') {
