@@ -3,6 +3,8 @@ import {getNominationSections} from "./page-dom.js";
 import {entryOwnership, isOwnNomination, assertCanCheck} from "./ownership.js";
 import {reviewData, parseCheck} from "./scoring.js";
 import {SCORES} from "./submission.js";
+import {cdxIconEdit, cdxIconHighlight} from "./icons.js";
+import {iconButton} from "./icon-button.js";
 import {
     appendToPage,
     entryValues,
@@ -300,12 +302,10 @@ export async function addEditButtonsToPage() {
                     ++index;
 
                     // 加入編輯按鈕
-                    let editIcon = $('<img>').attr('src', 'https://upload.wikimedia.org/wikipedia/commons/8/8a/OOjs_UI_icon_edit-ltr-progressive.svg').css({'width': '12px'});
                     const currentIndex = index;
-                    let editButton = $('<a>').attr('href', 'javascript:void(0)').append(editIcon).click(function () {
+                    const editButton = iconButton(cdxIconEdit, state.convByVar({hant: '編輯提名', hans: '编辑提名'}), () => {
                         editNomination(date, currentIndex);
-                    });
-                    editButton.addClass('acga-control');
+                    }).addClass('acga-control');
                     row.attr({'data-acga-date': date, 'data-acga-source-index': currentIndex});
                     nomEntry.append(' ').append(editButton);
                 } else {
@@ -319,17 +319,12 @@ export async function addEditButtonsToPage() {
                     if (!entry || isOwnNomination(entryOwnership(fulltext, entry), mw.config.get('wgUserName'))) return;
 
                     // 單項核對
-                    let checkIcon = $('<img>').attr('src', 'https://upload.wikimedia.org/wikipedia/commons/3/30/OOjs_UI_icon_highlight-progressive.svg').css({
-                        'width': '12px', 'vertical-align': 'sub',
-                    });
-                    let checkButton = $('<a>').css({
-                        'display': 'inline-block', 'margin-left': '5px', 'font-size': '.857em', 'font-weight': 'bold',
-                    }).append(checkIcon).append(' ').append(state.convByVar({
+                    const label = state.convByVar({
                         hant: row.is('.done, .rechecking') ? '覆核／更正得分' : '核對', hans: row.is('.done, .rechecking') ? '复核／更正得分' : '核对',
-                    })).attr('href', 'javascript:void(0)').click(async function () {
-                        await checkNomination(date, currentIndex);
                     });
-                    checkButton.addClass('acga-control');
+                    const checkButton = iconButton(cdxIconHighlight, label, async () => {
+                        await checkNomination(date, currentIndex);
+                    }, {showLabel: true}).addClass('acga-control acga-check-button');
                     mwNoTalk.append(checkButton);
 
                     // 多選核對

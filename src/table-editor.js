@@ -5,6 +5,8 @@
 import state from './state.js';
 import {NominationRuleSet} from './rules.js';
 import {parseUserReason} from './api.js';
+import {cdxIconTrash} from './icons.js';
+import {iconButton} from './icon-button.js';
 
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
 
@@ -82,10 +84,10 @@ function userContents(nomination) {
  * @param {jQuery} $table createNominationTable 建立的表格。
  * @param {object} nomination 可修改的草稿資料，含來源快照與核分狀態。
  * @param {number} index 草稿陣列位置，呈現時使用從 1 起算的行編號。
- * @param {object} callbacks checking 決定模式；openRules 開規則彈窗；touch 撤銷核對並保存；onReviewed 通知完成標記變更。
+ * @param {object} callbacks checking 決定模式；openRules 開規則彈窗；touch 撤銷核對並保存；onReviewed 通知完成標記變更；onRemove／onStash 只供新提名刪除或暫存此筆。
  * @returns {object} $entry、$check；核對模式另附 reviewWidget 供外部撤銷完成標記。
  */
-export function appendNominationRows($table, nomination, index, {checking, openRules, touch, onReviewed}) {
+export function appendNominationRows($table, nomination, index, {checking, openRules, touch, onReviewed, onRemove, onStash}) {
     const status = nomination.original ? 'rechecking' : 'pending';
     const attributes = {'data-acgnom-index': index + 1, 'data-acgnom-status': status, 'data-acga-id': nomination.id};
     const $entry = $('<tr>').addClass(`acgnom-entry item${index + 1} ${status}`).attr(attributes);
@@ -112,6 +114,12 @@ export function appendNominationRows($table, nomination, index, {checking, openR
         $user.append(userContents(nomination), ' ', action(t('更正得分者'), () => textInput('awarder', t('得分者'), $user).focus()));
     } else {
         textInput('pageName', t('條目名稱', '条目名称'), $title);
+        if (onRemove) {
+            const $actions = $('<div>').addClass('acga-row-actions');
+            $actions.append(iconButton(cdxIconTrash, t('移除此筆提名', '移除此项提名'), onRemove, {destructive: true}).addClass('acga-remove-nomination'));
+            if (onStash) $actions.append($('<button>').attr({type: 'button', title: t('暫存此筆提名', '暂存此项提名')}).addClass('acga-icon-button acga-stash-nomination').text(t('暫存', '暂存')).on('click', onStash));
+            $title.append($actions);
+        }
         textInput('awarder', t('得分者'), $user);
     }
 

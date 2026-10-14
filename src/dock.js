@@ -26,8 +26,9 @@ export function createDock(root) {
         }
     };
     const jumpButton = new OO.ui.ButtonWidget({label: t('回到表格')});
-    $navigation.append(jumpButton.$element);
-    for (const [name, label] of [['drafts', t('草稿')], ['archives', t('歸檔', '归档')], ['details', t('說明與儲存進度', '说明与储存进度')]]) {
+    toggles.drafts = new OO.ui.ButtonWidget({label: t('草稿箱')});
+    $navigation.append(jumpButton.$element, toggles.drafts.$element);
+    for (const [name, label] of [['recovery', t('繼續編輯', '继续编辑')], ['archives', t('歸檔', '归档')], ['details', t('說明與儲存進度', '说明与储存进度')]]) {
         panes[name] = $('<section>').attr({id: `acga-dock-${name}`, 'aria-label': label}).hide();
         const button = new OO.ui.ButtonWidget({label});
         button.$button.attr({'aria-expanded': 'false', 'aria-controls': `acga-dock-${name}`});
@@ -47,12 +48,9 @@ export function createDock(root) {
         const left = Math.max(8, rect.width ? rect.left : 8);
         const right = Math.min(viewport - 8, rect.width ? rect.right : viewport - 8);
         $element.css({left, width: Math.max(0, right - left)});
-        // 只為固定底欄預留捲動空間；展開面板不把正文往上推。
+        // 懸浮條高度只供編輯器的 scroll-margin 使用，不加到正文 padding 造成頁尾留白。
         root.style.setProperty('--acga-dock-clearance', `${$bar.outerHeight() + 24}px`);
     };
-    const originalPadding = window.getComputedStyle(root).paddingBottom;
-    root.style.setProperty('--acga-original-padding', originalPadding);
-    root.classList.add('acga-dock-host');
     window.addEventListener('resize', position);
     if (typeof ResizeObserver !== 'undefined') {
         const observer = new ResizeObserver(position);

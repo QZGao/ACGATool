@@ -8,6 +8,7 @@ import {reloadForReview} from "./conflicts.js";
 import {wikiTransport} from "./transport.js";
 import {createDraftStore, clearSubmittedDraft} from "./drafts.js";
 import {appendNominationRows, createNominationTable, sourceRows} from "./table-editor.js";
+import {DraftDialog, initDraftDialog} from "./draft-dialog.js";
 
 let windowManager = null;  // Window manager for OOUI dialogs
 let $editor = null;
@@ -20,6 +21,7 @@ let hiddenSources = new Map();
 let dock = null;
 let previewTimer = null;
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
+const editorIsOpen = () => !!$editor && $editor.css('display') !== 'none';
 /**
  * 任何核對內容的修改都撤銷該筆的完成標記，並觸發草稿保存。
  */
@@ -38,12 +40,14 @@ export function initOOUI() {
     initRuleCheckboxInputWidget();
     // Initialize dialogs
     initRuleDialog();
+    initDraftDialog();
     initEditorStyles();
     // Initialize window manager
     dock = createDock(getArticleRoot());
     dock.jumpButton.on('click', () => { $editor?.[0].scrollIntoView({block: 'start'}); $editor?.trigger('focus'); });
     initWindowManager();
     initDrafts();
+    dock.toggles.drafts.on('click', openDraftBox);
 }
 
 function initWindowManager() {
@@ -183,7 +187,6 @@ function initRuleCheckboxInputWidget() {
 function initEditorStyles() {
     mw.util.addCSS(`
         .acga-editor { margin: 1.5em 0; }
-        .acga-dock-host { padding-bottom: calc(var(--acga-original-padding, 0px) + var(--acga-dock-clearance, 0px)); }
         .acga-editor { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
         .acga-dock { position: fixed; bottom: max(8px, env(safe-area-inset-bottom)); z-index: 100; box-sizing: border-box; color: var(--color-base, #202122); background: var(--background-color-base, #fff); border: 1px solid var(--border-color-base, #a2a9b1); border-radius: 2px; }
         /* OOUI 模態視窗開啟時暫藏底欄，避免底欄遮住視窗或接受提交操作。 */
@@ -216,6 +219,19 @@ function initEditorStyles() {
         .acga-inline-action::before { content: '［'; } .acga-inline-action::after { content: '］'; }
         .acga-inline-action:hover { text-decoration: underline; }
         .acga-inline-action:focus-visible { outline: 2px solid var(--color-progressive, #36c); }
+        /* 圖標沿用原筆圖標的 12px，加上少量邊距後，純圖標按鈕為 16px。 */
+        .acga-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 16px; min-height: 16px; box-sizing: border-box; padding: 1px; border: 1px solid transparent; border-radius: 2px; background: transparent; color: var(--color-progressive, #36c); font: inherit; line-height: 1; vertical-align: middle; cursor: pointer; }
+        .acga-icon-button svg { display: block; flex: none; width: 12px; height: 12px; fill: currentColor; }
+        .acga-icon-button:enabled:hover { background: var(--background-color-progressive-subtle, #eaf3ff); }
+        .acga-icon-button--destructive { color: var(--color-destructive, #b32424); }
+        .acga-icon-button--destructive:enabled:hover { background: var(--background-color-destructive-subtle, #fee7e6); }
+        .acga-icon-button:focus-visible { outline: 2px solid var(--color-progressive, #36c); outline-offset: 1px; }
+        .acga-icon-button:disabled { opacity: .5; cursor: default; }
+        .acga-row-actions { display: flex; justify-content: center; align-items: center; gap: 4px; margin-top: .3em; }
+        .acga-stash-nomination { font-size: 12px; }
+        .acga-draft-picker .oo-ui-fieldLayout { margin-top: .75em; }
+        .acga-draft-picker .oo-ui-fieldLayout:first-child { margin-top: 0; }
+        .acga-check-button { margin-left: 5px; font-size: .857em; font-weight: bold; }
         .acga-inline-option { display: inline-flex; align-items: baseline; gap: .25em; margin: .4em .75em .25em 0; }
         .acga-check-message { max-width: none; margin-top: .4em; }
         .acga-original-check { margin-block: .4em; }
@@ -238,7 +254,10 @@ function initEditorStyles() {
 function ruleSummary(ruleStatus) {
     const {ruleDict} = NominationRuleSet();
     return Object.entries(ruleStatus).filter(([, value]) => value.selected)
-        .map(([key, value]) => `${value.desc || ruleDict[key].desc} (${value.score ?? ruleDict[key].score})`).join('、') || t('尚未選擇規則', '尚未选择规则');
+        .map(([key, value]) => {
+            const score = Object.prototype.hasOwnProperty.call(value, 'score') ? value.score : ruleDict[key]?.score;
+            return `${value.desc || ruleDict[key]?.desc || key} (${Number.isFinite(score) ? score : '?'} ${t('分')})`;
+        }).join('、') || t('尚未選擇規則', '尚未选择规则');
 }
 
 function RulesDialog(config) { RulesDialog.super.call(this, config); }
@@ -301,7 +320,7 @@ async function openRules(nomidx, onClose) {
  * @returns {jQuery|null} 新編輯區；已有編輯器時為 null。
  */
 function mountEditor(title, source) {
-    if ($editor?.is(':visible')) {
+    if (editorIsOpen()) {
         $editor[0].scrollIntoView({block: 'start'});
         mw.notify(t('請先完成或關閉目前的編輯器。', '请先完成或关闭当前编辑器。'));
         return null;
@@ -377,6 +396,7 @@ function addEditorActions($panel, extras = []) {
         $inputs.prop('disabled', true);
         $options.prop('inert', true).attr('inert', '');
         dock.toggles.drafts.setDisabled(true);
+        dock.toggles.recovery.setDisabled(true);
         dock.showPanel('details');
         // 部分 OOUI 控制項是連結而非 input；inert 同時阻止其滑鼠與鍵盤操作。
         $panel.find('.acga-fields').prop('inert', true).attr('inert', '');
@@ -404,6 +424,7 @@ function addEditorActions($panel, extras = []) {
             controls.forEach(([element, disabled]) => { element.disabled = disabled; });
             buttons.forEach(button => button.setDisabled(completed && button !== closeButton));
             dock.toggles.drafts.setDisabled(false);
+            dock.toggles.recovery.setDisabled(false);
             if (completed) $panel.add($options).find(':input').prop('disabled', true);
             else lockPendingForm($panel);
             showProgress();
@@ -414,9 +435,9 @@ function addEditorActions($panel, extras = []) {
         state.workspace.id = newId(); state.workspace.storageVersion = 0; state.changed();
     });
     closeButton.on('click', () => {
-        if (!completed) state.changed();
         clearTimeout(previewTimer);
         $panel.hide(); restoreSourceRows(); dock.setActive(false);
+        if (!completed) { state.workspace.open = false; state.changed(); }
         if (completed) location.reload();
     });
     saveButton.on('click', runSave);
@@ -448,6 +469,7 @@ function activateWorkspace(workspace) {
     state.progress = () => {};
     reviewWidgets = new Map();
     state.workspace = workspace;
+    workspace.open = true;
     state.nominations = workspace.nominations;
     state.changed = () => {
         try { persistWorkspace(); }
@@ -471,7 +493,7 @@ function persistWorkspace() {
  * 依維基站點及登入帳號隔離本機草稿，讀取失敗時保留原儲存資料並提示。
  */
 function initDrafts() {
-    $draftList = dock.panes.drafts.addClass('acga-drafts');
+    $draftList = dock.panes.recovery.addClass('acga-drafts');
     if (mw.config.get('wgPageName') !== 'WikiProject:ACG/維基ACG專題獎/登記處') { dock.toggles.drafts.toggle(false); return; }
     try {
         const prefix = `ACGATool:v1:${mw.config.get('wgDBname')}:${mw.config.get('wgUserName') || 'anonymous'}`;
@@ -479,17 +501,20 @@ function initDrafts() {
         refreshDraftList();
     } catch (error) {
         $draftList.text(t('無法讀取本機草稿：', '无法读取本机草稿：') + error.message);
-        dock.showPanel('drafts');
+        dock.toggles.recovery.toggle(true);
+        dock.showPanel('recovery');
     }
 }
 
 function refreshDraftList() {
     const drafts = draftStore.list();
+    const inactive = drafts.filter(draft => !editorIsOpen() || draft.id !== state.workspace?.id);
+    const count = inactive.filter(draft => draft.mode === 'new' && !draft.operation).reduce((sum, draft) => sum + draft.nominations.length, 0);
+    dock.toggles.drafts.setLabel(`${t('草稿箱')} (${count})`);
     $draftList.empty();
-    dock.toggles.drafts.setLabel(`${t('草稿')} (${drafts.length})`);
-    if (!drafts.length) { $draftList.text(t('沒有未完成的草稿。', '没有未完成的草稿。')); return; }
-    $draftList.append($('<strong>').text(t('未完成的草稿：', '未完成的草稿：')));
-    for (const draft of drafts) {
+    const recovery = inactive.filter(draft => draft.mode !== 'new' || draft.operation);
+    dock.toggles.recovery.toggle(recovery.length > 0);
+    for (const draft of recovery) {
         const label = `${draft.mode === 'check' ? t('核對', '核对') : draft.mode === 'new' ? t('新提名') : t('編輯', '编辑')}：${draft.nominations.map(n => n.pageName || t('未填條目', '未填条目')).join('、')}`;
         const button = new OO.ui.ButtonWidget({label});
         button.on('click', () => {
@@ -499,6 +524,59 @@ function refreshDraftList() {
         });
         $draftList.append(button.$element);
     }
+}
+
+/** 開啟 checkbox 草稿箱；未完成的核對／儲存使用獨立的繼續編輯入口。 */
+async function openDraftBox() {
+    if (editorIsOpen() && (state.workspace.mode !== 'new' || state.workspace.operation)) {
+        mw.notify(t('請先關閉目前的編輯器，再恢復新提名。', '请先关闭当前编辑器，再恢复新提名。'));
+        return;
+    }
+    try {
+        const items = draftStore.list().filter(draft => draft.mode === 'new' && !draft.operation && (!editorIsOpen() || draft.id !== state.workspace.id))
+            .flatMap(draft => draft.nominations.map(nomination => ({draft, nomination,
+                label: `${nomination.awarder || t('未填用戶', '未填用户')} · ${nomination.pageName || t('未填條目', '未填条目')} · ${ruleSummary(nomination.ruleStatus || {})}`})));
+        const dialog = new DraftDialog({size: 'medium', items, restore: restoreStashedNominations});
+        windowManager.addWindows([dialog]);
+        await windowManager.openWindow(dialog).closed;
+        await windowManager.removeWindows(['ACGADrafts']);
+    } catch (error) { mw.notify(error.message || String(error), {type: 'error'}); }
+}
+
+/** 一次搬移全部選中提名，再把新列追加到目前表單尾部。 */
+function restoreStashedNominations(items) {
+    const selections = new Map();
+    for (const {draft, nomination} of items) {
+        if (!selections.has(draft.id)) selections.set(draft.id, {draft, nominationIds: []});
+        selections.get(draft.id).nominationIds.push(nomination.id);
+    }
+    const append = editorIsOpen();
+    if (append) persistWorkspace();
+    const workspace = append ? state.workspace : {id: newId(), mode: 'new', open: true, nominations: [], message: ''};
+    const previousCount = workspace.nominations.length;
+    draftStore.transfer([...selections.values()], workspace);
+    if (!append) showNewNominationDialog(workspace);
+    else {
+        state.nominations = workspace.nominations;
+        const $table = $editor.find('.acga-edit-table');
+        workspace.nominations.slice(previousCount).forEach((nomination, index) => renderEditableNomination($table, nomination, previousCount + index));
+        messageInput.setValue(workspace.message);
+        refreshDraftList(); state.progress?.();
+    }
+}
+
+/** 頁面資料與原列定位完成後，恢復重新整理前仍開啟的表單。 */
+export function resumeOpenWorkspace() {
+    // 頁面資料載入期間，使用者可能已自行開啟表單；此時沿用目前表單。
+    if (editorIsOpen()) return true;
+    let draft;
+    try { draft = draftStore?.active(); }
+    catch (error) { mw.notify(error.message || String(error), {type: 'error'}); return false; }
+    if (!draft) return false;
+    if (draft.mode === 'check') showCheckNominations(draft.nominations, draft);
+    else if (draft.mode === 'new') showNewNominationDialog(draft);
+    else showEditNominationDialog(draft.nominations[0], draft);
+    return true;
 }
 
 /**
@@ -526,13 +604,88 @@ function hideSourceRows(source) {
 }
 
 /**
- * 將新提名或恢復的資料加入共享草稿，再建立與該陣列位置綁定的表格列。
+ * 將新提名或恢復的資料加入共享草稿。事件依提名物件定位，避免刪除中間一筆後沿用舊索引。
  */
 function appendEditableNomination($table, data = null) {
     const nomination = {...data, id: data?.id || newId(), awarder: data?.awarder ?? mw.config.get('wgUserName') ?? '', pageName: data?.pageName || '', ruleStatus: data?.ruleStatus || {}};
     const index = state.nominations.push(nomination) - 1;
-    appendNominationRows($table, nomination, index, {checking: false, touch: () => touchNomination(index), openRules: refresh => openRules(index, refresh)});
+    renderEditableNomination($table, nomination, index);
+}
+
+function renderEditableNomination($table, nomination, index) {
+    appendNominationRows($table, nomination, index, {
+        checking: false,
+        touch: () => touchNomination(state.nominations.indexOf(nomination)),
+        openRules: refresh => openRules(state.nominations.indexOf(nomination), refresh),
+        onRemove: state.workspace.mode === 'new' ? () => removeEditableNomination($table, nomination) : null,
+        onStash: state.workspace.mode === 'new' ? () => stashEditableNomination($table, nomination) : null,
+    });
     hideSourceRows(nomination.source);
+}
+
+/** 一筆暫存包含完整規則值及共用說明；寫入成功後才移走表單中的列。 */
+function stashEditableNomination($table, nomination) {
+    if (state.workspace.operation) return;
+    const index = state.nominations.indexOf(nomination);
+    if (index < 0) return;
+    try {
+        persistWorkspace();
+        draftStore.transfer([{draft: state.workspace, nominationIds: [nomination.id]}], {id: newId(), mode: 'new', open: false, nominations: [], message: ''});
+        state.nominations = state.workspace.nominations;
+        if (!state.nominations.length) closeEmptyEditor();
+        else { removeEditableRows($table, nomination, index); refreshDraftList(); state.progress?.(); }
+    } catch (error) {
+        $draftStatus?.text(t('暫存未完成：', '暂存未完成：') + error.message);
+        dock.showPanel('details');
+    }
+}
+
+/** 草稿已移走或刪除後解除回呼，防止延遲輸入事件再次自動保存。 */
+function closeEmptyEditor() {
+    state.changed = () => {};
+    state.progress = () => {};
+    state.nominations = [];
+    state.workspace = null;
+    clearTimeout(previewTimer);
+    $editor.remove(); $editor = null;
+    $draftStatus = null; messageInput = null;
+    restoreSourceRows();
+    dock.$actions.empty(); dock.panes.details.empty();
+    dock.setActive(false);
+    refreshDraftList();
+    dock.toggles.drafts.$button.trigger('focus');
+}
+
+/** 移除新提名的兩列並重排編號，保留其餘輸入元件與內容，再將焦點移至相鄰提名。 */
+function removeEditableNomination($table, nomination) {
+    if (state.workspace.operation) return;
+    const index = state.nominations.indexOf(nomination);
+    if (index < 0) return;
+    if (state.nominations.length === 1) {
+        // 最後一筆代表整份新提名草稿。先完成版本檢查與刪除，再清理畫面，
+        // 並解除自動保存回呼，避免移除輸入元件時的延遲 change 事件重建草稿。
+        try { draftStore?.remove(state.workspace); }
+        catch (error) {
+            $draftStatus?.text(t('草稿未能刪除：', '草稿未能删除：') + error.message);
+            dock.showPanel('details');
+            return;
+        }
+        closeEmptyEditor();
+        return;
+    }
+    state.nominations.splice(index, 1);
+    removeEditableRows($table, nomination, index);
+    state.changed();
+}
+
+function removeEditableRows($table, nomination, index) {
+    $table.find('[data-acga-id]').filter((_, element) => element.getAttribute('data-acga-id') === nomination.id).remove();
+    const $entries = $table.find('.acgnom-entry');
+    $entries.each((rowIndex, entry) => {
+        const $rows = $(entry).add($(entry).next('.acgnom-check-row'));
+        $rows.removeClass(`item${$(entry).attr('data-acgnom-index')}`).addClass(`item${rowIndex + 1}`).attr('data-acgnom-index', rowIndex + 1);
+    });
+    $entries.eq(Math.min(index, state.nominations.length - 1)).find('.acgnom-title-cell input').trigger('focus');
 }
 
 /**
@@ -570,14 +723,7 @@ export function showNewNominationDialog(workspace) {
         if (workspace.operation || state.nominations.length >= 25) return;
         appendEditableNomination($table); state.changed();
     });
-    const remove = new OO.ui.ButtonWidget({label: t('移除末筆', '移除末项')});
-    remove.on('click', () => {
-        if (workspace.operation || state.nominations.length <= 1) return;
-        const removed = state.nominations.pop();
-        $table.find('[data-acga-id]').filter((_, element) => element.getAttribute('data-acga-id') === removed.id).remove();
-        state.changed();
-    });
-    addEditorActions($panel, [add, remove]);
+    addEditorActions($panel, [add]);
     // 建好日期標題與表格後再捲動，避免空編輯區的頁尾位置把新內容留在視窗下方。
     $panel[0].scrollIntoView({block: 'start'});
 }
@@ -676,5 +822,5 @@ export function setArchiveActions(archives = []) {
         button.on('click', action);
         dock.panes.archives.append(button.$element);
     }
-    dock.setActive(!!$editor?.is(':visible'));
+    dock.setActive(editorIsOpen());
 }

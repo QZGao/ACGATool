@@ -1,5 +1,5 @@
 import state from "./state.js";
-import {initOOUI, showNewNominationDialog} from "./dialog.js";
+import {initOOUI, showNewNominationDialog, resumeOpenWorkspace} from "./dialog.js";
 import {addEditButtonsToPage} from "./dom.js";
 
 function init() {
@@ -12,7 +12,7 @@ function init() {
 
         if (pageName.endsWith('/登記處')) initOOUI();
         addEditButtonsToPage().then(() => {
-            if (pageName.endsWith('/登記處') && location.hash === '#acga-new') showNewNominationDialog();
+            if (pageName.endsWith('/登記處') && !resumeOpenWorkspace() && location.hash === '#acga-new') showNewNominationDialog();
         });
     });
 }
