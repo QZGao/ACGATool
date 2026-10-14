@@ -89,3 +89,55 @@ test('failure to persist the operation prevents any network write', async () => 
     await assert.rejects(submitWorkspace(draft, () => { throw new Error('storage full'); }, io));
     assert.deepEqual(writes, []);
 });
+
+test('changed score-bearing fields stop the entire batch before any write', async () => {
+    const {draft, io, pages, writes} = fixture();
+    pages.get(REGISTER).text = pages.get(REGISTER).text.replace('request|ver=1|1a', 'request|ver=1|1b');
+    await assert.rejects(submitWorkspace(draft, () => {}, io), /已變更/);
+    assert.deepEqual(writes, []);
+    assert.deepEqual(draft.conflicts[0].fields, ['提名理由']);
+});
+
+test('changes after registry save halt accounting and require a fresh review', async () => {
+    const {draft, io, pages, writes} = fixture();
+    const write = io.write;
+    let interfere = true;
+    io.write = async attempt => {
+        const result = await write(attempt);
+        if (attempt.title === REGISTER && interfere) {
+            interfere = false;
+            const page = pages.get(REGISTER);
+            page.text = page.text.replace('check|ver=1|1a', 'check|ver=1|1b');
+            page.revid++;
+        }
+        return result;
+    };
+    assert.equal(await submitWorkspace(draft, () => {}, io), false);
+    assert.deepEqual(writes, [REGISTER]);
+    assert.equal(draft.operation.steps[1].status, 'conflict');
+    const {reloadForReview} = await import('../src/conflicts.js');
+    await reloadForReview(draft, io);
+    assert.equal(draft.nominations[0].reviewed, false);
+    assert.ok(draft.nominations[0].previousProposal);
+    await assert.rejects(submitWorkspace(draft, () => {}, io), /逐筆完成核對/);
+    draft.nominations[0].reviewed = true;
+    assert.equal(await submitWorkspace(draft, () => {}, io), true);
+    assert.match(pages.get(SCORES).text, /\["A"\] = 12,/);
+    assert.equal(writes.filter(title => title === SCORES).length, 1);
+});
+
+test('expanded signatures and unrelated score increases do not invalidate the review', async () => {
+    const {draft, io, pages} = fixture();
+    const write = io.write;
+    io.write = async attempt => {
+        const result = await write(attempt);
+        if (attempt.title === REGISTER) {
+            pages.get(REGISTER).text = pages.get(REGISTER).text.replaceAll('~~~~', '[[User:Reviewer]] 2026年10月14日');
+            pages.get(SCORES).text = 'return {\n ["A"] = 60,\n}';
+            pages.get(SCORES).revid++;
+        }
+        return result;
+    };
+    assert.equal(await submitWorkspace(draft, () => {}, io), true);
+    assert.match(pages.get(SCORES).text, /\["A"\] = 61,/);
+});

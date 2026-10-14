@@ -2,6 +2,8 @@ import state from "./state.js";
 import {getOrderedRuleStatus, NominationRules, NominationRuleSet} from "./rules.js";
 import {submitWorkspace} from "./submission.js";
 import {newId} from "./scoring.js";
+import {reloadForReview} from "./conflicts.js";
+import {wikiTransport} from "./transport.js";
 import {createDraftStore, clearSubmittedDraft} from "./drafts.js";
 import {getXToolsInfo} from "./api.js";
 
@@ -11,7 +13,19 @@ let messageInput = null;
 let draftStore = null;
 let $draftList = null;
 let $draftStatus = null;
+let reviewWidgets = new Map();
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
+/**
+ * 任何核對內容的修改都撤銷該筆的完成標記，並觸發草稿保存。
+ */
+function touchNomination(index) {
+    const nomination = state.nominations[index];
+    if (state.workspace?.mode === 'check') {
+        nomination.reviewed = false;
+        reviewWidgets.get(nomination.id)?.setSelected(false);
+    }
+    state.changed();
+}
 
 export function initOOUI() {
     // Initialize OOUI custom widgets
@@ -50,7 +64,7 @@ function DynamicWidthTextInputWidget(config) {
  */
 function initDynamicWidthTextInputWidget() {
     OO.inheritClass(DynamicWidthTextInputWidget, OO.ui.TextInputWidget);
-    mw.util.addCSS('.DynamicWidthTextInputWidget { display: inline-block; vertical-align: baseline; width: auto; margin: 0; } .DynamicWidthTextInputWidget input { height: 20px !important; border: none !important; border-bottom: 2px solid #ccc !important; padding: 0 !important; text-align: center; } .DynamicWidthTextInputWidget input:focus { outline: none !important; box-shadow: none !important; border-bottom: 2px solid #36c !important; } .DynamicWidthTextInputWidget input:disabled { background-color: transparent !important; color: #101418 !important; -webkit-text-fill-color: #101418 !important; text-shadow: none !important; border-bottom: 2px solid #fff !important; }');
+    mw.util.addCSS('.DynamicWidthTextInputWidget { display: inline-block; vertical-align: baseline; width: auto; margin: 0; } .DynamicWidthTextInputWidget input { height: 20px !important; border: none !important; border-bottom: 2px solid #ccc !important; padding: 0 !important; text-align: center; } .DynamicWidthTextInputWidget input:focus { outline: none !important; box-shadow: none !important; border-bottom: 2px solid #36c !important; } .DynamicWidthTextInputWidget input:disabled { background-color: transparent !important; color: var(--color-base, #202122) !important; -webkit-text-fill-color: var(--color-base, #202122) !important; text-shadow: none !important; border-bottom: 2px solid #fff !important; }');
     DynamicWidthTextInputWidget.prototype.adjustWidth = function () {
         let text = this.getValue() || '';  // Get the current value; use placeholder if empty.
         this.$measure.text(text);  // Update the measurement element.
@@ -134,7 +148,7 @@ function initRuleCheckboxInputWidget() {
 
     RuleCheckboxInputWidget.prototype.handleCheckboxChange = function (isChecked) {
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].selected = isChecked;
-        state.changed();
+        touchNomination(this.nomidx);
         let disableCheck = this.check ? false : (!isChecked);
         this.ruleInputWidget.setDisabled(disableCheck);
         this.scoreInputWidget.setDisabled(disableCheck);
@@ -148,12 +162,12 @@ function initRuleCheckboxInputWidget() {
     };
     RuleCheckboxInputWidget.prototype.handleRuleInputChange = function (newValue) {
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].desc = newValue;
-        state.changed();
+        touchNomination(this.nomidx);
     };
     RuleCheckboxInputWidget.prototype.handleScoreInputChange = function (newValue) {
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].scoreInput = newValue;
         state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score = newValue.trim() === '' ? null : Number(newValue);
-        state.changed();
+        touchNomination(this.nomidx);
     };
 }
 
@@ -183,6 +197,7 @@ function generateNominationFieldset(nomData = null) {
     let userNameInput = new OO.ui.TextInputWidget({value: state.nominations[currentNomidx].awarder});
     userNameInput.on('change', function (newValue) {
         state.nominations[currentNomidx].awarder = newValue;
+        touchNomination(currentNomidx);
     });
     let userNameField = new OO.ui.FieldLayout(userNameInput, {
         label: state.convByVar({
@@ -194,6 +209,7 @@ function generateNominationFieldset(nomData = null) {
     let pageNameInput = new OO.ui.TextInputWidget({value: state.nominations[currentNomidx].pageName});
     pageNameInput.on('change', function (newValue) {
         state.nominations[currentNomidx].pageName = newValue;
+        touchNomination(currentNomidx);
     });
     let pageNameField = new OO.ui.FieldLayout(pageNameInput, {
         label: state.convByVar({
@@ -241,7 +257,7 @@ async function generateChecklistFieldset(nomData, nomidx) {
 
 
     const userNameInput = new OO.ui.TextInputWidget({value: awarder});
-    userNameInput.on('change', value => { nomData.awarder = value; });
+    userNameInput.on('change', value => { nomData.awarder = value; touchNomination(nomidx); });
     const userNameField = new OO.ui.FieldLayout(userNameInput, {label: t('得分者'), align: 'top'});
     const originalInfo = new OO.ui.LabelWidget({label: nomData.original
         ? `${t('原核定', '原核定')}：${awarder}，${nomData.original.score} ${t('分')} ${nomData.original.status === 'rechecking' ? t('（覆核中）', '（复核中）') : ''}`
@@ -252,7 +268,7 @@ async function generateChecklistFieldset(nomData, nomidx) {
             {data: 'booked', label: t('原核分已登記到積分榜', '原核分已登记到积分榜')},
             {data: 'unbooked', label: t('原核分尚未登記到積分榜', '原核分尚未登记到积分榜')}]});
     booking.setDisabled(!!nomData.baseline || !nomData.original?.score);
-    booking.on('change', value => { nomData.booking = value; });
+    booking.on('change', value => { nomData.booking = value; touchNomination(nomidx); });
     const bookingField = new OO.ui.FieldLayout(booking, {label: t('原分數入帳狀態', '原分数入账状态'), align: 'top'});
 
     // 條目名稱
@@ -321,6 +337,7 @@ async function generateChecklistFieldset(nomData, nomidx) {
     let invalidToggleSwitchWidget = new OO.ui.ToggleSwitchWidget({value: nomData.invalid});
     invalidToggleSwitchWidget.on('change', function (isChecked) {
         state.nominations[nomidx].invalid = isChecked;
+        touchNomination(nomidx);
     });
     let invalidField = new OO.ui.FieldLayout(invalidToggleSwitchWidget, {
         label: state.convByVar({
@@ -368,6 +385,7 @@ async function generateChecklistFieldset(nomData, nomidx) {
     });
     messageInput.on('change', function (newValue) {
         state.nominations[nomidx].message = newValue;
+        touchNomination(nomidx);
     });
     let messageField = new OO.ui.FieldLayout(messageInput, {
         label: state.convByVar({
@@ -393,13 +411,21 @@ function initEditorStyles() {
         .acga-editor { margin: 1.5em 0; padding: 1em; border: 1px solid var(--border-color-base, #a2a9b1); color: var(--color-base, inherit); background: var(--background-color-base, transparent); }
         .acga-editor h2 { margin-top: 0; }
         .acga-editor .oo-ui-fieldsetLayout { margin-bottom: 1em; }
+        .acga-conflicts { overflow-x: auto; }
+        .acga-conflicts:empty { display: none; }
+        .acga-conflicts table { width: 100%; border-collapse: collapse; }
+        .acga-conflicts th, .acga-conflicts td { text-align: left; vertical-align: baseline; padding: .5em; border: 1px solid var(--border-color-base, #a2a9b1); overflow-wrap: anywhere; white-space: pre-wrap; }
+        .acga-conflicts mark { background: var(--background-color-warning-subtle, #fef6e7); color: var(--color-base, #202122); }
+        .acga-needs-review > summary { font-weight: bold; color: var(--color-error, #b32424); }
         .acga-save-progress li { margin-block: .75em; }
         .acga-save-progress p { margin-block: .25em; }
+        .acga-fields > div > details { padding-block: .75em; border-bottom: 1px solid var(--border-color-base, #a2a9b1); }
+        .acga-editor .oo-ui-horizontalLayout { min-width: 0; }
         .acga-actions { display: flex; flex-wrap: wrap; gap: .5em; margin-top: 1em; }
         .acga-rules details { margin: .75em 0; }
         .acga-rules summary { cursor: pointer; font-weight: bold; }
         .acga-rules .oo-ui-horizontalLayout { display: flex; flex-wrap: wrap; gap: .5em; }
-        @media (max-width: 600px) { .acga-editor { padding: .75em; } .acga-editor .oo-ui-fieldLayout-align-left { display: block; } }
+        @media (max-width: 600px) { .acga-editor { padding: .75em; } .acga-editor .oo-ui-fieldLayout-align-left { display: block; } .acga-editor .oo-ui-fieldsetLayout-group > .oo-ui-horizontalLayout { display: flex; flex-wrap: wrap; } .acga-editor .oo-ui-horizontalLayout { max-width: 100%; } }
     `);
 }
 
@@ -445,7 +471,7 @@ function initRuleDialog() {
         this.$body.append(this.panel.$element);
     };
     RulesDialog.prototype.getBodyHeight = function () { return this.panel.$element.outerHeight(true); };
-    RulesDialog.prototype.getActionProcess = function () { return new OO.ui.Process(() => this.close()); };
+    RulesDialog.prototype.getActionProcess = function () { return new OO.ui.Process(() => { this.close(); }); };
 }
 
 /**
@@ -459,7 +485,7 @@ async function openRules(nomidx, onClose) {
     windowManager.addWindows([dialog]);
     await windowManager.openWindow(dialog).closed;
     onClose();
-    windowManager.removeWindows([dialog]);
+    await windowManager.removeWindows(['ACGARules']);
 }
 
 /**
@@ -487,8 +513,10 @@ function mountEditor(title) {
  * 回應未明的項目只查證原請求。使用者關閉或重新載入後，仍可由草稿恢復。
  */
 function addEditorActions($panel, extras = []) {
+    $panel.children().not('h2').wrapAll('<div class="acga-fields"></div>');
     $draftStatus = $('<p>').attr('role', 'status');
     const $status = $('<p>').attr('role', 'status');
+    const $conflicts = $('<div>').attr('role', 'alert').addClass('acga-conflicts');
     const $progress = $('<ol>').addClass('acga-save-progress').attr('aria-label', t('儲存進度', '储存进度'));
     const saveButton = new OO.ui.ButtonWidget({label: t('送出全部', '提交全部'), flags: ['primary', 'progressive']});
     const closeButton = new OO.ui.ButtonWidget({label: t('關閉並保留草稿', '关闭并保留草稿')});
@@ -499,9 +527,11 @@ function addEditorActions($panel, extras = []) {
         const operation = state.workspace.operation || completedOperation;
         $progress.empty();
         saveButton.toggle(!operation);
+        saveButton.setDisabled(saving || completed || !!state.workspace.conflicts?.length);
+        showConflicts($conflicts, $panel);
         if (!operation) return;
         operation.steps.forEach((step, index) => {
-            const labels = {pending: t('等待儲存', '等待储存'), saving: t('正在儲存', '正在储存'), succeeded: t('✓ 已完成'), failed: t('儲存失敗', '储存失败'), unknown: t('結果未明', '结果未明')};
+            const labels = {pending: t('等待儲存', '等待储存'), saving: t('正在儲存', '正在储存'), succeeded: t('✓ 已完成'), failed: t('儲存失敗', '储存失败'), unknown: t('結果未明', '结果未明'), conflict: t('內容已變更，需重新核對', '内容已变更，需重新核对')};
             const name = step.key === 'registry' ? t('登記處', '登记处') : t('積分榜', '积分榜');
             const $row = $('<li>').append($('<strong>').text(`${name}：${labels[step.status] || step.status}`));
             if (step.error) $row.append($('<p>').text(step.error));
@@ -524,6 +554,8 @@ function addEditorActions($panel, extras = []) {
         saving = true;
         const controls = $panel.find(':input').toArray().map(element => [element, element.disabled]);
         $panel.find(':input').prop('disabled', true);
+        // 部分 OOUI 控制項是連結而非 input；inert 同時阻止其滑鼠與鍵盤操作。
+        $panel.find('.acga-fields').prop('inert', true).attr('inert', '');
         buttons.forEach(button => button.setDisabled(true));
         $status.text(t('正在儲存或確認上次提交結果…', '正在储存或确认上次提交结果…'));
         try {
@@ -536,6 +568,7 @@ function addEditorActions($panel, extras = []) {
                 state.nominations = state.workspace.nominations;
                 completed = true;
                 refreshDraftList();
+                $draftStatus.text(state.nominations.length ? t('尚未提交的修改已保留。', '尚未提交的修改已保留。') : t('已清除本次提交的草稿。', '已清除本次提交的草稿。'));
                 $status.text(t('本次提交已全部完成。', '本次提交已全部完成。'));
                 closeButton.setLabel(t('關閉', '关闭'));
             } else $status.text(t('儲存尚未完成，草稿和已完成的步驟已保留。', '储存尚未完成，草稿和已完成的步骤已保留。'));
@@ -556,7 +589,7 @@ function addEditorActions($panel, extras = []) {
     });
     closeButton.on('click', () => { if (!completed) state.changed(); $panel.hide(); });
     saveButton.on('click', runSave);
-    $panel.append($('<div>').addClass('acga-actions').append(buttons.map(button => button.$element)), $draftStatus, $progress, $status);
+    $panel.append($conflicts, $('<div>').addClass('acga-actions').append(buttons.map(button => button.$element)), $draftStatus, $progress, $status);
     $panel.on('input change', () => { if (!completed) state.changed(); });
     state.changed();
     lockPendingForm($panel);
@@ -568,7 +601,10 @@ function addEditorActions($panel, extras = []) {
  * 使用者仍可透過儲存操作區查詢結果、重試或關閉。
  */
 function lockPendingForm($panel) {
-    if (state.workspace.operation) $panel.find(':input').not($panel.find('.acga-actions :input')).prop('disabled', true);
+    const locked = !!state.workspace.operation;
+    $panel.find('.acga-fields').prop('inert', locked);
+    if (locked) $panel.find('.acga-fields').attr('inert', '');
+    else $panel.find('.acga-fields').removeAttr('inert');
 }
 
 /**
@@ -577,6 +613,7 @@ function lockPendingForm($panel) {
  */
 function activateWorkspace(workspace) {
     state.progress = () => {};
+    reviewWidgets = new Map();
     state.workspace = workspace;
     state.nominations = workspace.nominations;
     state.changed = () => {
@@ -688,13 +725,19 @@ export async function showCheckNominations(nominations, workspace) {
     $panel.append($progress, $list);
     const updateProgress = () => $progress.text(`${t('已核對', '已核对')} ${state.nominations.filter(n => n.reviewed).length} / ${state.nominations.length}`);
     for (const [index, nomination] of state.nominations.entries()) {
-        const $item = $('<details>').prop('open', index === 0);
+        const $item = $('<details>').attr('data-acga-id', nomination.id).prop('open', index === 0);
         const $summary = $('<summary>').text(`${index + 1}. ${nomination.pageName} · ${nomination.awarder}`);
         $item.append($summary);
         $list.append($item);
         const field = await generateChecklistFieldset(nomination, index);
         $item.append(field.$element);
+        if (nomination.previousProposal) {
+            const $previous = $('<details>').append($('<summary>').text(t('先前草稿的核對內容', '先前草稿的核对内容')));
+            $previous.append($('<p>').text(nomination.previousProposal.awarder + '：' + ruleSummary(nomination.previousProposal.ruleStatus)), $('<p>').text(nomination.previousProposal.message || ''));
+            $item.append($previous);
+        }
         const done = new OO.ui.CheckboxInputWidget({selected: nomination.reviewed});
+        reviewWidgets.set(nomination.id, done);
         done.on('change', value => {
             nomination.reviewed = value;
             updateProgress();
@@ -706,4 +749,48 @@ export async function showCheckNominations(nominations, workspace) {
     }
     updateProgress();
     addEditorActions($panel);
+}
+
+/**
+ * 標示受影響的項目，並列原快照與最新內容，撤銷其核對完成標記。
+ * 使用者選擇重新載入後才更新比對基準，先前提案仍保留供參考。
+ */
+function showConflicts($container, $panel) {
+    $container.empty();
+    const conflicts = state.workspace.conflicts || [];
+    if (!conflicts.length) return;
+    $container.append($('<h3>').text(t('內容已變更，請重新核對', '内容已变更，请重新核对')));
+    for (const conflict of conflicts) {
+        const $item = $panel.find('[data-acga-id]').filter((_, element) => element.getAttribute('data-acga-id') === conflict.id);
+        $item.addClass('acga-needs-review').prop('open', true);
+        // 完成標記真的改變時才觸發回呼，避免重繪與保存互相遞迴。
+        const widget = reviewWidgets.get(conflict.id);
+        if (widget?.isSelected()) { widget.setSelected(false); }
+        const $table = $('<table>').append($('<caption>').text(conflict.pageName));
+        const $head = $('<tr>');
+        [t('變更欄位', '变更字段'), t('核對時的內容', '核对时的内容'), t('目前內容', '当前内容')].forEach(label => $head.append($('<th>').attr('scope', 'col').text(label)));
+        $table.append($('<thead>').append($head));
+        const $body = $('<tbody>');
+        for (const field of conflict.fields) {
+            const clean = value => (value || '').replace(/<!--[\s\S]*?-->/g, '');
+            $body.append($('<tr>').append($('<th>').attr('scope', 'row').text(field),
+                $('<td>').text(clean(conflict.before?.[field])),
+                $('<td>').append($('<mark>').text(conflict.after ? clean(conflict.after[field]) : t('找不到唯一對應項目', '找不到唯一对应项目')))));
+        }
+        $container.append($table.append($body));
+    }
+    const reload = new OO.ui.ButtonWidget({label: t('載入最新內容並重新核對', '载入最新内容并重新核对')});
+    const $error = $('<p>');
+    reload.on('click', async () => {
+        reload.setDisabled(true);
+        try {
+            await reloadForReview(state.workspace, wikiTransport);
+            persistWorkspace();
+            const workspace = state.workspace;
+            $panel.hide();
+            if (workspace.mode === 'check') await showCheckNominations(workspace.nominations, workspace);
+            else showEditNominationDialog(workspace.nominations[0], workspace);
+        } catch (error) { $error.text(error.message); reload.setDisabled(false); }
+    });
+    $container.append(reload.$element, $error);
 }

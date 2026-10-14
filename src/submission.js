@@ -2,11 +2,12 @@
  * 編排登記處與積分榜的兩次獨立編輯。
  * operation 保留提交快照、入帳差額及各步驟狀態；部分完成時從未完成步驟恢復。
  */
-import {findUnchangedEntry, updateEntries} from './api.js';
+import {updateEntries, entryValues, listEntries} from './api.js';
+import {ReviewConflict, validateNominations, validateAccounting} from './conflicts.js';
 import {entryOwnership, assertCanCheck} from './ownership.js';
 import {wikiTransport, writeStep} from './transport.js';
 import {generateReason} from './rules.js';
-import {newId, previousBooking, checkWikitext, prepareScoreText, scoreDeltas} from './scoring.js';
+import {newId, readRecord, parseCheck, previousBooking, checkWikitext, prepareScoreText, scoreDeltas} from './scoring.js';
 
 export const REGISTER = 'WikiProject:ACG/維基ACG專題獎/登記處';
 export const SCORES = 'Module:ACGaward/list';
@@ -22,8 +23,9 @@ export const SCORES = 'Module:ACGaward/list';
 export function prepareChecks(text, nominations, operation = newId()) {
     if (!nominations.length || nominations.some(n => !n.reviewed)) throw new Error('請先逐筆完成核對。');
     const results = [];
-    const updates = nominations.map(nomination => {
-        const entry = findUnchangedEntry(text, nomination.source);
+    const entries = validateNominations(text, nominations);
+    const updates = nominations.map((nomination, index) => {
+        const entry = entries[index];
         assertCanCheck(entryOwnership(text, entry), mw.config.get('wgUserName'), nomination.awarder);
         const reason = generateReason(nomination.ruleStatus, true);
         if (!reason) throw new Error('請檢查規則分數。');
@@ -64,13 +66,14 @@ function prepareNew(text, draft) {
 }
 
 /**
- * 從最新本文重新定位未變更的提名，再產生單筆編輯內容。
+ * 修改尚未核分的提名；已有核分的項目必須走覆核流程以同步處理積分。
  */
 function prepareEdit(text, draft) {
     const nomination = draft.nominations[0];
     const reason = generateReason(nomination.ruleStatus);
     if (!nomination.awarder.trim() || !nomination.pageName.trim() || !reason) throw new Error('請填寫得分者、條目及規則。');
-    return updateEntries(text, [{entry: findUnchangedEntry(text, nomination.source), changes: {
+    if (parseCheck(nomination.source.values['核對用'])) throw new Error('此提名已有核分，請使用覆核／更正得分。');
+    return updateEntries(text, [{entry: validateNominations(text, [nomination])[0], changes: {
         '條目名稱': nomination.pageName.trim(), '用戶名稱': nomination.awarder.trim(),
         '提名理由': '{{ACG提名2/request|ver=1|' + reason + '}}',
     }}]);
@@ -90,6 +93,7 @@ async function prepareOperation(draft, io) {
         const prepared = prepareChecks(registry.text, draft.nominations, operation.id);
         text = prepared.text;
         operation.results = prepared.results;
+        validateAccounting(scoreboard.text, prepared.results, operation.id);
         prepareScoreText(scoreboard.text, prepared.results, operation.id);
     }
     operation.steps.push({key: 'registry', title: REGISTER, status: 'pending',
@@ -107,8 +111,13 @@ async function prepareOperation(draft, io) {
  * @returns {Promise<boolean>} 全部完成為 true；需重試或查證為 false；前置驗證失敗會拋錯。
  */
 export async function submitWorkspace(draft, persist, io = wikiTransport) {
+    if (draft.conflicts?.length) throw new ReviewConflict(draft.conflicts);
     if (!draft.operation) {
-        draft.operation = await prepareOperation(draft, io);
+        try { draft.operation = await prepareOperation(draft, io); }
+        catch (error) {
+            if (error instanceof ReviewConflict) { draft.conflicts = error.changes; persist(); }
+            throw error;
+        }
         persist();
     }
     const operation = draft.operation;
@@ -119,6 +128,10 @@ export async function submitWorkspace(draft, persist, io = wikiTransport) {
             try {
                 const current = await io.read(step.title);
                 if (step.key === 'scores') {
+                    // 兩頁不能原子提交；入帳前再次檢查登記處仍是本次已發布的核分內容。
+                    const registered = await io.read(REGISTER);
+                    validateNominations(registered.text, operation.expectedNominations);
+                    validateAccounting(current.text, operation.results, operation.id);
                     const text = prepareScoreText(current.text, operation.results, operation.id);
                     if (text === current.text) { step.status = 'succeeded'; step.revid = current.revid; persist(); continue; }
                     step.attempt = makeAttempt(SCORES, current, text, operation.id, '[[User:SuperGrey/gadgets/ACGATool|積分調整]]');
@@ -129,10 +142,22 @@ export async function submitWorkspace(draft, persist, io = wikiTransport) {
                     if (operation.mode === 'new') text = prepareNew(current.text, submitted);
                     else if (operation.mode === 'edit') text = prepareEdit(current.text, submitted);
                     else text = prepareChecks(current.text, submitted.nominations, operation.id).text;
+                    if (operation.mode === 'check') {
+                        validateAccounting((await io.read(SCORES)).text, operation.results, operation.id);
+                        // 第一步成功後，用發布後的快照檢查第二步；不能再拿發布前的核分作比較。
+                        operation.expectedNominations = operation.results.map(result => {
+                            const entry = listEntries(text).find(entry => readRecord(entryValues(entry)['核對用'])?.id === result.id);
+                            return {id: result.id, pageName: entryValues(entry)['條目名稱'], source: {
+                                date: entry.date, index: entry.index, values: entryValues(entry), ownership: entryOwnership(text, entry),
+                            }};
+                        });
+                    }
                     step.attempt = makeAttempt(REGISTER, current, text + '\n' + registryMarker(operation.id), operation.id, '[[User:SuperGrey/gadgets/ACGATool|提名與核分]]');
                 }
             } catch (error) {
-                step.status = 'failed'; step.error = error.message; persist(); return false;
+                step.status = error instanceof ReviewConflict ? 'conflict' : 'failed';
+                if (error instanceof ReviewConflict) draft.conflicts = error.changes;
+                step.error = error.message; persist(); return false;
             }
         }
         if (!await writeStep(step, persist, io)) return false;

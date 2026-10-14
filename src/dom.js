@@ -10,8 +10,7 @@ import {
     getFullText,
     queried2NomData,
     queryEntry,
-    refreshPage,
-    updateEntryParameters
+    refreshPage
 } from "./api.js";
 import {
     showCheckNominations,
@@ -48,7 +47,6 @@ function editNomination(date, index) {
  * 點擊核對按鈕時的事件處理。
  * @param date 日期（章節標題）
  * @param index 該章節下第X個提名
- * @param multiCheckStatus 多選核對狀態字串
  * @return {Promise<void>} 核對介面建立後解析；不等待使用者提交。
  */
 async function checkNomination(date, index) {
@@ -81,7 +79,7 @@ async function openCheckQueue(targets) {
  * 遍歷所有帶有 multi-nomCheck 類別的元素，為每個元素添加一個多選核對的複選框和按鈕。
  * 當按下「開始大量核對」按鈕時，會遍歷所有選中的複選框，並對每個選中的提名進行核對。
  * 如果沒有選中任何複選框，則顯示警告通知。
- * 當核對完成後，如果有任何提名被修改，則刷新頁面。
+ * 所有選取項目會在頁面內核對，最後一起提交。
  */
 function multiCheckNomination() {
     $('.multi-nomCheck').each(function () {

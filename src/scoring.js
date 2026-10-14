@@ -88,7 +88,7 @@ export function reviewData(data, source, scoreText) {
     const baseline = receipt ? {awarder: receipt.awarder, score: receipt.score} : record?.before;
     return {...data, source, id, original, baseline,
         booking: baseline ? 'recorded' : original?.score > 0 ? 'unknown' : 'unbooked',
-        ruleStatus: original ? original.ruleStatus : data.ruleStatus,
+        ruleStatus: original ? {...Object.fromEntries(Object.entries(data.ruleStatus || {}).map(([key, value]) => [key, {...value, selected: false}])), ...original.ruleStatus} : data.ruleStatus,
         invalid: original?.invalid || false, message: '', reviewed: false};
 }
 
@@ -122,7 +122,7 @@ export function scoreDeltas(results) {
  */
 export function checkWikitext(nomination, reason, operation) {
     const before = previousBooking(nomination);
-    const body = nomination.invalid ? '0' : reason.reasonText + (reason.unselectedReasonText ? '|no=' + reason.unselectedReasonText : '');
+    const body = nomination.invalid || !reason.reasonText ? '0' : reason.reasonText + (reason.unselectedReasonText ? '|no=' + reason.unselectedReasonText : '');
     let history = nomination.source.values['核對用'].replace(/<!--ACGATool:[^>]+-->/g, '').trim();
     if (nomination.original) {
         const old = nomination.original.raw;
@@ -131,7 +131,8 @@ export function checkWikitext(nomination, reason, operation) {
     } else history = '';
     // 額外編碼連字號，避免記錄文字形成 HTML 註解中的 -- 或提前結束註解。
     const metadata = encodeURIComponent(JSON.stringify({id: nomination.id, before, operation})).replace(/-/g, '%2D');
-    return `${history}{{ACG提名2/check|ver=1|${body}}}${nomination.message}--~~~~<!--ACGATool:${metadata}-->`;
+    // 標出本次簽名範圍，讓後續比對只忽略 MediaWiki 展開 ~~~~ 的差異。
+    return `${history}{{ACG提名2/check|ver=1|${body}}}${nomination.message}--<!--ACGATool-signature:${operation}-->~~~~<!--/ACGATool-signature:${operation}--><!--ACGATool:${metadata}-->`;
 }
 
 const quoteLua = value => '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';

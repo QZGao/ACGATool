@@ -503,7 +503,7 @@ export function parseUserReason(reason) {
                 ruleStatus[rule].desc = ruleNameMod;
             }
             if (ruleScoreMod !== '') {
-                ruleStatus[rule].score = parseFloat(ruleScoreMod);
+                ruleStatus[rule].score = Number(ruleScoreMod);
                 if (!Number.isFinite(ruleStatus[rule].score)) {
                     console.log('[ACGATool] 分數不是數字', ruleScoreMod);  // 分數不是數字，報錯
                     return null;
