@@ -1,6 +1,6 @@
 import {parseUserReason} from './api.js';
 import {NominationRuleSet} from './rules.js';
-import {previousBooking, newId} from './scoring.js';
+import {previousBooking, newId, readRecord} from './scoring.js';
 
 export const copy = value => JSON.parse(JSON.stringify(value));
 export const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -28,7 +28,8 @@ export function createItem(mode, nomination) {
 /** 一個來源在工作區只保留一份編輯；不同來源與新提名則可以並存。 */
 export function sameSource(a, b) {
     if (!a || !b) return false;
-    return a.date === b.date && (equal(a.values, b.values) || a.index === b.index);
+    const first = readRecord(a.values['核對用'])?.id, second = readRecord(b.values['核對用'])?.id;
+    return first && second ? first === second : a.date === b.date && equal(a.values, b.values);
 }
 
 /** 純驗證不發通知；欄位提示、進度條與提交前驗證共用相同的完成條件。 */

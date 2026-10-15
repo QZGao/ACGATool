@@ -1,15 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createDraftStore, clearSubmittedDraft} from '../src/drafts.js';
 import {submitWorkspace, REGISTER, SCORES, getNewNominationPlacement} from '../src/submission.js';
 import {entryValues, queryEntry, queried2NomData, getDateSections} from '../src/api.js';
 import {reviewData} from '../src/scoring.js';
 
-function storage() {
-    const items = new Map();
-    return {get length() { return items.size; }, key: i => [...items.keys()][i],
-        getItem: key => items.get(key) ?? null, setItem: (key, value) => items.set(key, value), removeItem: key => items.delete(key)};
-}
 const clone = value => JSON.parse(JSON.stringify(value));
 function fixture() {
     const text = '=== 10月14日 ===\n{{ACG提名2\n|條目名稱1 = Test\n|用戶名稱1 = A\n|提名理由1 = {{ACG提名2/request|ver=1|1a}}\n|核對用1 = {{ACG提名2/check|ver=1|}}\n}}\n提名人：[[User:Nominator]]';
@@ -47,22 +41,6 @@ test('new nominations append at the bottom and only add a missing UTC date headi
         assert.equal(entryValues(queryEntry(saved, date, 1))['條目名稱'], 'Test');
         assert.deepEqual(writes, [REGISTER]);
     }
-});
-
-test('clearing a submitted snapshot preserves later edits and other drafts', () => {
-    const store = createDraftStore(storage(), 'site:user');
-    const draft = {id: 'one', nominations: [{id: 'a', pageName: 'old'}, {id: 'b', pageName: 'same'}], message: ''};
-    const other = {id: 'two', nominations: [{id: 'c'}]};
-    store.save(draft); store.save(other);
-    const submitted = clone(draft);
-    draft.nominations[0].pageName = 'new'; store.save(draft);
-    clearSubmittedDraft(store, draft, submitted);
-    assert.deepEqual(draft.nominations, [{id: 'a', pageName: 'new'}]);
-    assert.equal(store.list().length, 2);
-    const stale = clone(draft);
-    store.save(draft);
-    assert.throws(() => store.save(stale));
-    assert.throws(() => store.remove(stale));
 });
 
 test('an edit that succeeds despite a lost response is confirmed without another write', async () => {

@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createSessionStore} from '../src/session-store.js';
-import {createDraftStore} from '../src/drafts.js';
+import {createSubmitController} from '../src/session-submit.js';
+import {sessionProgress} from '../src/operations.js';
+import {parseUserReason} from '../src/api.js';
+import {REGISTER} from '../src/submission.js';
 
 function fixture() {
     const values = new Map(), queues = new Map();
@@ -65,15 +68,43 @@ test('failed local writes leave source and destination intact and stale edits ca
 
 test('migration preserves pending requests and separates old stashes from open work', async () => {
     const {a, storage} = fixture();
-    const legacy = createDraftStore(storage, 'test');
-    legacy.save({id: 'open', mode: 'new', open: true, nominations: [nomination], message: '說明'});
-    legacy.save({id: 'stash', mode: 'new', open: false, nominations: [{...nomination, id: 'other'}]});
     const operation = {id: 'request', steps: [{status: 'unknown', attempt: {text: '已發出的原文'}}]};
-    legacy.save({id: 'pending', mode: 'check', nominations: [nomination], operation});
+    storage.setItem('test:library', JSON.stringify({schema: 2, drafts: [
+        {id: 'open', mode: 'new', open: true, nominations: [nomination], message: '說明'},
+        {id: 'stash', mode: 'new', open: false, nominations: [{...nomination, id: 'other'}]},
+        {id: 'pending', mode: 'check', nominations: [nomination], operation},
+    ]}));
+    const original = storage.getItem('test:library'), write = storage.setItem;
+    storage.setItem = () => { throw new Error('quota'); };
+    await assert.rejects(a.init(), /quota/);
+    assert.equal(storage.getItem('test:library'), original);
+    assert.equal(storage.getItem('test:session'), null);
+    storage.setItem = write;
     const session = await a.init();
     assert.equal(session.items.length, 2);
     assert.equal(session.drafts.length, 1);
     assert.equal(session.fields.message, '說明');
     assert.deepEqual(session.submissions[0].draft.operation, operation);
     assert.deepEqual(await a.init(), session);
+});
+
+
+test('successful submission clears only its frozen items and preserves later input from another tab', async () => {
+    const {a, b} = fixture(); await a.init();
+    await a.add('new', [{...nomination, ruleStatus: parseUserReason('1a')}]);
+    await a.fields({message: '', summary: ''}, {message: '已送出的說明', summary: '已送出的摘要'});
+    const expected = {items: sessionProgress(a.read()).items, fields: a.read().fields};
+    const io = {
+        read: async () => ({text: '頁首', revid: 1}), findReceipt: async () => null,
+        write: async attempt => {
+            assert.equal(attempt.title, REGISTER);
+            await b.add('new', [{...nomination, id: 'later', pageName: '稍後新增'}]);
+            await b.fields(expected.fields, {message: '下一批說明', summary: '下一批摘要'});
+            return {revid: 2};
+        },
+    };
+    await createSubmitController(a, () => {}, io).start(expected);
+    assert.deepEqual(a.read().items.map(item => item.nomination.id), ['later']);
+    assert.deepEqual(a.read().fields, {message: '下一批說明', summary: '下一批摘要'});
+    assert.equal(a.read().submissions[0].finished, true);
 });

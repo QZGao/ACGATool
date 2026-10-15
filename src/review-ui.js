@@ -4,6 +4,8 @@ import {ruleFragments} from './table-editor.js';
 
 /** 將模板欄位轉成可讀的規則與分數；解析不了時仍保留原文供人工判斷。 */
 export function fieldText(field, value) {
+    if (field === 'reviewed') return value ? '核對完成' : '尚未核對完成';
+    if (field === 'invalid') return value ? '提名無效' : '提名有效';
     try {
         const rules = field === 'ruleStatus' ? value : field === '提名理由' ? parseUserReason(value) :
             field === '核對用' ? parseCheck(value)?.ruleStatus : null;

@@ -18,9 +18,14 @@ const t = (hant, hans = hant) => state.convByVar({hant, hans});
  */
 export function sourceRows(source) {
     if (!source) return $();
-    return $('[data-acga-date][data-acga-source-index]').filter((_, element) =>
-        !$(element).closest('.acga-editor').length && $(element).attr('data-acga-date') === source.date &&
-        Number($(element).attr('data-acga-source-index')) === source.index);
+    const $rows = $('[data-acga-date][data-acga-source-index]').filter((_, element) =>
+        !$(element).closest('.acga-editor').length && $(element).attr('data-acga-date') === source.date);
+    if ($rows.is('[data-acga-source-values]')) {
+        // 正文刷新後其他提名可能插入或移除。完整快照唯一對應時才隱藏原列。
+        const $matched = $rows.filter((_, element) => $(element).attr('data-acga-source-values') === JSON.stringify(source.values));
+        return $matched.length === 2 ? $matched : $();
+    }
+    return $rows.filter((_, element) => Number($(element).attr('data-acga-source-index')) === source.index);
 }
 
 /**
@@ -36,7 +41,12 @@ export function createNominationTable() {
 }
 
 function link(title, label) { return $('<a>').attr('href', mw.util.getUrl(title)).text(label); }
-function action(label, handler) { return $('<button>').attr('type', 'button').addClass('acga-inline-action').text(label).on('click', handler); }
+function action(label, handler) {
+    return $('<button>').attr('type', 'button').addClass('acga-inline-action').text(label).on('click', async () => {
+        try { await handler(); }
+        catch (error) { mw.notify(error.message || String(error), {type: 'error'}); }
+    });
+}
 
 /**
  * 按規則順序產生模板相容的分數片段，selected=false 時呈現本次否決的規則。

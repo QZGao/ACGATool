@@ -22,9 +22,10 @@ export const wikiTransport = {
         const response = await request(getWikiApi().get({action: 'parse', page: title, prop: 'text|wikitext', formatversion: 2}));
         return {html: response.parse?.text, text: response.parse?.wikitext};
     },
-    async read(title) {
+    async read(title, {allowMissing = false} = {}) {
         const response = await request(getWikiApi().get({action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'ids|timestamp|content', curtimestamp: 1, formatversion: 2}));
         const page = response.query.pages[0];
+        if (page.missing && allowMissing) return {text: '', revid: 0, missing: true, starttimestamp: response.curtimestamp};
         if (page.missing || !page.revisions?.[0]) throw new Error('找不到待修改頁面。');
         const revision = page.revisions[0];
         return {text: revision.slots.main.content, revid: revision.revid, timestamp: revision.timestamp, starttimestamp: response.curtimestamp};
@@ -34,7 +35,7 @@ export const wikiTransport = {
             action: 'edit', title: attempt.title, text: attempt.text, summary: attempt.summary,
             // 使用產生這份本文時的基底版本，讓伺服器偵測中途編輯，包括同帳號的衝突。
             baserevid: attempt.base.revid, starttimestamp: attempt.base.starttimestamp,
-            nocreate: true, assert: 'user', assertuser: mw.config.get('wgUserName'),
+            ...(attempt.create ? {createonly: true} : {nocreate: true}), assert: 'user', assertuser: mw.config.get('wgUserName'),
         }));
         if (response.edit?.result !== 'Success') {
             const error = new Error(response.edit?.captcha ? '請在維基頁面完成驗證後重試。' : '伺服器未確認儲存成功。');
@@ -48,7 +49,7 @@ export const wikiTransport = {
         // 查閱上限為 20 頁修訂；查不到仍是結果未明，不能據此重送加分。
         for (let page = 0; page < 20; page++) {
             const response = await request(getWikiApi().get({action: 'query', titles: attempt.title, prop: 'revisions',
-                rvprop: 'ids|comment', rvlimit: 50, rvendid: attempt.base.revid, formatversion: 2, ...continuation}));
+                rvprop: 'ids|comment', rvlimit: 50, ...(attempt.base.revid ? {rvendid: attempt.base.revid} : {}), formatversion: 2, ...continuation}));
             const revisions = response.query.pages[0].revisions || [];
             for (const revision of revisions) {
                 if (!revision.comment?.includes(attempt.tag)) continue;

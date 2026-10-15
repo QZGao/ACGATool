@@ -1,4 +1,4 @@
-import {createDraftStore} from './drafts.js';
+import {readLegacyDrafts} from './drafts.js';
 import {copy, equal, createItem, sameSource, lockedItem} from './operations.js';
 import {newId} from './scoring.js';
 
@@ -14,7 +14,7 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
     const read = () => {
         const raw = storage.getItem(key);
         const session = raw ? JSON.parse(raw) : empty();
-        if (session.schema !== 3 || !Array.isArray(session.items) || !Array.isArray(session.drafts)) throw new Error('無法讀取編輯資料，原資料已保留。');
+        if (session.schema !== 3 || !['items', 'drafts', 'conflicts', 'submissions'].every(name => Array.isArray(session[name])) || !session.fields) throw new Error('無法讀取編輯資料，原資料已保留。');
         return session;
     };
     const lock = (name, callback, options = {}) => {
@@ -25,7 +25,8 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
         const session = read();
         const result = callback(session);
         session.revision++;
-        storage.setItem(key, JSON.stringify(session));
+        try { storage.setItem(key, JSON.stringify(session)); }
+        catch (error) { error.code = 'local-storage'; throw error; }
         return {session, result};
     });
     const editable = (session, id) => {
@@ -39,7 +40,10 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
             if (equal(before[field], after[field])) continue;
             if (!equal(target[field], before[field]) && !equal(target[field], after[field])) {
                 // 衝突的兩份值一起持久保存；重新整理也不會失去尚未採用的輸入。
-                session.conflicts.push({id: newId(), itemId, field, current: copy(target[field] ?? null), proposed: copy(after[field] ?? null)});
+                const conflict = session.conflicts.find(conflict => conflict.itemId === itemId && conflict.field === field);
+                const values = {current: copy(target[field] ?? null), proposed: copy(after[field] ?? null)};
+                if (conflict) Object.assign(conflict, values);
+                else session.conflicts.push({id: newId(), itemId, field, ...values});
             } else target[field] = copy(after[field] ?? null);
         }
     };
@@ -49,7 +53,7 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
             return lock('state', () => {
                 if (storage.getItem(key)) return read();
                 const session = empty();
-                const legacy = createDraftStore(storage, prefix).list();
+                const legacy = readLegacyDrafts(storage, prefix);
                 for (const draft of legacy) {
                     const items = draft.nominations.map(n => createItem(draft.mode, n));
                     if (draft.operation || draft.open || draft.mode !== 'new') session.items.push(...items);
@@ -69,6 +73,7 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
         },
         add(mode, nominations) {
             return mutate(session => nominations.map(nomination => {
+                if (nomination.source && session.submissions.some(item => !item.finished && item.draft.archive?.date === nomination.source.date)) throw new Error('此小節正在歸檔，請先處理其儲存結果。');
                 const existing = session.items.find(item => sameSource(item.nomination.source, nomination.source));
                 if (existing) {
                     if (existing.mode !== mode) throw new Error('這筆提名已有另一種編輯操作，請先暫存或取消該筆操作。');
@@ -115,6 +120,7 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
                 if (selected.some(item => !item)) throw new Error('草稿箱已在另一個分頁變更，請重新選取。');
                 const sources = [...session.items];
                 for (const item of selected) {
+                    if (item.nomination.source && session.submissions.some(submission => !submission.finished && submission.draft.archive?.date === item.nomination.source.date)) throw new Error('此小節正在歸檔，請先處理其儲存結果。');
                     if (sources.some(other => sameSource(other.nomination.source, item.nomination.source))) throw new Error('此提名已在表單中，請先處理目前的操作。');
                     sources.push(item);
                 }

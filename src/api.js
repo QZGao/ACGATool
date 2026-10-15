@@ -571,37 +571,3 @@ export async function getXToolsInfo(pageName) {
         return '';
     }
 }
-
-export async function editPage(pageName, newText, editSummary) {
-    let response = await getWikiApi().postWithToken('csrf', {
-        action: 'edit', title: pageName, text: newText, summary: editSummary,
-    });
-    if (response.edit && response.edit.result === 'Success') {
-        return true;
-    } else {
-        console.error('Edit failed:', response);
-        return false;
-    }
-}
-
-export async function appendToPage(pageName, appendText, editSummary) {
-    let response = await getWikiApi().postWithToken('csrf', {
-        action: 'edit', title: pageName, appendtext: appendText, summary: editSummary,
-    });
-    if (response.edit && response.edit.result === 'Success') {
-        return true;
-    } else {
-        console.error('Edit failed:', response);
-        return false;
-    }
-}
-
-/**
- * 刷新頁面。
- */
-export function refreshPage() {
-    // 2秒後刷新頁面
-    setTimeout(function () {
-        location.reload();
-    }, 2000);
-}

@@ -7,7 +7,7 @@ import {DraftDialog, initDraftDialog} from './draft-dialog.js';
 import {appendNominationRows, createNominationTable, sourceRows, ruleFragments} from './table-editor.js';
 import {createSessionStore} from './session-store.js';
 import {createSubmitController} from './session-submit.js';
-import {copy, equal, operationStatus, sessionProgress, lockedItem} from './operations.js';
+import {copy, equal, operationStatus, sessionProgress, lockedItem, sameSource} from './operations.js';
 import {newId} from './scoring.js';
 import {getNewNominationPlacement} from './submission.js';
 import {appendDifferences, fieldText} from './review-ui.js';
@@ -18,6 +18,7 @@ const t = (hant, hans = hant) => state.convByVar({hant, hans});
 let store, controller, dock, windows, ready, session, queue = Promise.resolve(), busy = false;
 let $newSection, $newTable, $date, previewTimer, confirming = false, confirmation;
 let saveButton, addButton, messageInput, summaryInput, confirmButton, fieldsBaseline, syncingFields = false;
+let storageFailure = null, unsavedTasks = [];
 const views = new Map();
 const renderedResults = new Set();
 let refreshing = false;
@@ -35,10 +36,36 @@ function report(error) {
 
 /** 本分頁的輸入依事件順序排隊；持久保存完成後才從共同來源重繪。 */
 function update(task) {
-    const next = queue.catch(() => {}).then(task);
+    const next = queue.catch(() => {}).then(async () => {
+        if (storageFailure) { unsavedTasks.push(task); throw storageFailure; }
+        try { return await task(); }
+        catch (error) {
+            if (error.code === 'local-storage') { storageFailure = error; unsavedTasks.push(task); }
+            throw error;
+        }
+    });
     queue = next;
-    next.then(() => { if (queue === next) sync(); }, error => { report(error); if (queue === next) sync(); });
+    next.then(() => { if (queue === next) sync(); }, error => {
+        if (storageFailure) showStorageFailure();
+        else { report(error); if (queue === next) sync(); }
+    });
     return next;
+}
+
+function showStorageFailure() {
+    saveButton.setDisabled(true); confirmButton.setDisabled(true);
+    dock.$notice.empty().append(t('自動保存失敗，畫面上的輸入尚未保存：', '自动保存失败，画面上的输入尚未保存：'), storageFailure.message,
+        ' ', button('重試保存', async () => {
+            await queue.catch(() => {});
+            try {
+                while (unsavedTasks.length) { await unsavedTasks[0](); unsavedTasks.shift(); }
+                storageFailure = null; dock.$notice.empty(); sync();
+            } catch (error) { storageFailure = error; showStorageFailure(); }
+        }).$element, ' ', button('捨棄未保存輸入', () => {
+            unsavedTasks = []; storageFailure = null;
+            for (const view of views.values()) removeView(view);
+            views.clear(); dock.$notice.empty(); sync();
+        }).$element);
 }
 
 function button(label, handler, flags) {
@@ -91,6 +118,7 @@ export async function showNewNominationDialog(workspace) {
 
 export function showEditNominationDialog(nomination) { return addItems('edit', [nomination]); }
 export function showCheckNominations(nominations) { return addItems('check', nominations); }
+export async function archiveSection(date) { await ready; return save(() => controller.archive(date)); }
 
 function focusItem(id) {
     const view = views.get(id);
@@ -196,6 +224,7 @@ function renderItem(item) {
     }
     $cell.append($errors);
     const locked = lockedItem(session, item.id);
+    if (locked) $cell.find('.acga-ready-label').text(t('已送出，等待儲存完成', '已提交，等待保存完成'));
     $rows.prop('inert', locked).toggleClass('acga-saving', locked);
     if (locked) $rows.attr('inert', '');
     views.set(item.id, view);
@@ -203,6 +232,7 @@ function renderItem(item) {
 
 /** 僅重建實際改變的操作；跨分頁更新後保留正在輸入的欄位與游標位置。 */
 function sync() {
+    if (storageFailure) { showStorageFailure(); return; }
     session = store.read();
     const active = document.activeElement;
     const focusId = $(active).closest('[data-acga-operation]').attr('data-acga-operation');
@@ -236,7 +266,9 @@ function sync() {
     const progress = sessionProgress(session);
     dock.setActive(session.items.length > 0);
     dock.$title.text(t('ACGATool'));
-    dock.$summary.text(`${progress.ready} / ${progress.total} ${t('筆已準備完成', '项已准备完成')}`);
+    const pending = session.items.filter(item => lockedItem(session, item.id)).length;
+    dock.$summary.text((progress.total || !pending ? `${progress.ready} / ${progress.total} ${t('筆已準備完成', '项已准备完成')}` : '') +
+        (pending ? `${progress.total ? '；' : ''}${pending} ${t('筆儲存尚未完成', '项保存尚未完成')}` : ''));
     dock.setProgress(progress.ready, progress.total);
     saveButton.setDisabled(!progress.complete || busy);
     addButton.toggle(session.items.some(item => item.mode === 'new'));
@@ -274,6 +306,7 @@ async function discard(id) {
     const {result} = await update(() => store.discard(id));
     dock.$notice.empty().append(t('已取消此筆操作。', '已取消此项操作。'), ' ', button('復原', () => update(() => store.mutate(current => {
         if (current.items.some(item => item.id === id) || current.drafts.some(item => item.id === id)) throw new Error('此操作已恢復。');
+        if (current.items.some(item => sameSource(item.nomination.source, result.nomination.source))) throw new Error('這筆提名已有其他編輯，請先暫存或取消該筆操作後再復原。');
         current.items.push(result);
         dock.$notice.empty();
     }))).$element);
@@ -318,6 +351,7 @@ function initConfirmation() {
 
 async function openConfirmation() {
     await queue.catch(() => {});
+    if (storageFailure) return showStorageFailure();
     sync();
     confirming = true;
     syncConfirmation(sessionProgress(session));
@@ -363,10 +397,10 @@ function renderProgress() {
     for (const submission of session.submissions) {
         const draft = submission.draft, operation = draft.operation;
         const $block = $('<section>').addClass('acga-save-result');
-        $block.append($('<strong>').text(submission.finished ? t('本次提交已完成。', '本次提交已完成。') : t('本次儲存進度', '本次储存进度')));
+        $block.append($('<strong>').text((draft.archive ? `歸檔「${draft.archive.date}」：` : '') + (submission.finished ? t('本次提交已完成。', '本次提交已完成。') : t('本次儲存進度', '本次储存进度'))));
         const $steps = $('<ol>').addClass('acga-save-progress');
         for (const [index, step] of (operation?.steps || []).entries()) {
-            const name = step.key === 'registry' ? '登記處' : '積分榜';
+            const name = step.label || (step.key === 'registry' ? '登記處' : '積分榜');
             const labels = {pending: '等待儲存', saving: '正在儲存／等待查證', succeeded: '✓ 已完成', failed: '儲存失敗', unknown: '結果未明', conflict: '內容已變更'};
             const $row = $('<li>').append($('<strong>').text(`${name}：${labels[step.status]}`));
             if (step.error) $row.append($('<p>').text(step.error));
@@ -392,7 +426,7 @@ function renderProgress() {
             $actions.append(button('關閉', () => close(false)).$element, button('關閉並重新載入頁面', () => close(true)).$element);
         } else {
             if (!operation?.steps.some(step => ['succeeded', 'unknown', 'saving'].includes(step.status))) {
-                const back = button('返回修改', () => save(() => controller.returnToEditing(submission.id)));
+                const back = button(draft.mode === 'archive' ? '取消歸檔' : '返回修改', () => save(() => controller.returnToEditing(submission.id)));
                 back.setDisabled(busy); $actions.append(back.$element);
             }
             $actions.append(button('稍後處理', () => dock.showPanel(null)).$element);

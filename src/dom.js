@@ -6,16 +6,13 @@ import {SCORES} from "./submission.js";
 import {cdxIconEdit, cdxIconHighlight} from "./icons.js";
 import {iconButton} from "./icon-button.js";
 import {
-    appendToPage,
     entryValues,
-    editPage,
-    getDateSections,
     getFullText,
     queried2NomData,
-    queryEntry,
-    refreshPage
+    queryEntry
 } from "./api.js";
 import {
+    archiveSection,
     showCheckNominations,
     showEditNominationDialog,
     showNewNominationDialog
@@ -94,106 +91,8 @@ function newNomination() {
  * 點擊歸檔按鈕時的事件處理。
  */
 function archiveChapter(date) {
-    OO.ui.confirm(state.convByVar({
-        hant: '確定要歸檔「', hans: '确定要归档「',
-    }) + date + state.convByVar({
-        hant: '」章節嗎？', hans: '」章节吗？',
-    })).done(async function (confirmed) {
-        if (!confirmed) return;
-
-        const fulltext = await getFullText();
-        let sections = getDateSections(fulltext);
-        let targetSection = sections.find(sec => sec.date === date);
-        if (!targetSection) {
-            mw.notify(state.convByVar({
-                hant: '小工具無法讀取該章節，請手動歸檔。', hans: '小工具无法读取该章节，请手动归档。',
-            }), {
-                type: 'error', title: state.convByVar({
-                    hant: '錯誤', hans: '错误',
-                }),
-            });
-            return;
-        }
-        let sectionText = fulltext.slice(targetSection.start, targetSection.end);
-        let fulltextWithoutSection = fulltext.slice(0, targetSection.start) + fulltext.slice(targetSection.end);
-
-        // 找到包含年份的UTC字串，例如 2025年2月13日 (四) 20:58 (UTC)
-        let utcRegex = /提名人：.+?(\d{4})年(\d{1,2})月(\d{1,2})日 \((.*?)\) (\d{1,2}:\d{2}) \(UTC\)/;
-        let utcMatch = sectionText.match(utcRegex);
-        if (!utcMatch) {
-            mw.notify(state.convByVar({
-                hant: '小工具無法讀取該章節的UTC時間，請手動歸檔。', hans: '小工具无法读取该章节的UTC时间，请手动归档。',
-            }), {
-                type: 'error', title: state.convByVar({
-                    hant: '錯誤', hans: '错误',
-                }),
-            });
-            return;
-        }
-        // 獲得 X年Y月
-        let yearMonth = utcMatch[1] + '年' + utcMatch[2] + '月';
-        let archiveTarget = 'WikiProject:ACG/維基ACG專題獎/存檔/' + yearMonth;
-
-        mw.notify(state.convByVar({
-            hant: '小工具正在歸檔中，請耐心等待。', hans: '小工具正在归档中，请耐心等待。',
-        }), {
-            type: 'info', title: state.convByVar({
-                hant: '提示', hans: '提示',
-            }), autoHide: false,
-        });
-
-        // 先檢查新的存檔頁面是否存在
-        const archivePageText = await getFullText(archiveTarget);
-        if (!archivePageText) {
-            // 新的存檔頁面不存在或者是空的
-            // 將存檔頁頭加入 sectionText
-            sectionText = '{{Talk archive|WikiProject:ACG/維基ACG專題獎/登記處}}\n\n' + sectionText;
-        } else {
-            // 直接歸檔，補充空行
-            sectionText = '\n\n' + sectionText;
-        }
-        const success = await appendToPage(archiveTarget, sectionText, '[[User:SuperGrey/gadgets/ACGATool|' + state.convByVar({
-            hant: '歸檔', hans: '归档',
-        }) + ']]「' + date + '」' + state.convByVar({
-            hant: '章節', hans: '章节',
-        }));
-        if (success) {
-            const success2 = await editPage('WikiProject:ACG/維基ACG專題獎/登記處', fulltextWithoutSection, '[[User:SuperGrey/gadgets/ACGATool|' + state.convByVar({
-                hant: '歸檔', hans: '归档',
-            }) + ']]「' + date + '」' + state.convByVar({
-                hant: '章節至', hans: '章节至',
-            }) + '「[[' + archiveTarget + ']]」');
-            if (success2) {
-                mw.notify(state.convByVar({
-                    hant: '小工具已歸檔', hans: '小工具已归档',
-                }) + '「' + date + '」' + state.convByVar({
-                    hant: '章節至', hans: '章节至',
-                }) + '「[[' + archiveTarget + ']]」。', {
-                    type: 'success', title: state.convByVar({
-                        hant: '成功', hans: '成功',
-                    }),
-                });
-                refreshPage();  // 刷新頁面
-            } else {
-                mw.notify(state.convByVar({
-                    hant: '編輯提名頁面失敗，小工具無法歸檔，請手動歸檔。',
-                    hans: '编辑提名页面失败，小工具无法归档，请手动归档。',
-                }), {
-                    type: 'error', title: state.convByVar({
-                        hant: '錯誤', hans: '错误',
-                    }),
-                });
-            }
-        } else {
-            mw.notify(state.convByVar({
-                hant: '編輯存檔頁面失敗，小工具無法歸檔，請手動歸檔。',
-                hans: '编辑存档页面失败，小工具无法归档，请手动归档。',
-            }), {
-                type: 'error', title: state.convByVar({
-                    hant: '錯誤', hans: '错误',
-                }),
-            });
-        }
+    OO.ui.confirm(state.convByVar({hant: `確定要歸檔「${date}」小節嗎？`, hans: `确定要归档「${date}」章节吗？`})).done(confirmed => {
+        if (confirmed) archiveSection(date).catch(error => mw.notify(error.message || String(error), {type: 'error'}));
     });
 }
 
@@ -243,11 +142,12 @@ export async function addEditButtonsToPage(sourceText) {
         // 使用章節掃描取得的表格，容許 CD 將其包在 cd-comment-replacedPart 等容器內。
         for (const tableElement of section.tables) {
             const table = $(tableElement);
-            let rows = table.find('tr').slice(1);  // 去掉表頭
+            // 說明內可含其他表格；只處理這張提名表格自己的列。
+            let rows = table.find('tr').filter((_, row) => $(row).closest('table')[0] === tableElement).slice(1);
             let title = "";
             rows.each(function () {
                 let row = $(this);
-                let th = row.find('th');
+                let th = row.children('th');
                 if (th.length !== 0) {
                     // 提名行
                     let nomEntry = th.first();
@@ -263,6 +163,7 @@ export async function addEditButtonsToPage(sourceText) {
                     const currentIndex = index;
                     row.attr({'data-acga-date': date, 'data-acga-source-index': currentIndex});
                     const currentEntry = queryEntry(fulltext, date, currentIndex);
+                    if (currentEntry) row.attr('data-acga-source-values', JSON.stringify(entryValues(currentEntry)));
                     // 已核分項目由核對列的覆核入口處理，避免鉛筆暗中切換操作種類。
                     if (currentEntry && !parseCheck(entryValues(currentEntry)['核對用'])) {
                         const editButton = iconButton(cdxIconEdit, state.convByVar({hant: '編輯提名', hans: '编辑提名'}), () =>
@@ -271,12 +172,13 @@ export async function addEditButtonsToPage(sourceText) {
                     }
                 } else {
                     // 核對行
-                    let td = row.find('td').first();
+                    let td = row.children('td').first();
                     let mwNoTalk = td.find('.mw-notalk').first();
                     const currentIndex = index;
 
                     row.attr({'data-acga-date': date, 'data-acga-source-index': currentIndex});
                     const entry = queryEntry(fulltext, date, currentIndex);
+                    if (entry) row.attr('data-acga-source-values', JSON.stringify(entryValues(entry)));
                     if (!entry || isOwnNomination(entryOwnership(fulltext, entry), mw.config.get('wgUserName'))) return;
 
                     // 單項核對
