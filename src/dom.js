@@ -28,7 +28,7 @@ import {
  * @param index 該章節下第X個提名
  */
 function editNomination(date, index) {
-    getFullText().then(function (fulltext) {
+    return getFullText().then(function (fulltext) {
         const queried = queryEntry(fulltext, date, index);
         let nomData = queried2NomData(queried);
         if (nomData == null) {
@@ -43,7 +43,7 @@ function editNomination(date, index) {
             return openCheckQueue([{date, index}]);
         } else {
             nomData.source = {date, index, values: entryValues(queried)};
-            showEditNominationDialog(nomData);
+            return showEditNominationDialog(nomData);
         }
     }).catch(error => mw.notify(error.message || String(error), {type: 'error'}));
 }
@@ -80,53 +80,6 @@ async function openCheckQueue(targets) {
 }
 
 /**
- * 批量核對提名的事件處理。
- * 遍歷所有帶有 multi-nomCheck 類別的元素，為每個元素添加一個多選核對的複選框和按鈕。
- * 當按下「開始大量核對」按鈕時，會遍歷所有選中的複選框，並對每個選中的提名進行核對。
- * 如果沒有選中任何複選框，則顯示警告通知。
- * 所有選取項目會在頁面內核對，最後一起提交。
- */
-function multiCheckNomination() {
-    $('.multi-nomCheck').each(function () {
-        let $this = $(this);
-        let checkbox = $('<input type="checkbox" class="multi-nomCheck-checkbox">');
-        checkbox.data('date', $this.data('date'));
-        checkbox.data('index', $this.data('index'));
-        checkbox.on('change', function () {
-            if ($(this).is(':checked')) {
-                // Change the background color of ancestor <td> to light green.
-                $this.closest('td').css('background-color', '#d4edda');
-            } else {
-                // Reset the background color of ancestor <td> to default.
-                $this.closest('td').css('background-color', '');
-            }
-        });
-        let startCheckingButton = $('<a>').text(state.convByVar({
-            hant: '開始批次核對', hans: '开始批量核对',
-        })).addClass('multi-nomCheck-startBtn').attr('href', '#');
-        startCheckingButton.on('click', async function (e) {
-            e.preventDefault();
-            const $checkboxes = $('.multi-nomCheck-checkbox:checked');
-            if (!$checkboxes.length) {
-                mw.notify(state.convByVar({
-                    hant: '請至少選擇一個提名進行核對。', hans: '请至少选择一个提名进行核对。',
-                }), {
-                    type: 'warning', title: state.convByVar({
-                        hant: '提示', hans: '提示',
-                    }),
-                });
-                return;
-            }
-            await openCheckQueue($checkboxes.toArray().map(element => ({date: $(element).data('date'), index: $(element).data('index')})));
-        });
-        $this.empty(); // 清空之前的內容
-        $this.append(checkbox);
-        $this.append(' ');
-        $this.append(startCheckingButton);
-    });
-}
-
-/**
  * 點擊登記新提名按鈕時的事件處理。
  */
 function newNomination() {
@@ -134,7 +87,7 @@ function newNomination() {
         location.href = mw.util.getUrl('WikiProject:ACG/維基ACG專題獎/登記處') + '#acga-new';
         return;
     }
-    showNewNominationDialog();
+    showNewNominationDialog().catch(error => mw.notify(error.message || String(error), {type: 'error'}));
 }
 
 /**
@@ -249,7 +202,7 @@ function archiveChapter(date) {
  * 此處的身分判斷只控制顯示；提交時仍須根據最新來源再次檢查。
  * 附在原始列上的日期與位置只供 DOM 對接，不作為跨版本儲存識別。
  */
-export async function addEditButtonsToPage() {
+export async function addEditButtonsToPage(sourceText) {
     // 保留使用者熟悉的頁首雙按鈕：手動入口在前，小工具的藍色入口在後。
     const newNominationButton = $('span[role="button"]').filter(function () {
         return $(this).text() === '登記新提名' || $(this).text() === '登记新提名';
@@ -266,7 +219,7 @@ export async function addEditButtonsToPage() {
 
     if (mw.config.get('wgPageName') !== 'WikiProject:ACG/維基ACG專題獎/登記處') return;
     let fulltext;
-    try { fulltext = await getFullText(); }
+    try { fulltext = sourceText ?? await getFullText(); }
     catch { mw.notify('無法讀取提名資料，請重新整理後再試。', {type: 'error'}); return; }
 
     const content = document.getElementById('mw-content-text');
@@ -308,11 +261,14 @@ export async function addEditButtonsToPage() {
 
                     // 加入編輯按鈕
                     const currentIndex = index;
-                    const editButton = iconButton(cdxIconEdit, state.convByVar({hant: '編輯提名', hans: '编辑提名'}), () => {
-                        editNomination(date, currentIndex);
-                    }).addClass('acga-control');
                     row.attr({'data-acga-date': date, 'data-acga-source-index': currentIndex});
-                    nomEntry.append(' ').append(editButton);
+                    const currentEntry = queryEntry(fulltext, date, currentIndex);
+                    // 已核分項目由核對列的覆核入口處理，避免鉛筆暗中切換操作種類。
+                    if (currentEntry && !parseCheck(entryValues(currentEntry)['核對用'])) {
+                        const editButton = iconButton(cdxIconEdit, state.convByVar({hant: '編輯提名', hans: '编辑提名'}), () =>
+                            editNomination(date, currentIndex)).addClass('acga-control');
+                        nomEntry.append(' ').append(editButton);
+                    }
                 } else {
                     // 核對行
                     let td = row.find('td').first();
@@ -332,21 +288,7 @@ export async function addEditButtonsToPage() {
                     }, {showLabel: true}).addClass('acga-control acga-check-button');
                     mwNoTalk.append(checkButton);
 
-                    // 多選核對
-                    let multiCheckDiv = $('<div>')
-                        .addClass('multi-nomCheck')
-                        .attr('data-date', date)
-                        .attr('data-index', currentIndex)
-                        .css({
-                            'display': 'inline-block', 'margin-left': '5px', 'font-size': '.857em',
-                        });
-                    let multiCheckButton = $('<a>').attr('href', 'javascript:void(0)').text(state.convByVar({
-                        hant: '多選', hans: '多选',
-                    })).click(function () {
-                        multiCheckNomination();
-                    });
-                    multiCheckDiv.append(multiCheckButton);
-                    mwNoTalk.append(multiCheckDiv);
+
                 }
             });
         }

@@ -15,6 +15,13 @@ export function createDock(root) {
     const $actions = $('<div>').addClass('acga-actions');
     const $navigation = $('<div>').addClass('acga-actions');
     const $panel = $('<div>').addClass('acga-dock-panel').hide();
+    const $progress = $('<div>').addClass('acga-completion-progress').attr({role: 'progressbar', 'aria-label': t('操作完成進度', '操作完成进度'), 'aria-valuemin': 0, 'aria-valuemax': 100});
+    const $fill = $('<div>').addClass('acga-completion-fill').appendTo($progress);
+    const setProgress = (ready, total) => {
+        const percentage = total ? ready / total * 100 : 0;
+        $progress.attr({'aria-valuenow': percentage, 'aria-valuetext': `${ready}/${total}`});
+        $fill.css('transform', `scaleX(${percentage / 100})`);
+    };
     const panes = {}, toggles = {};
     let currentPanel = null;
     const showPanel = name => {
@@ -22,13 +29,13 @@ export function createDock(root) {
         $panel.toggle(!!name);
         for (const [key, $pane] of Object.entries(panes)) {
             $pane.toggle(key === name);
-            toggles[key].$button.attr('aria-expanded', key === name ? 'true' : 'false');
+            toggles[key]?.$button.attr('aria-expanded', key === name ? 'true' : 'false');
         }
     };
     const jumpButton = new OO.ui.ButtonWidget({label: t('回到表格')});
     toggles.drafts = new OO.ui.ButtonWidget({label: t('草稿箱')});
     $navigation.append(jumpButton.$element, toggles.drafts.$element);
-    for (const [name, label] of [['recovery', t('繼續編輯', '继续编辑')], ['details', t('說明與儲存進度', '说明与储存进度')]]) {
+    for (const [name, label] of [['progress', t('儲存結果', '储存结果')], ['sync', t('同步衝突', '同步冲突')]]) {
         panes[name] = $('<section>').attr({id: `acga-dock-${name}`, 'aria-label': label}).hide();
         const button = new OO.ui.ButtonWidget({label});
         button.$button.attr({'aria-expanded': 'false', 'aria-controls': `acga-dock-${name}`});
@@ -37,8 +44,10 @@ export function createDock(root) {
         $navigation.append(button.$element);
         $panel.append(panes[name]);
     }
-    const $bar = $('<div>').addClass('acga-dock-bar').append($('<div>').addClass('acga-dock-heading').append($title, $summary), $actions, $navigation);
-    $element.append($panel, $bar);
+    panes.confirm = $('<section>').attr('aria-label', t('確認送出', '确认提交')).hide().appendTo($panel);
+    const $notice = $('<span>').attr('role', 'status').addClass('acga-notice');
+    const $bar = $('<div>').addClass('acga-dock-bar').append($('<div>').addClass('acga-dock-heading').append($title, $summary), $actions, $navigation, $notice);
+    $element.append($progress, $panel, $bar);
     $(root).append($element);
 
     // 固定於視窗底部，但左右邊界跟隨正文欄，避免覆蓋 Vector 側欄。
@@ -62,10 +71,9 @@ export function createDock(root) {
     const setActive = active => {
         jumpButton.toggle(active);
         $actions.toggle(active);
-        toggles.details.toggle(active);
-        if (!active) { $title.text('ACGATool'); $summary.empty(); showPanel(null); }
+        if (!active) $title.text('ACGATool');
         position();
     };
     setActive(false);
-    return {$element, $title, $summary, $actions, panes, toggles, jumpButton, showPanel, setActive};
+    return {$element, $title, $summary, $actions, $notice, panes, toggles, jumpButton, showPanel, setActive, setProgress};
 }

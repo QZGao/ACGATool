@@ -7,6 +7,7 @@ import {NominationRuleSet} from './rules.js';
 import {parseUserReason} from './api.js';
 import {cdxIconTrash} from './icons.js';
 import {iconButton} from './icon-button.js';
+import {previousBooking, scoreDeltas} from './scoring.js';
 
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
 
@@ -41,7 +42,7 @@ function action(label, handler) { return $('<button>').attr('type', 'button').ad
  * 按規則順序產生模板相容的分數片段，selected=false 時呈現本次否決的規則。
  * 只展示尚未使用的規則選項不算否決；無效分數顯示問號，提交驗證仍由計分模組負責。
  */
-function ruleFragments(ruleStatus, selected = true) {
+export function ruleFragments(ruleStatus, selected = true) {
     const {ruleNames, ruleDict} = NominationRuleSet();
     const $result = $('<span>');
     let count = 0, total = 0;
@@ -84,7 +85,7 @@ function userContents(nomination) {
  * @param {jQuery} $table createNominationTable 建立的表格。
  * @param {object} nomination 可修改的草稿資料，含來源快照與核分狀態。
  * @param {number} index 草稿陣列位置，呈現時使用從 1 起算的行編號。
- * @param {object} callbacks checking 決定模式；openRules 開規則彈窗；touch 撤銷核對並保存；onReviewed 通知完成標記變更；onRemove／onStash 只供新提名刪除或暫存此筆。
+ * @param {object} callbacks checking 決定模式；openRules 開規則彈窗；touch 撤銷核對並保存；onReviewed 通知完成標記變更；onRemove／onStash 取消或暫存這筆獨立操作。
  * @returns {object} $entry、$check；核對模式另附 reviewWidget 供外部撤銷完成標記。
  */
 export function appendNominationRows($table, nomination, index, {checking, openRules, touch, onReviewed, onRemove, onStash}) {
@@ -104,24 +105,24 @@ export function appendNominationRows($table, nomination, index, {checking, openR
     const textInput = (key, label, $cell) => {
         const input = new OO.ui.TextInputWidget({value: nomination[key], placeholder: label});
         input.$element.addClass('acga-cell-input');
-        input.$input.attr('aria-label', label);
+        input.$input.attr({'aria-label': label, 'data-acga-field': key});
         input.on('change', value => { nomination[key] = value; touch(); });
         $cell.empty().append(input.$element);
         return input;
     };
     if (checking) {
         $title.append(titleContents(nomination));
-        $user.append(userContents(nomination), ' ', action(t('更正得分者'), () => textInput('awarder', t('得分者'), $user).focus()));
+        $user.append(userContents(nomination), ' ', action(t('更正得分者'), () => textInput('awarder', t('得分者'), $user).focus()).addClass('acga-change-awarder'));
     } else {
         textInput('pageName', t('條目名稱', '条目名称'), $title);
-        if (onRemove) {
-            const $actions = $('<div>').addClass('acga-row-actions');
-            $actions.append(iconButton(cdxIconTrash, t('移除此筆提名', '移除此项提名'), onRemove, {destructive: true}).addClass('acga-remove-nomination'));
-            if (onStash) $actions.append($('<button>').attr({type: 'button', title: t('暫存此筆提名', '暂存此项提名')}).addClass('acga-icon-button acga-stash-nomination').text(t('暫存', '暂存')).on('click', onStash));
-            $title.append($actions);
-        }
         textInput('awarder', t('得分者'), $user);
     }
+
+    const $actions = $('<div>').addClass('acga-row-actions');
+    if (onRemove) $actions.append(checking || nomination.source ? action(t('取消'), onRemove) :
+        iconButton(cdxIconTrash, t('取消此筆提名', '取消此项提名'), onRemove, {destructive: true}).addClass('acga-remove-nomination'));
+    if (onStash) $actions.append($('<button>').attr({type: 'button', title: t('暫存此筆操作', '暂存此项操作')}).addClass('acga-icon-button acga-stash-nomination').text(t('暫存', '暂存')).on('click', onStash));
+    $title.append($actions);
 
     // 只重繪衍生的理由與核分預覽，避免重建輸入元件而遺失使用者正在輸入的內容。
     const refresh = () => {
@@ -157,22 +158,33 @@ export function appendNominationRows($table, nomination, index, {checking, openR
         $resultCell.append($old);
     }
     if (nomination.original?.score > 0 && !nomination.baseline) {
-        const $booking = $('<select>').attr('aria-label', t('原分數入帳狀態', '原分数入账状态'));
+        const $booking = $('<select>').attr({'aria-label': t('原分數入帳狀態', '原分数入账状态'), 'data-acga-field': 'booking'});
         [['unknown', t('請確認原核分是否已入帳', '请确认原核分是否已入账')], ['booked', t('原核分已登記到積分榜', '原核分已登记到积分榜')], ['unbooked', t('原核分尚未登記到積分榜', '原核分尚未登记到积分榜')]].forEach(([value, label]) => $booking.append($('<option>').val(value).text(label)));
         $booking.val(nomination.booking).on('change', () => { nomination.booking = $booking.val(); touch(); });
-        $resultCell.append($('<p>').addClass('acga-booking').append($booking));
+        const $help = $('<span>').append(' ', link('Module:ACGaward/list', t('查看積分資料', '查看积分资料')), ' · ',
+            $('<a>').attr({href: mw.util.getUrl('Module:ACGaward/list', {action: 'history'}), target: '_blank', rel: 'noopener'}).text(t('入帳歷史', '入账历史')));
+        $resultCell.append($('<p>').addClass('acga-booking').append($booking, $help));
     }
-    const $invalid = $('<input>').attr({type: 'checkbox'}).prop('checked', nomination.invalid).on('change', () => {
+    const $invalid = $('<input>').attr({type: 'checkbox', 'data-acga-field': 'invalid'}).prop('checked', nomination.invalid).on('change', () => {
         nomination.invalid = $invalid.prop('checked'); touch(); refresh();
     });
     $resultCell.append($('<label>').addClass('acga-inline-option').append($invalid, ' ', t('提名無效', '提名无效')));
     const message = new OO.ui.MultilineTextInputWidget({autosize: true, rows: 1, value: nomination.message, placeholder: t('核對說明（選填，無須簽名）', '核对说明（选填，无须签名）')});
-    message.$input.attr('aria-label', t('核對說明', '核对说明'));
+    message.$input.attr({'aria-label': t('核對說明', '核对说明'), 'data-acga-field': 'message'});
     message.on('change', value => { nomination.message = value; touch(); });
     message.$element.addClass('acga-check-message');
     $resultCell.append(message.$element);
+    const $scorePreview = $('<p>').addClass('acga-score-preview');
+    try {
+        const before = previousBooking(nomination), score = nomination.invalid ? 0 : ruleFragments(nomination.ruleStatus).total;
+        if (Number.isFinite(score) && nomination.awarder.trim()) {
+            const changes = [...scoreDeltas([{before, awarder: nomination.awarder.trim(), score}])].filter(([, delta]) => delta !== 0);
+            $scorePreview.text(t('積分榜變動：', '积分榜变动：') + (changes.length ? changes.map(([user, delta]) => `${user} ${delta > 0 ? '+' : ''}${delta}`).join('；') : t('不變', '不变')));
+        }
+    } catch { $scorePreview.text(t('確認原核分是否入帳後，即可預覽積分調整。', '确认原核分是否入账后，即可预览积分调整。')); }
+    $resultCell.append($scorePreview);
     if (nomination.previousProposal) $resultCell.append($('<details>').append($('<summary>').text(t('先前草稿的核對內容', '先前草稿的核对内容')), $('<p>').text(nomination.previousProposal.awarder), ruleFragments(nomination.previousProposal.ruleStatus).$element, $('<p>').text(nomination.previousProposal.message || '')));
-    const $reviewed = $('<input>').attr({type: 'checkbox'}).prop('checked', nomination.reviewed);
+    const $reviewed = $('<input>').attr({type: 'checkbox', 'data-acga-field': 'reviewed'}).prop('checked', nomination.reviewed);
     // 提供與編輯器相同的選取介面，讓欄位變更或遠端衝突能撤銷這筆的完成標記。
     const reviewWidget = {
         isSelected: () => $reviewed.prop('checked'),
@@ -182,6 +194,6 @@ export function appendNominationRows($table, nomination, index, {checking, openR
         },
     };
     $reviewed.on('change', () => { nomination.reviewed = $reviewed.prop('checked'); onReviewed(); });
-    $resultCell.append($('<label>').addClass('acga-inline-option acga-reviewed').append($reviewed, ' ', t('已核對此筆，加入待提交清單', '已核对此项，加入待提交清单')));
+    $resultCell.append($('<label>').addClass('acga-inline-option acga-reviewed').append($reviewed, ' ', t('核對完成', '核对完成')));
     return {$entry, $check, reviewWidget};
 }

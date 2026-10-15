@@ -1,0 +1,89 @@
+export function initEditorStyles() {
+    mw.util.addCSS(`
+        .acga-editor { margin: 1.5em 0; }
+        .acga-editor { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
+        .acga-dock { position: fixed; bottom: max(8px, env(safe-area-inset-bottom)); z-index: 100; box-sizing: border-box; color: var(--color-base, #202122); background: var(--background-color-base, #fff); border: 1px solid var(--border-color-base, #a2a9b1); border-radius: 2px; }
+        .acga-completion-progress { position: absolute; inset: -1px -1px auto; height: 4px; overflow: hidden; background: var(--background-color-neutral, #eaecf0); }
+        .acga-completion-fill { height: 100%; background: var(--color-progressive, #36c); transform: scaleX(0); transform-origin: left; transition: transform 450ms cubic-bezier(.22,1,.36,1); }
+        .acga-editor-row { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
+        .acga-ready { position: relative; padding-inline-end: 3.6em !important; }
+        .acga-ready-new { --acga-ready-rgb: 51,102,204; }
+        .acga-ready-edit { --acga-ready-rgb: 172,102,0; }
+        .acga-ready-check { --acga-ready-rgb: 20,134,107; }
+        /* 蒙版只覆在背景；輸入與正文保持原本的對比與可點擊性。 */
+        .acga-ready::before { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 0%, rgba(var(--acga-ready-rgb),.035) 50%, rgba(var(--acga-ready-rgb),.12) 90%, rgba(var(--acga-ready-rgb),.12) 100%); pointer-events: none; }
+        .acga-ready-mark { position: absolute; inset-inline-end: .6em; top: 50%; transform: translateY(-50%); width: 2.3em; color: rgba(var(--acga-ready-rgb),.65); font-weight: bold; text-align: center; pointer-events: none; }
+        .acga-ready-mark svg { width: 2em; height: 2em; fill: currentColor; }
+        .acga-ready-label { display: block; color: var(--color-subtle, #54595d); font-size: .8em; margin-top: .25em; }
+        .acga-validation { font-size: .85em; color: var(--color-destructive, #b32424); margin-block: .3em; }
+        .acga-validation:empty, .acga-notice:empty { display: none; }
+        .acga-submit-message, .acga-submit-summary { margin-block: .6em; }
+        .acga-score-preview { font-size: .9em; margin-block: .4em; }
+        .acga-save-result + .acga-save-result { border-top: 1px solid var(--border-color-base, #a2a9b1); margin-top: 1em; padding-top: 1em; }
+        @media (prefers-reduced-motion: reduce) { .acga-completion-fill { transition: none; } }
+        /* OOUI 模態視窗開啟時暫藏底欄，避免底欄遮住視窗或接受提交操作。 */
+        .oo-ui-windowManager-modal-active .acga-dock { visibility: hidden; }
+        .acga-dock-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5em 1em; padding: .6em .8em; }
+        .acga-dock-heading { display: flex; flex: 1 1 auto; align-items: baseline; flex-wrap: wrap; gap: .5em 1em; }
+        .acga-dock-panel { max-height: min(55vh, 32em); overflow: auto; padding: .8em; border-bottom: 1px solid var(--border-color-base, #a2a9b1); }
+        .acga-dock-panel > section > :first-child { margin-top: 0; }
+        .acga-dock-panel p { margin-block: .4em; }
+        .acga-dock-panel .oo-ui-textInputWidget { max-width: none; }
+        .acga-dock-panel .acga-actions { margin-top: .6em; }
+        .acga-dock .oo-ui-buttonElement { margin: 0; }
+        .acga-dock .acga-drafts { display: flex; flex-wrap: wrap; gap: .5em; }
+        .acga-dock .acga-drafts > strong { flex-basis: 100%; }
+        .acga-dock-options { margin-bottom: .8em; }
+        .acga-conflicts { overflow-x: auto; }
+        .acga-conflicts:empty { display: none; }
+        .acga-conflicts table { width: 100%; border-collapse: collapse; }
+        .acga-conflicts th, .acga-conflicts td { text-align: left; vertical-align: baseline; padding: .5em; border: 1px solid var(--border-color-base, #a2a9b1); overflow-wrap: anywhere; white-space: pre-wrap; }
+        .acga-conflicts mark { background: var(--background-color-warning-subtle, #fef6e7); color: var(--color-base, #202122); }
+        .acga-needs-review > .acgnom-check-cell { outline: 2px solid var(--color-error, #b32424); outline-offset: -2px; }
+        .acga-save-progress li { margin-block: .75em; }
+        .acga-save-progress p { margin-block: .25em; }
+        .acga-edit-table { width: 100%; }
+        .acga-edit-table .acgnom-title-heading, .acga-edit-table .acgnom-user-heading { width: 25%; }
+        .acga-edit-table .acga-cell-input { width: 100%; max-width: none; }
+        .acga-edit-table .acga-cell-input input { min-width: 0; background: transparent; color: inherit; font: inherit; padding: .25em; }
+        .acga-inline-action { border: 0; background: transparent; padding: 0; color: var(--color-progressive, #36c); cursor: pointer; font: inherit; font-size: smaller; }
+        .acga-inline-action::before { content: '［'; } .acga-inline-action::after { content: '］'; }
+        .acga-inline-action:hover { text-decoration: underline; }
+        .acga-inline-action:focus-visible { outline: 2px solid var(--color-progressive, #36c); }
+        /* 圖標沿用原筆圖標的 12px，加上少量邊距後，純圖標按鈕為 16px。 */
+        .acga-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 16px; min-height: 16px; box-sizing: border-box; padding: 1px; border: 1px solid transparent; border-radius: 2px; background: transparent; color: var(--color-progressive, #36c); font: inherit; line-height: 1; vertical-align: middle; cursor: pointer; }
+        .acga-icon-button svg { display: block; flex: none; width: 12px; height: 12px; fill: currentColor; }
+        .acga-icon-button:enabled:hover { background: var(--background-color-progressive-subtle, #eaf3ff); }
+        .acga-icon-button--destructive { color: var(--color-destructive, #b32424); }
+        .acga-icon-button--destructive:enabled:hover { background: var(--background-color-destructive-subtle, #fee7e6); }
+        .acga-icon-button:focus-visible { outline: 2px solid var(--color-progressive, #36c); outline-offset: 1px; }
+        .acga-icon-button:disabled { opacity: .5; cursor: default; }
+        .acga-row-actions { display: flex; justify-content: center; align-items: center; gap: 4px; margin-top: .3em; }
+        .acga-stash-nomination { font-size: 12px; }
+        .acga-draft-picker .oo-ui-fieldLayout { margin-top: .75em; }
+        .acga-draft-picker .oo-ui-fieldLayout:first-child { margin-top: 0; }
+        .acga-check-button { margin-left: 5px; font-size: .857em; font-weight: bold; }
+        .acga-inline-option { display: inline-flex; align-items: baseline; gap: .25em; margin: .4em .75em .25em 0; }
+        .acga-check-message { max-width: none; margin-top: .4em; }
+        .acga-original-check { margin-block: .4em; }
+        .acga-booking { margin-block: .4em; }
+        .acga-booking select { max-width: 100%; font: inherit; }
+        .acga-edit-table th, .acga-edit-table td { overflow-wrap: anywhere; }
+        .acga-edit-table .acgnom-title-cell { text-align: center; }
+        .acga-table-scroll { overflow-x: auto; }
+        .acga-drafts .oo-ui-buttonElement { max-width: 100%; }
+        .acga-drafts .oo-ui-labelElement-label { white-space: normal; }
+        .acga-editor .oo-ui-horizontalLayout { min-width: 0; }
+        .acga-actions { display: flex; flex-wrap: wrap; gap: .5em; margin: 0; }
+        .acga-rules details { margin: .75em 0; }
+        .acga-rules summary { cursor: pointer; font-weight: bold; }
+        .acga-rule-explanation { font-size: .875em; color: var(--color-subtle, #54595d); }
+        .acga-rules .oo-ui-horizontalLayout { display: flex; flex-wrap: wrap; gap: .5em; }
+        /* 單個規則內以 gap 統一間距，避免 OOUI margin 與手動 margin 疊加。 */
+        .acga-rules .acga-rule-option { gap: 2px; }
+        .acga-rules .acga-rule-option > .oo-ui-widget { margin: 0; }
+        .acga-rules .acga-rule-option > .oo-ui-checkboxInputWidget { margin-inline-end: 4px; }
+        @media (max-width: 600px) { .acga-edit-table { min-width: 340px; } .acga-editor .oo-ui-horizontalLayout { max-width: 100%; } }
+    `);
+}
+

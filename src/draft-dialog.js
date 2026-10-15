@@ -7,6 +7,7 @@ export function DraftDialog(config) {
     DraftDialog.super.call(this, config);
     this.items = config.items;
     this.restore = config.restore;
+    this.discard = config.discard;
 }
 
 export function initDraftDialog() {
@@ -15,6 +16,7 @@ export function initDraftDialog() {
     DraftDialog.static.title = t('恢復暫存草稿', '恢复暂存草稿');
     DraftDialog.static.actions = [
         {action: 'cancel', label: t('取消'), flags: 'safe'},
+        {action: 'discard', label: t('刪除所選草稿', '删除所选草稿'), flags: 'destructive'},
         {action: 'restore', label: t('確認恢復', '确认恢复'), flags: ['primary', 'progressive']},
     ];
     DraftDialog.prototype.initialize = function () {
@@ -24,7 +26,7 @@ export function initDraftDialog() {
         this.choices = this.items.map(item => {
             const checkbox = new OO.ui.CheckboxInputWidget();
             const field = new OO.ui.FieldLayout(checkbox, {label: item.label, align: 'inline'});
-            checkbox.on('change', () => this.actions.setAbilities({restore: this.choices.some(choice => choice.checkbox.isSelected())}));
+            checkbox.on('change', () => this.actions.setAbilities({restore: this.choices.some(choice => choice.checkbox.isSelected()), discard: this.choices.some(choice => choice.checkbox.isSelected())}));
             this.panel.$element.append(field.$element);
             return {item, checkbox};
         });
@@ -32,13 +34,13 @@ export function initDraftDialog() {
         this.$body.append(this.panel.$element);
     };
     DraftDialog.prototype.getSetupProcess = function (data) {
-        return DraftDialog.super.prototype.getSetupProcess.call(this, data).next(() => this.actions.setAbilities({restore: false}));
+        return DraftDialog.super.prototype.getSetupProcess.call(this, data).next(() => this.actions.setAbilities({restore: false, discard: false}));
     };
     DraftDialog.prototype.getBodyHeight = function () { return this.panel.$element.outerHeight(true); };
     DraftDialog.prototype.getActionProcess = function (action) {
-        return new OO.ui.Process(() => {
-            if (action === 'restore') {
-                try { this.restore(this.choices.filter(choice => choice.checkbox.isSelected()).map(choice => choice.item)); }
+        return new OO.ui.Process(async () => {
+            if (action === 'restore' || action === 'discard') {
+                try { await this[action](this.choices.filter(choice => choice.checkbox.isSelected()).map(choice => choice.item)); }
                 catch (error) { throw new OO.ui.Error(error.message, {recoverable: true}); }
             }
             this.close({action});
