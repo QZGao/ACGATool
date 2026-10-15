@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareArchive, submitArchive} from '../src/archive.js';
+import {hasRecentActivity, prepareArchive, submitArchive} from '../src/archive.js';
 import {REGISTER} from '../src/submission.js';
 
 function fixture() {
@@ -16,6 +16,16 @@ function fixture() {
         }};
     return {pages, writes, io};
 }
+
+test('archive hint uses the latest valid UTC signature and the exact seven-day boundary', () => {
+    const latest = Date.UTC(2026, 9, 14, 13), week = 7 * 24 * 60 * 60 * 1000;
+    const source = '=== 10月1日 ===\n核對人：2026年10月14日 (三) 13:00 (UTC)\n提名人：2026年10月1日 (四) 09:00 (UTC)';
+    assert.equal(hasRecentActivity(source, latest + week - 1), true);
+    assert.equal(hasRecentActivity(source, latest + week), false);
+    assert.equal(hasRecentActivity('2026年10月14日（三）13：00（UTC）', latest), true);
+    assert.equal(hasRecentActivity('沒有簽名 <!--2026年10月14日 (三) 13:00 (UTC)-->', latest), false);
+    assert.equal(hasRecentActivity('2026年9月44日 (三) 13:00 (UTC)', latest), false);
+});
 
 test('partial archive recovery retries only registry removal and never appends twice', async () => {
     const {io, writes, pages} = fixture();

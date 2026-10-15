@@ -3,6 +3,23 @@ import {newId} from './scoring.js';
 import {REGISTER} from './submission.js';
 import {wikiTransport, writeStep} from './transport.js';
 
+/** 從原始章節內的 UTC 簽名取最新時間，避免 CD 改寫日期顯示或留言順序影響判定。 */
+export function hasRecentActivity(source, now = Date.now()) {
+    let latest = null;
+    const text = source.replace(/<!--[\s\S]*?-->/g, '');
+    const signatures = /(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日\s*(?:[（(][^()（）\r\n]*[)）]\s*)?(\d{1,2})[:：](\d{2})\s*[（(]UTC[)）]/g;
+    for (const match of text.matchAll(signatures)) {
+        const [year, month, day, hour, minute] = match.slice(1).map(Number);
+        const timestamp = Date.UTC(year, month - 1, day, hour, minute);
+        const date = new Date(timestamp);
+        // Date.UTC 會自動進位；格式錯誤的日期或時間不能算成新的活動。
+        if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day ||
+            date.getUTCHours() !== hour || date.getUTCMinutes() !== minute) continue;
+        latest = latest === null ? timestamp : Math.max(latest, timestamp);
+    }
+    return latest !== null && now >= latest && now - latest < 7 * 24 * 60 * 60 * 1000;
+}
+
 /** 歸檔保留小節快照：先追加存檔，再從登記處移除同一份內容。 */
 export async function prepareArchive(date, io = wikiTransport) {
     const registry = await io.read(REGISTER);

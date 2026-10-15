@@ -3,10 +3,12 @@ import {getArticleRoot, getNominationSections} from "./page-dom.js";
 import {entryOwnership, isOwnNomination, assertCanCheck} from "./ownership.js";
 import {reviewData, parseCheck} from "./scoring.js";
 import {SCORES} from "./submission.js";
+import {hasRecentActivity} from "./archive.js";
 import {cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from "./icons.js";
 import {iconButton} from "./icon-button.js";
 import {
     entryValues,
+    getDateSections,
     getFullText,
     queried2NomData,
     queryEntry
@@ -130,6 +132,9 @@ export async function addEditButtonsToPage(sourceText) {
 
     const content = document.getElementById('mw-content-text');
     if (!content) return;
+    const now = Date.now();
+    const recentSections = new Set(getDateSections(fulltext)
+        .filter(section => hasRecentActivity(fulltext.slice(section.start, section.end), now)).map(section => section.date));
     const sections = getNominationSections(content);
     for (const section of sections) {
         const h3 = $(section.heading);
@@ -140,11 +145,16 @@ export async function addEditButtonsToPage(sourceText) {
         const $heading = h3.closest('.mw-heading');
         const $editsection = ($heading.length ? $heading : h3).find('.mw-editsection').first();
         const $editLink = $editsection.find('a').first();
-        if ($editLink.length && !$editsection.find('.acga-archive').length) {
-            const $archive = $('<a>').addClass('acga-archive').attr('href', 'javascript:void(0)')
+        let $archive = $editsection.find('.acga-archive');
+        if ($editLink.length && !$archive.length) {
+            $archive = $('<a>').addClass('acga-archive').attr('href', 'javascript:void(0)')
                 .text(state.convByVar({hant: '歸檔', hans: '归档'})).on('click', () => archiveChapter(date));
             $editLink.after($('<span>').addClass('acga-archive-separator').html('&nbsp;|&nbsp;'), $archive);
         }
+        const recent = recentSections.has(date);
+        $archive.toggleClass('acga-archive-recent', recent);
+        if (recent) $archive.attr('title', state.convByVar({hant: '本章節最後一次活動未滿七天。', hans: '本章节最后一次活动未满七天。'}));
+        else $archive.removeAttr('title');
 
         // 使用章節掃描取得的表格，容許 CD 將其包在 cd-comment-replacedPart 等容器內。
         for (const tableElement of section.tables) {

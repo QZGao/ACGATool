@@ -3,6 +3,7 @@ export function initEditorStyles() {
         .acga-editor { margin: 1.5em 0; }
         .acga-editor { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
         .acga-new-nomination-footer { margin-block: .75em; }
+        a.acga-archive.acga-archive-recent { color: var(--color-subtle, #54595d); }
         .acga-dock { position: fixed; bottom: max(8px, env(safe-area-inset-bottom)); z-index: 100; box-sizing: border-box; color: var(--color-base, #202122); background: var(--background-color-base, #fff); border: 1px solid var(--border-color-base, #a2a9b1); border-radius: 2px; }
         .acga-completion-progress { position: absolute; inset: -1px -1px auto; height: 4px; display: flex; overflow: hidden; background: var(--background-color-neutral, #eaecf0); }
         .acga-completion-segment { flex: none; width: 0; height: 100%; background: rgb(var(--acga-ready-rgb)); }
