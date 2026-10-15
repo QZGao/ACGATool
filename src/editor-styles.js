@@ -12,10 +12,11 @@ export function initEditorStyles() {
         .acga-editor-row { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
         .acga-editor-row > .acgnom-check-cell { position: relative; padding-inline-end: 3.6em !important; }
         /* 藍色沿用 Codex blue700；青綠 #177878、黃綠 #4d7a1f 拉開色相以區分操作。
-           入口、背景與進度條共用操作色。 */
+           覆核另用 Codex yellow700；入口、背景與進度條共用操作色。 */
         .acga-type-new { --acga-ready-rgb: 51,102,204; }
         .acga-edit-button, .acga-type-edit { --acga-ready-rgb: 23,120,120; }
         .acga-check-button, .acga-type-check { --acga-ready-rgb: 77,122,31; }
+        .acga-recheck-button, .acga-type-recheck { --acga-ready-rgb: 136,100,37; }
         /* 行背景以整張表的寬度繪製；純橫向漸變讓兩行及跨行標題共用同一色階。
            開啟的表單清除單元格底色，避免模板的黃色標題或個別格子遮斷背景。 */
         .acga-edit-table tr.acga-operation-background { background: linear-gradient(90deg, transparent 0%, rgba(var(--acga-ready-rgb),.035) 50%, rgba(var(--acga-ready-rgb),.12) 90%, rgba(var(--acga-ready-rgb),.12) 100%); }

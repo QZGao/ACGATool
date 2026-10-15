@@ -45,7 +45,7 @@ export function operationStatus(item) {
     }
     if (item.mode === 'check') {
         try { previousBooking(n); } catch (error) { errors.push({field: 'booking', message: error.message}); }
-        if (!n.reviewed) errors.push({field: 'reviewed', message: '請完成此筆核對。'});
+        if (!n.reviewed) errors.push({field: 'reviewed', message: n.original ? '請完成此筆覆核。' : '請完成此筆核對。'});
     }
     if (item.needsReview) errors.push({field: 'source', message: '來源已變更，請確認標示的差異。'});
     return {active: hasChanges(item), ready: errors.length === 0, errors};
@@ -55,16 +55,21 @@ export function lockedItem(session, id) {
     return session.submissions.some(submission => !submission.finished && submission.itemIds.includes(id));
 }
 
+/** 覆核由原核分結果判定（含零分）；只細分展示類型，草稿與提交仍沿用 check 模式。 */
+export function operationType(item) {
+    return item.mode === 'check' && item.nomination.original ? 'recheck' : item.mode;
+}
+
 export function sessionProgress(session) {
     const items = session.items.filter(item => !lockedItem(session, item.id) && hasChanges(item));
-    const byMode = {new: {ready: 0, total: 0}, edit: {ready: 0, total: 0}, check: {ready: 0, total: 0}};
+    const byType = {new: {ready: 0, total: 0}, edit: {ready: 0, total: 0}, check: {ready: 0, total: 0}, recheck: {ready: 0, total: 0}};
     let ready = 0;
     for (const item of items) {
-        const counts = byMode[item.mode];
+        const counts = byType[operationType(item)];
         counts.total++;
         if (operationStatus(item).ready && !session.conflicts.some(conflict => conflict.itemId === item.id)) {
             counts.ready++; ready++;
         }
     }
-    return {items, byMode, ready, total: items.length, complete: items.length > 0 && ready === items.length && !session.conflicts.length};
+    return {items, byType, ready, total: items.length, complete: items.length > 0 && ready === items.length && !session.conflicts.length};
 }

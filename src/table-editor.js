@@ -210,8 +210,9 @@ export function appendNominationRows($table, nomination, index, {checking, openR
         nomination.invalid = $invalid.prop('checked'); touch(); refresh();
     });
     $resultCell.append($('<label>').addClass('acga-inline-option').append($invalid, ' ', t('提名無效', '提名无效')));
-    const message = new OO.ui.MultilineTextInputWidget({autosize: true, rows: 1, value: nomination.message, placeholder: t('核對說明（選填，無須簽名）', '核对说明（选填，无须签名）')});
-    message.$input.attr({'aria-label': t('核對說明', '核对说明'), 'data-acga-field': 'message'});
+    const messageLabel = nomination.original ? t('覆核說明', '复核说明') : t('核對說明', '核对说明');
+    const message = new OO.ui.MultilineTextInputWidget({autosize: true, rows: 1, value: nomination.message, placeholder: messageLabel + t('（選填，無須簽名）', '（选填，无须签名）')});
+    message.$input.attr({'aria-label': messageLabel, 'data-acga-field': 'message'});
     inputs.set('message', bindTextInput(message, value => {
         if (nomination.message === value) return;
         nomination.message = value; touch();
@@ -242,7 +243,7 @@ export function appendNominationRows($table, nomination, index, {checking, openR
         },
     };
     $reviewed.on('change', () => { nomination.reviewed = $reviewed.prop('checked'); onReviewed(); });
-    $resultCell.append($('<label>').addClass('acga-inline-option acga-reviewed').append($reviewed, ' ', t('核對完成', '核对完成')));
+    $resultCell.append($('<label>').addClass('acga-inline-option acga-reviewed').append($reviewed, ' ', nomination.original ? t('覆核完成', '复核完成') : t('核對完成', '核对完成')));
     // 核對操作跟在完成標記後；按鈕放在 label 外，避免點擊時切換 checkbox。
     $resultCell.append($actions.addClass('acga-review-actions'));
     const syncInputs = controls.sync;

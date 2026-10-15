@@ -7,11 +7,11 @@ import {DraftDialog, initDraftDialog} from './draft-dialog.js';
 import {appendNominationRows, createNominationTable, sourceRows, ruleFragments} from './table-editor.js';
 import {createSessionStore} from './session-store.js';
 import {createSubmitController} from './session-submit.js';
-import {copy, equal, operationStatus, sessionProgress, lockedItem, sameSource} from './operations.js';
+import {copy, equal, operationStatus, operationType, sessionProgress, lockedItem, sameSource} from './operations.js';
 import {newId} from './scoring.js';
 import {getNewNominationPlacement} from './submission.js';
 import {appendDifferences, fieldText} from './review-ui.js';
-import {cdxIconUserAdd, cdxIconEdit, cdxIconHighlight} from './icons.js';
+import {cdxIconUserAdd, cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from './icons.js';
 import {refreshRegistryContent} from './published-view.js';
 import {bindTextInput} from './text-input.js';
 
@@ -208,8 +208,9 @@ function renderItem(item) {
     view.$table = $table;
     const $cell = view.rows.$check.children('td');
     view.$extras = $('<div>').appendTo($cell);
-    view.$backgroundRows = $rows.addClass(`acga-operation-background acga-type-${item.mode}`);
-    const icon = {new: cdxIconUserAdd, edit: cdxIconEdit, check: cdxIconHighlight}[item.mode];
+    const type = operationType(item);
+    view.$backgroundRows = $rows.addClass(`acga-operation-background acga-type-${type}`);
+    const icon = {new: cdxIconUserAdd, edit: cdxIconEdit, check: cdxIconHighlight, recheck: cdxIconSandbox}[type];
     $cell.append($('<span>').addClass('acga-background-mark').attr('aria-hidden', 'true')
         .append($('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">').html(icon)));
     view.$label = $('<span>').addClass('acga-ready-label').appendTo($cell);
@@ -445,10 +446,11 @@ async function openConfirmation() {
 
 function syncConfirmation(progress) {
     if ([...fieldInputs.values()].some(input => input.isComposing())) return;
-    const counts = {new: 0, edit: 0, check: 0};
-    progress.items.forEach(item => counts[item.mode]++);
-    dock.panes.confirm.find('.acga-confirm-summary').text(`新提名 ${counts.new} 筆、修改 ${counts.edit} 筆、核對 ${counts.check} 筆`);
-    dock.panes.confirm.find('.acga-submit-message').toggle(counts.new > 0);
+    const counts = progress.byType;
+    dock.panes.confirm.find('.acga-confirm-summary').text(t(
+        `新提名 ${counts.new.total} 筆、修改 ${counts.edit.total} 筆、核對 ${counts.check.total} 筆、覆核 ${counts.recheck.total} 筆`,
+        `新提名 ${counts.new.total} 笔、修改 ${counts.edit.total} 笔、核对 ${counts.check.total} 笔、复核 ${counts.recheck.total} 笔`));
+    dock.panes.confirm.find('.acga-submit-message').toggle(counts.new.total > 0);
     for (const [field, input] of fieldInputs) input.sync(session.fields[field]);
     fieldsBaseline = {...session.fields};
     confirmButton.setDisabled(!progress.complete || busy);

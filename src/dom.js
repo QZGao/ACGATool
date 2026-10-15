@@ -3,7 +3,7 @@ import {getNominationSections} from "./page-dom.js";
 import {entryOwnership, isOwnNomination, assertCanCheck} from "./ownership.js";
 import {reviewData, parseCheck} from "./scoring.js";
 import {SCORES} from "./submission.js";
-import {cdxIconEdit, cdxIconHighlight} from "./icons.js";
+import {cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from "./icons.js";
 import {iconButton} from "./icon-button.js";
 import {
     entryValues,
@@ -181,13 +181,14 @@ export async function addEditButtonsToPage(sourceText) {
                     if (entry) row.attr('data-acga-source-values', JSON.stringify(entryValues(entry)));
                     if (!entry || isOwnNomination(entryOwnership(fulltext, entry), mw.config.get('wgUserName'))) return;
 
-                    // 單項核對
+                    // 依來源的有效核分結果區分核對與覆核，不依賴其他小工具可改寫的列 class。
+                    const rechecking = !!parseCheck(entryValues(entry)['核對用']);
                     const label = state.convByVar({
-                        hant: row.is('.done, .rechecking') ? '覆核／更正得分' : '核對', hans: row.is('.done, .rechecking') ? '复核／更正得分' : '核对',
+                        hant: rechecking ? '覆核／更正得分' : '核對', hans: rechecking ? '复核／更正得分' : '核对',
                     });
-                    const checkButton = iconButton(cdxIconHighlight, label, async () => {
+                    const checkButton = iconButton(rechecking ? cdxIconSandbox : cdxIconHighlight, label, async () => {
                         await checkNomination(date, currentIndex);
-                    }, {showLabel: true}).addClass('acga-control acga-check-button');
+                    }, {showLabel: true}).addClass('acga-control acga-check-button').toggleClass('acga-recheck-button', rechecking);
                     mwNoTalk.append(checkButton);
 
 

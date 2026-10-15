@@ -122,10 +122,13 @@ test('per-type completion counts share submission eligibility and exclude unchan
         {id: 'check-ready', mode: 'check', nomination: check},
         {id: 'check-pending', mode: 'check', nomination: {...check, reviewed: false}},
         {id: 'check-conflict', mode: 'check', nomination: check},
-    ], submissions: [{itemIds: ['new-saving']}], conflicts: [{itemId: 'check-conflict'}]};
+        {id: 'recheck-zero', mode: 'check', nomination: {...check, original: {score: 0}}},
+        {id: 'recheck-pending', mode: 'check', nomination: {...check, original: {score: 1}, reviewed: false}},
+        {id: 'recheck-conflict', mode: 'check', nomination: {...check, original: {score: 1}}},
+    ], submissions: [{itemIds: ['new-saving']}], conflicts: [{itemId: 'check-conflict'}, {itemId: 'recheck-conflict'}]};
     const progress = sessionProgress(session);
-    assert.deepEqual(progress.byMode, {new: {ready: 1, total: 2}, edit: {ready: 1, total: 1}, check: {ready: 1, total: 3}});
-    assert.equal(progress.ready, 3);
-    assert.equal(progress.total, 6);
+    assert.deepEqual(progress.byType, {new: {ready: 1, total: 2}, edit: {ready: 1, total: 1}, check: {ready: 1, total: 3}, recheck: {ready: 1, total: 3}});
+    assert.equal(progress.ready, 4);
+    assert.equal(progress.total, 9);
     assert.equal(progress.complete, false);
 });
