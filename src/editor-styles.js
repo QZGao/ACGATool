@@ -10,13 +10,18 @@ export function initEditorStyles() {
         .acga-operation-count { display: inline-flex; align-items: center; gap: .3em; white-space: nowrap; }
         .acga-operation-count svg { flex: none; width: 14px; height: 14px; fill: rgb(var(--acga-ready-rgb)); }
         .acga-editor-row { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
-        .acga-operation-background { position: relative; padding-inline-end: 3.6em !important; }
+        .acga-editor-row > .acgnom-check-cell { position: relative; padding-inline-end: 3.6em !important; }
+        /* 藍色沿用 Codex blue700；青綠 #177878、黃綠 #4d7a1f 拉開色相以區分操作。
+           入口、背景與進度條共用操作色。 */
         .acga-type-new { --acga-ready-rgb: 51,102,204; }
-        .acga-edit-button, .acga-type-edit { --acga-ready-rgb: 172,102,0; }
-        .acga-check-button, .acga-type-check { --acga-ready-rgb: 20,134,107; }
-        /* 蒙版只覆在背景；輸入與正文保持原本的對比與可點擊性。 */
-        .acga-operation-background::before { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 0%, rgba(var(--acga-ready-rgb),.035) 50%, rgba(var(--acga-ready-rgb),.12) 90%, rgba(var(--acga-ready-rgb),.12) 100%); pointer-events: none; }
-        .acga-operation-background.acga-ready::before { background: rgba(var(--acga-ready-rgb),.12); }
+        .acga-edit-button, .acga-type-edit { --acga-ready-rgb: 23,120,120; }
+        .acga-check-button, .acga-type-check { --acga-ready-rgb: 77,122,31; }
+        /* 行背景以整張表的寬度繪製；純橫向漸變讓兩行及跨行標題共用同一色階。
+           開啟的表單清除單元格底色，避免模板的黃色標題或個別格子遮斷背景。 */
+        .acga-edit-table tr.acga-operation-background { background: linear-gradient(90deg, transparent 0%, rgba(var(--acga-ready-rgb),.035) 50%, rgba(var(--acga-ready-rgb),.12) 90%, rgba(var(--acga-ready-rgb),.12) 100%); }
+        .acga-edit-table tr.acga-operation-background.acga-ready { background: rgba(var(--acga-ready-rgb),.12); }
+        .acga-edit-table tr.acga-editor-row.acga-operation-background > th,
+        .acga-edit-table tr.acga-editor-row.acga-operation-background > td { background: transparent; }
         .acga-background-mark { position: absolute; inset-inline-end: .6em; top: 50%; transform: translateY(-50%); width: 2.3em; color: rgba(var(--acga-ready-rgb),.65); font-weight: bold; text-align: center; pointer-events: none; }
         .acga-background-mark svg { width: 2em; height: 2em; fill: currentColor; }
         .acga-ready-label { display: block; color: var(--color-subtle, #54595d); font-size: .8em; margin-top: .25em; }

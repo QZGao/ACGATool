@@ -208,7 +208,7 @@ function renderItem(item) {
     view.$table = $table;
     const $cell = view.rows.$check.children('td');
     view.$extras = $('<div>').appendTo($cell);
-    $cell.addClass(`acga-operation-background acga-type-${item.mode}`);
+    view.$backgroundRows = $rows.addClass(`acga-operation-background acga-type-${item.mode}`);
     const icon = {new: cdxIconUserAdd, edit: cdxIconEdit, check: cdxIconHighlight}[item.mode];
     $cell.append($('<span>').addClass('acga-background-mark').attr('aria-hidden', 'true')
         .append($('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">').html(icon)));
@@ -253,7 +253,7 @@ function refreshView(view, item) {
     view.lastSent = copy(n);
     view.signature = signature(item);
     view.rows.sync();
-    const $rows = view.rows.$entry.add(view.rows.$check), $cell = view.rows.$check.children('td');
+    const $rows = view.rows.$entry.add(view.rows.$check);
     $rows.toggleClass('acga-needs-review', !!item.needsReview || session.submissions.some(submission => submission.draft.conflicts?.some(conflict => conflict.id === n.id)));
     const extras = JSON.stringify([item.reviewDiff, item.needsReview, n.previousProposal]);
     if (extras !== view.extras) {
@@ -281,7 +281,7 @@ function refreshView(view, item) {
     }
     const status = operationStatus(item);
     const complete = status.active && status.ready && !$rows.hasClass('acga-needs-review') && !session.conflicts.some(conflict => conflict.itemId === item.id);
-    $cell.toggleClass('acga-ready', complete);
+    view.$backgroundRows.toggleClass('acga-ready', complete);
     const locked = lockedItem(session, item.id);
     view.$label.toggle(complete).text(locked ? t('已送出，等待儲存完成', '已提交，等待保存完成') : t('已準備送出', '已准备提交'));
     const errors = status.errors.filter(error => error.field !== 'reviewed');

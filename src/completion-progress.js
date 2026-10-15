@@ -4,7 +4,7 @@ import {cdxIconUserAdd, cdxIconEdit, cdxIconHighlight} from './icons.js';
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
 
 /**
- * 六塊固定為深藍／深橙／深綠／淺藍／淺橙／淺綠，共用一次插值。
+ * 六塊先排已完成、再排未完成；各組依新提名／修改／核對排列，共用一次插值。
  * 同一輪伸縮使用相同時間與緩動，總寬度才不會因個別動畫反轉而產生空隙。
  */
 export function createCompletionProgress() {
