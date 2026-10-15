@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {hasRecentActivity, prepareArchive, submitArchive} from '../src/archive.js';
-import {REGISTER} from '../src/submission.js';
+import {hasRecentActivity, prepareArchive, submitArchive} from '../src/wiki/archive.js';
+import {REGISTER} from '../src/wiki/submission.js';
 
 function fixture() {
     const source = '頁首\n=== 10月14日 ===\n提名內容\n提名人：[[User:Nominator]] 2026年10月14日 (三) 13:00 (UTC)\n';

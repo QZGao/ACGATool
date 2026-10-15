@@ -1,6 +1,6 @@
-import {t} from './state.js';
+import {t} from '../i18n.js';
 import {getDateSections} from './api.js';
-import {newId} from './scoring.js';
+import {newId} from '../nomination/scoring.js';
 import {REGISTER} from './submission.js';
 import {wikiTransport, writeStep} from './transport.js';
 

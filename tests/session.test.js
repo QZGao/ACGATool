@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createSessionStore} from '../src/session-store.js';
-import {createSubmitController} from '../src/session-submit.js';
-import {sessionProgress} from '../src/operations.js';
-import {parseUserReason} from '../src/api.js';
-import {REGISTER} from '../src/submission.js';
+import {createSessionStore} from '../src/session/session-store.js';
+import {createSubmitController} from '../src/session/session-submit.js';
+import {sessionProgress} from '../src/nomination/operations.js';
+import {parseUserReason} from '../src/wiki/api.js';
+import {REGISTER} from '../src/wiki/submission.js';
 
 function fixture() {
     const values = new Map(), queues = new Map();

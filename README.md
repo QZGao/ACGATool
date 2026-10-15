@@ -23,6 +23,23 @@
 
 小工具會在提名內容及 `Module:ACGaward/list` 的註解中保留提交識別與入帳紀錄，用於覆核、逾時確認及避免重複加分。手動維護時請保留這些註解。登記處與積分榜是兩次獨立編輯，部分成功時可恢復尚未完成的步驟。
 
+## 原始碼結構
+
+```text
+src/
+├── main.js                 # ResourceLoader 初始化與頁面啟動
+├── i18n.js                 # HanAssist conv 與共用文字轉換
+├── ui/                     # 編輯表格、懸浮條、進度、控件與樣式
+│   └── dialogs/            # 規則選擇與草稿恢復彈窗
+├── page/                   # 正文操作入口、章節定位與發布後刷新
+├── session/                # localStorage、跨分頁同步與提交狀態協調
+│   └── legacy-drafts.js    # 舊版草稿遷移
+├── nomination/             # 提名規則、計分、身分與衝突判定
+└── wiki/                   # 維基內容讀取、解析、提交與歸檔
+```
+
+`src/main.js` 為建構入口，輸出仍是 `dist/bundled.js`。`tests/` 保持在專案根目錄，測試與 dry-run 保護共用相同的模組路徑。
+
 ## 使用方式
 ### 發行版本
 将如下程式碼复制至 [User:你的用戶名/common.js](https://zh.wikipedia.org/wiki/Special:MyPage/common.js) 頁面：

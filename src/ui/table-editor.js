@@ -2,12 +2,12 @@
  * 沿用 Template:ACG提名2 的表格、列與儲存格 class，讓編輯狀態繼承登記處樣式。
  * 本模組只建立畫面並更新傳入的提名；發布與草稿保存由呼叫端的回呼處理。
  */
-import {t} from './state.js';
-import {NominationRuleSet} from './rules.js';
-import {parseUserReason} from './api.js';
+import {t} from '../i18n.js';
+import {NominationRuleSet} from '../nomination/rules.js';
+import {parseUserReason} from '../wiki/api.js';
 import {cdxIconTrash, cdxIconLogIn} from './icons.js';
 import {iconButton} from './icon-button.js';
-import {previousBooking, scoreDeltas} from './scoring.js';
+import {previousBooking, scoreDeltas} from '../nomination/scoring.js';
 import {bindTextInput} from './text-input.js';
 
 

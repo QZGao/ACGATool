@@ -1,6 +1,6 @@
-import state from "./state.js";
-import {initOOUI, showNewNominationDialog, resumeOpenWorkspace} from "./dialog.js";
-import {addEditButtonsToPage} from "./dom.js";
+import state from "./i18n.js";
+import {initOOUI, showNewNominationDialog, resumeOpenWorkspace} from "./ui/editor.js";
+import {addEditButtonsToPage} from "./page/controls.js";
 
 function init() {
     const pageName = mw.config.get('wgPageName');

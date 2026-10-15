@@ -1,5 +1,5 @@
-import {t} from './state.js';
-import {parseUserReason} from './api.js';
+import {t} from '../i18n.js';
+import {parseUserReason} from '../wiki/api.js';
 import {NominationRuleSet} from './rules.js';
 import {previousBooking, newId, readRecord} from './scoring.js';
 

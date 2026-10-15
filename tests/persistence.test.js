@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {submitWorkspace, REGISTER, SCORES, getNewNominationPlacement} from '../src/submission.js';
-import {entryValues, queryEntry, queried2NomData, getDateSections} from '../src/api.js';
-import {reviewData} from '../src/scoring.js';
+import {submitWorkspace, REGISTER, SCORES, getNewNominationPlacement} from '../src/wiki/submission.js';
+import {entryValues, queryEntry, queried2NomData, getDateSections} from '../src/wiki/api.js';
+import {reviewData} from '../src/nomination/scoring.js';
 
 const clone = value => JSON.parse(JSON.stringify(value));
 function fixture() {
@@ -109,7 +109,7 @@ test('changes after registry save halt accounting and require a fresh review', a
     assert.equal(await submitWorkspace(draft, () => {}, io), false);
     assert.deepEqual(writes, [REGISTER]);
     assert.equal(draft.operation.steps[1].status, 'conflict');
-    const {reloadForReview} = await import('../src/conflicts.js');
+    const {reloadForReview} = await import('../src/nomination/conflicts.js');
     await reloadForReview(draft, io);
     assert.equal(draft.nominations[0].reviewed, false);
     assert.ok(draft.nominations[0].previousProposal);
@@ -138,7 +138,7 @@ test('expanded signatures and unrelated score increases do not invalidate the re
 
 test('one mixed batch edits, reviews and appends more than 25 nominations with shared submission fields', async () => {
     const {draft, io, writes, pages} = fixture();
-    const {createItem} = await import('../src/operations.js');
+    const {createItem} = await import('../src/nomination/operations.js');
     const page = pages.get(REGISTER);
     page.text += '\n{{ACG提名2\n|條目名稱1=Second\n|用戶名稱1=B\n|提名理由1={{ACG提名2/request|ver=1|1a}}\n|核對用1={{ACG提名2/check|ver=1|}}\n}}\n提名人：[[User:Nominator]]';
     const entry = queryEntry(page.text, '10月14日', 2);
@@ -171,8 +171,8 @@ test('querying an uncertain registry write never writes the scoreboard and retri
 
 test('reloading an edit conflict retains the complete local proposal and requires acknowledgement', async () => {
     const {draft, io, pages, writes} = fixture();
-    const {createItem} = await import('../src/operations.js');
-    const {reloadForReview} = await import('../src/conflicts.js');
+    const {createItem} = await import('../src/nomination/operations.js');
+    const {reloadForReview} = await import('../src/nomination/conflicts.js');
     const item = createItem('edit', {...draft.nominations[0], pageName: 'Local title', invalid: true, message: 'Local explanation'});
     const mixed = {mode: 'mixed', items: [item]};
     pages.get(REGISTER).text = pages.get(REGISTER).text.replace('request|ver=1|1a', 'request|ver=1|1b');

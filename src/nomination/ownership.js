@@ -1,5 +1,5 @@
-import {t} from './state.js';
-import {entryValues} from './api.js';
+import {t} from '../i18n.js';
+import {entryValues} from '../wiki/api.js';
 
 /**
  * 正規化空白、命名空間前綴與首字母；保留其餘字元的大小寫。

@@ -1,4 +1,4 @@
-import state from "./state.js";
+import state from "../i18n.js";
 
 /**
  * 維基ACG專題獎提名規則。

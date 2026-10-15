@@ -1,7 +1,7 @@
-import {parseUserReason} from './api.js';
-import {parseCheck} from './scoring.js';
+import {parseUserReason} from '../wiki/api.js';
+import {parseCheck} from '../nomination/scoring.js';
 import {ruleFragments} from './table-editor.js';
-import {t} from './state.js';
+import {t} from '../i18n.js';
 
 /** 差異資料的模板欄位鍵保持原文，只在表頭顯示時轉換名稱。 */
 export function fieldLabel(field) {

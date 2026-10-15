@@ -1,10 +1,10 @@
-import {t} from './state.js';
-import {copy, equal, sessionProgress} from './operations.js';
-import {newId} from './scoring.js';
-import {submitWorkspace} from './submission.js';
-import {wikiTransport} from './transport.js';
-import {reloadForReview} from './conflicts.js';
-import {prepareArchive, submitArchive} from './archive.js';
+import {t} from '../i18n.js';
+import {copy, equal, sessionProgress} from '../nomination/operations.js';
+import {newId} from '../nomination/scoring.js';
+import {submitWorkspace} from '../wiki/submission.js';
+import {wikiTransport} from '../wiki/transport.js';
+import {reloadForReview} from '../nomination/conflicts.js';
+import {prepareArchive, submitArchive} from '../wiki/archive.js';
 
 /** 提交時凍結指定項目；每次進度更新只改該次提交，保留其他分頁新增的工作。 */
 export function createSubmitController(store, changed, io = wikiTransport) {

@@ -1,4 +1,4 @@
-import {t} from './state.js';
+import {t} from '../i18n.js';
 /**
  * 唯讀匯入前兩版的資料。新的編輯與暫存由 session-store 管理；舊鍵不再寫入，
  * 遷移失敗或使用者需要回復舊版時，原始內容仍完整保留。

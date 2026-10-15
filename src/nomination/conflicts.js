@@ -1,5 +1,5 @@
-import {t} from './state.js';
-import {entryValues, listEntries} from './api.js';
+import {t} from '../i18n.js';
+import {entryValues, listEntries} from '../wiki/api.js';
 import {readRecord, scoreReceipts, stripComments} from './scoring.js';
 import {entryOwnership} from './ownership.js';
 
@@ -91,8 +91,8 @@ export function validateAccounting(text, results, operation) {
  */
 export async function reloadForReview(draft, io) {
     if (draft.operation?.steps.some(step => ['saving', 'unknown'].includes(step.status))) throw new Error(t('請先確認上次儲存結果。', '请先确认上次保存结果。'));
-    const {REGISTER, SCORES} = await import('./submission.js');
-    const {queried2NomData} = await import('./api.js');
+    const {REGISTER, SCORES} = await import('../wiki/submission.js');
+    const {queried2NomData} = await import('../wiki/api.js');
     const {reviewData} = await import('./scoring.js');
     const {copy} = await import('./operations.js');
     const items = draft.items || draft.nominations.map(nomination => ({mode: draft.mode, nomination}));

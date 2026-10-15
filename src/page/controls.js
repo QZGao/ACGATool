@@ -1,24 +1,24 @@
-import state, {t} from "./state.js";
-import {getArticleRoot, getNominationSections} from "./page-dom.js";
-import {entryOwnership, isOwnNomination, assertCanCheck} from "./ownership.js";
-import {reviewData, parseCheck} from "./scoring.js";
-import {SCORES} from "./submission.js";
-import {hasRecentActivity} from "./archive.js";
-import {cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from "./icons.js";
-import {iconButton} from "./icon-button.js";
+import state, {t} from "../i18n.js";
+import {getArticleRoot, getNominationSections} from "./sections.js";
+import {entryOwnership, isOwnNomination, assertCanCheck} from "../nomination/ownership.js";
+import {reviewData, parseCheck} from "../nomination/scoring.js";
+import {SCORES} from "../wiki/submission.js";
+import {hasRecentActivity} from "../wiki/archive.js";
+import {cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from "../ui/icons.js";
+import {iconButton} from "../ui/icon-button.js";
 import {
     entryValues,
     getDateSections,
     getFullText,
     queried2NomData,
     queryEntry
-} from "./api.js";
+} from "../wiki/api.js";
 import {
     archiveSection,
     showCheckNominations,
     showEditNominationDialog,
     showNewNominationDialog
-} from "./dialog.js";
+} from "../ui/editor.js";
 
 
 /**

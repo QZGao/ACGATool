@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import state from '../src/state.js';
-import {operationStatus} from '../src/operations.js';
-import {ReviewConflict} from '../src/conflicts.js';
-import {assertCanCheck} from '../src/ownership.js';
-import {fieldLabel, fieldText} from '../src/review-ui.js';
-import {parseUserReason} from '../src/api.js';
-import {submitWorkspace} from '../src/submission.js';
-import {writeStep} from '../src/transport.js';
+import state from '../src/i18n.js';
+import {operationStatus} from '../src/nomination/operations.js';
+import {ReviewConflict} from '../src/nomination/conflicts.js';
+import {assertCanCheck} from '../src/nomination/ownership.js';
+import {fieldLabel, fieldText} from '../src/ui/review-ui.js';
+import {parseUserReason} from '../src/wiki/api.js';
+import {submitWorkspace} from '../src/wiki/submission.js';
+import {writeStep} from '../src/wiki/transport.js';
 
 test('validation, source conflicts and query failures use the active converter without translating external details', async () => {
     const previous = state.conv;

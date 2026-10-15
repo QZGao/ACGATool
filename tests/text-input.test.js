@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {bindTextInput} from '../src/text-input.js';
+import {bindTextInput} from '../src/ui/text-input.js';
 
 function widget(value = '') {
     const events = new Map(), control = new EventEmitter();

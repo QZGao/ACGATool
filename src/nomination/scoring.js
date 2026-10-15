@@ -1,9 +1,9 @@
-import {t} from './state.js';
+import {t} from '../i18n.js';
 /**
  * 核對結果與已入帳結果分開處理。
  * 提名 id 跨覆核沿用；operation 識別一次批次提交，供收據查證與重試去重。
  */
-import {parseUserReason} from './api.js';
+import {parseUserReason} from '../wiki/api.js';
 import {generateReason} from './rules.js';
 
 export const newId = () => crypto.randomUUID();

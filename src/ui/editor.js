@@ -1,18 +1,18 @@
-import {t} from './state.js';
+import {t} from '../i18n.js';
 import {createDock} from './dock.js';
-import {getArticleRoot, getNominationSections} from './page-dom.js';
-import {initRuleEditor, chooseRules} from './rule-dialog.js';
+import {getArticleRoot, getNominationSections} from '../page/sections.js';
+import {initRuleEditor, chooseRules} from './dialogs/rule-dialog.js';
 import {initEditorStyles} from './editor-styles.js';
-import {DraftDialog, initDraftDialog} from './draft-dialog.js';
+import {DraftDialog, initDraftDialog} from './dialogs/draft-dialog.js';
 import {appendNominationRows, createNominationTable, sourceRows, ruleFragments} from './table-editor.js';
-import {createSessionStore} from './session-store.js';
-import {createSubmitController} from './session-submit.js';
-import {copy, equal, operationStatus, operationType, sessionProgress, lockedItem, sameSource} from './operations.js';
-import {newId} from './scoring.js';
-import {getNewNominationPlacement} from './submission.js';
+import {createSessionStore} from '../session/session-store.js';
+import {createSubmitController} from '../session/session-submit.js';
+import {copy, equal, operationStatus, operationType, sessionProgress, lockedItem, sameSource} from '../nomination/operations.js';
+import {newId} from '../nomination/scoring.js';
+import {getNewNominationPlacement} from '../wiki/submission.js';
 import {appendDifferences, fieldLabel, fieldText} from './review-ui.js';
 import {cdxIconUserAdd, cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from './icons.js';
-import {refreshRegistryContent} from './published-view.js';
+import {refreshRegistryContent} from '../page/refresh.js';
 import {bindTextInput} from './text-input.js';
 
 let store, controller, dock, windows, ready, session, queue = Promise.resolve(), busy = false;

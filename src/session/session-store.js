@@ -1,7 +1,7 @@
-import {t} from './state.js';
-import {readLegacyDrafts} from './drafts.js';
-import {copy, equal, createItem, sameSource, lockedItem} from './operations.js';
-import {newId} from './scoring.js';
+import {t} from '../i18n.js';
+import {readLegacyDrafts} from './legacy-drafts.js';
+import {copy, equal, createItem, sameSource, lockedItem} from '../nomination/operations.js';
+import {newId} from '../nomination/scoring.js';
 
 const empty = () => ({schema: 3, revision: 0, items: [], drafts: [], fields: {message: '', summary: ''}, conflicts: [], submissions: []});
 

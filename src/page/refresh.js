@@ -1,7 +1,7 @@
-import {t} from './state.js';
-import {getArticleRoot} from './page-dom.js';
-import {REGISTER} from './submission.js';
-import {wikiTransport} from './transport.js';
+import {t} from '../i18n.js';
+import {getArticleRoot} from './sections.js';
+import {REGISTER} from '../wiki/submission.js';
+import {wikiTransport} from '../wiki/transport.js';
 
 /** 成功後只讀取 MediaWiki 渲染結果；保留浮層節點及頁面捲動位置。 */
 export async function refreshRegistryContent(retained, beforeReplace) {
@@ -17,7 +17,7 @@ export async function refreshRegistryContent(retained, beforeReplace) {
     retained.forEach($element => $root.append($element));
     // 維基小工具（包括 CD）可重新處理伺服器產生的正文。
     mw.hook('wikipage.content').fire($root);
-    const {addEditButtonsToPage} = await import('./dom.js');
+    const {addEditButtonsToPage} = await import('./controls.js');
     await addEditButtonsToPage(text);
     window.scrollTo({top: position});
     return true;

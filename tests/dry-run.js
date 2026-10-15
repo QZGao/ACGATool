@@ -11,5 +11,5 @@ globalThis.mw = {
     notify() {},
     config: {get: () => 'Reviewer'},
 };
-const {default: state} = await import('../src/state.js');
+const {default: state} = await import('../src/i18n.js');
 state.init(({hant}) => hant);

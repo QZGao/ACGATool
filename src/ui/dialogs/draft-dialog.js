@@ -1,6 +1,6 @@
-import {t} from './state.js';
-import {operationType} from './operations.js';
-import {cdxIconUserAdd, cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from './icons.js';
+import {t} from '../../i18n.js';
+import {operationType} from '../../nomination/operations.js';
+import {cdxIconUserAdd, cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from '../icons.js';
 
 
 /** 草稿箱列出操作類型、用戶、條目與規則；勾選不修改資料，確認後才交由呼叫端搬移。 */

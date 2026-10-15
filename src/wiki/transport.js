@@ -1,4 +1,4 @@
-import {t} from './state.js';
+import {t} from '../i18n.js';
 /**
  * MediaWiki 實際讀寫邊界；提交狀態機透過 io 介面使用它。
  * 單元測試以記憶體 io 取代此物件，禁止建立真實 mw.Api 或發出網路請求。

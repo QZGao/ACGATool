@@ -1,15 +1,15 @@
-import {t} from './state.js';
+import {t} from '../i18n.js';
 /**
  * 編排登記處與積分榜的兩次獨立編輯。
  * operation 保留提交快照、入帳差額及各步驟狀態；部分完成時從未完成步驟恢復。
  */
 import {updateEntries, entryValues, listEntries, getDateSections} from './api.js';
-import {ReviewConflict, validateNominations, validateAccounting} from './conflicts.js';
-import {entryOwnership, assertCanCheck} from './ownership.js';
+import {ReviewConflict, validateNominations, validateAccounting} from '../nomination/conflicts.js';
+import {entryOwnership, assertCanCheck} from '../nomination/ownership.js';
 import {wikiTransport, writeStep} from './transport.js';
-import {generateReason} from './rules.js';
-import {operationStatus, hasChanges} from './operations.js';
-import {newId, readRecord, parseCheck, previousBooking, checkWikitext, prepareScoreText, scoreDeltas} from './scoring.js';
+import {generateReason} from '../nomination/rules.js';
+import {operationStatus, hasChanges} from '../nomination/operations.js';
+import {newId, readRecord, parseCheck, previousBooking, checkWikitext, prepareScoreText, scoreDeltas} from '../nomination/scoring.js';
 
 export const REGISTER = 'WikiProject:ACG/維基ACG專題獎/登記處';
 export const SCORES = 'Module:ACGaward/list';

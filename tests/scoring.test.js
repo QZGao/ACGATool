@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseCheck, reviewData, previousBooking, prepareScoreText, scoreReceipts, checkWikitext} from '../src/scoring.js';
-import {parseUserReason} from '../src/api.js';
-import {generateReason} from '../src/rules.js';
+import {parseCheck, reviewData, previousBooking, prepareScoreText, scoreReceipts, checkWikitext} from '../src/nomination/scoring.js';
+import {parseUserReason} from '../src/wiki/api.js';
+import {generateReason} from '../src/nomination/rules.js';
 
 test('review reads approved/rejected rules, custom zero points and rechecking status', () => {
     const check = parseCheck('{{ACG提名2/check|ver=1|1a[0] 2-b|no=3|status=rechecking}}--Reviewer');

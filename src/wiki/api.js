@@ -1,5 +1,5 @@
-import {t} from "./state.js";
-import {NominationRuleAliases, NominationRuleSet} from "./rules.js";
+import {t} from "../i18n.js";
+import {NominationRuleAliases, NominationRuleSet} from "../nomination/rules.js";
 
 let mwApi;
 /**

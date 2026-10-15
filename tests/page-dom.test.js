@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parseHTML} from 'linkedom';
-import {getNominationSections} from '../src/page-dom.js';
+import {getNominationSections} from '../src/page/sections.js';
 
 const table = id => `<table id="${id}" class="acgnom-table"><tbody><tr><td>提名</td></tr></tbody></table>`;
 const heading = date => `<div class="mw-heading mw-heading3"><span><h3>${date}</h3></span><span class="cd-section-actions"></span></div>`;

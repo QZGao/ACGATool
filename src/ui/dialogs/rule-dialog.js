@@ -1,5 +1,5 @@
-import {t} from './state.js';
-import {NominationRules} from './rules.js';
+import {t} from '../../i18n.js';
+import {NominationRules} from '../../nomination/rules.js';
 let windowManager;
 
 /** 規則視窗只編輯自己的副本，未按完成的內容永不進入 localStorage。 */
