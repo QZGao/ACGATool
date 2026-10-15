@@ -92,14 +92,15 @@ function initDynamicWidthTextInputWidget() {
  */
 function RuleCheckboxInputWidget(config) {
     RuleCheckboxInputWidget.parent.call(this, config);
+    this.$element.addClass('acga-rule-option');
     this.checkbox = new OO.ui.CheckboxInputWidget({selected: config.selected || false});
     this.checkbox.$input.attr('aria-label', config.ruleset.rule + ' ' + config.ruleset.desc);
     this.$element.append(this.checkbox.$element);
     this.ruleset = config.ruleset;
-    this.nomidx = config.nomidx;
+    this.nomination = config.nomination;
     this.check = config.check || false;
-    if (!state.nominations[this.nomidx].ruleStatus[this.ruleset.rule]) {
-        state.nominations[this.nomidx].ruleStatus[this.ruleset.rule] = {
+    if (!this.nomination.ruleStatus[this.ruleset.rule]) {
+        this.nomination.ruleStatus[this.ruleset.rule] = {
             selected: this.isSelected(),
             desc: this.ruleset.desc,
             ogDesc: this.ruleset.desc,
@@ -107,30 +108,29 @@ function RuleCheckboxInputWidget(config) {
             maxScore: this.ruleset.score, applicable: !this.check,
         };
     } else {
-        this.setSelected(state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].selected);
-        if (!state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].desc) {
-            state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].desc = this.ruleset.desc;
+        this.setSelected(this.nomination.ruleStatus[this.ruleset.rule].selected);
+        if (!this.nomination.ruleStatus[this.ruleset.rule].desc) {
+            this.nomination.ruleStatus[this.ruleset.rule].desc = this.ruleset.desc;
         }
-        state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].ogDesc = this.ruleset.desc;
-        if (!Object.prototype.hasOwnProperty.call(state.nominations[this.nomidx].ruleStatus[this.ruleset.rule], 'score')) {
-            state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score = this.ruleset.score;
+        this.nomination.ruleStatus[this.ruleset.rule].ogDesc = this.ruleset.desc;
+        if (!Object.prototype.hasOwnProperty.call(this.nomination.ruleStatus[this.ruleset.rule], 'score')) {
+            this.nomination.ruleStatus[this.ruleset.rule].score = this.ruleset.score;
         }
-        state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].maxScore = this.ruleset.score;
+        this.nomination.ruleStatus[this.ruleset.rule].maxScore = this.ruleset.score;
     }
     this.ruleInputWidget = new DynamicWidthTextInputWidget({
-        value: state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].desc,
+        value: this.nomination.ruleStatus[this.ruleset.rule].desc,
         disabled: this.check ? false : (!this.isSelected()),
     });
     this.ruleInputWidget.$input.attr('aria-label', this.ruleset.rule + ' ' + t('規則說明', '规则说明'));
     this.ruleInputWidget.$element.addClass('DynamicWidthTextInputWidget');
-    this.ruleInputWidget.$element.css({'margin-left': '5px'});
     this.ruleInputWidget.adjustWidth();
     this.leftBracketLabelWidget = new OO.ui.LabelWidget({label: '('});
     this.leftBracketLabelWidget.$element.css({
         'vertical-align': 'baseline', 'border-bottom': '2px solid #fff',
     });
     this.scoreInputWidget = new DynamicWidthTextInputWidget({
-        value: state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].scoreInput ?? state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score,
+        value: this.nomination.ruleStatus[this.ruleset.rule].scoreInput ?? this.nomination.ruleStatus[this.ruleset.rule].score,
         disabled: this.check ? false : (!this.isSelected()),
     });
     this.scoreInputWidget.$input.attr('aria-label', this.ruleset.rule + ' ' + t('分數', '分数'));
@@ -138,7 +138,7 @@ function RuleCheckboxInputWidget(config) {
     this.scoreInputWidget.adjustWidth();
     this.rightBracketLabelWidget = new OO.ui.LabelWidget({label: '分)'});
     this.rightBracketLabelWidget.$element.css({
-        'vertical-align': 'baseline', 'border-bottom': '2px solid #fff', 'margin-right': '10px',
+        'vertical-align': 'baseline', 'border-bottom': '2px solid #fff',
     });
 
     this.$element.append(this.ruleInputWidget.$element);
@@ -159,9 +159,8 @@ function initRuleCheckboxInputWidget() {
     RuleCheckboxInputWidget.prototype.setSelected = function (value) { this.checkbox.setSelected(value); };
 
     RuleCheckboxInputWidget.prototype.handleCheckboxChange = function (isChecked) {
-        state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].selected = isChecked;
-        if (isChecked) state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].applicable = true;
-        touchNomination(this.nomidx);
+        this.nomination.ruleStatus[this.ruleset.rule].selected = isChecked;
+        if (isChecked) this.nomination.ruleStatus[this.ruleset.rule].applicable = true;
         let disableCheck = this.check ? false : (!isChecked);
         this.ruleInputWidget.setDisabled(disableCheck);
         this.scoreInputWidget.setDisabled(disableCheck);
@@ -174,13 +173,11 @@ function initRuleCheckboxInputWidget() {
         }
     };
     RuleCheckboxInputWidget.prototype.handleRuleInputChange = function (newValue) {
-        state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].desc = newValue;
-        touchNomination(this.nomidx);
+        this.nomination.ruleStatus[this.ruleset.rule].desc = newValue;
     };
     RuleCheckboxInputWidget.prototype.handleScoreInputChange = function (newValue) {
-        state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].scoreInput = newValue;
-        state.nominations[this.nomidx].ruleStatus[this.ruleset.rule].score = newValue.trim() === '' ? null : Number(newValue);
-        touchNomination(this.nomidx);
+        this.nomination.ruleStatus[this.ruleset.rule].scoreInput = newValue;
+        this.nomination.ruleStatus[this.ruleset.rule].score = newValue.trim() === '' ? null : Number(newValue);
     };
 }
 
@@ -201,7 +198,6 @@ function initEditorStyles() {
         .acga-dock .oo-ui-buttonElement { margin: 0; }
         .acga-dock .acga-drafts { display: flex; flex-wrap: wrap; gap: .5em; }
         .acga-dock .acga-drafts > strong { flex-basis: 100%; }
-        .acga-dock-archives { display: flex; flex-wrap: wrap; gap: .5em; }
         .acga-dock-options { margin-bottom: .8em; }
         .acga-conflicts { overflow-x: auto; }
         .acga-conflicts:empty { display: none; }
@@ -246,7 +242,12 @@ function initEditorStyles() {
         .acga-actions { display: flex; flex-wrap: wrap; gap: .5em; margin: 0; }
         .acga-rules details { margin: .75em 0; }
         .acga-rules summary { cursor: pointer; font-weight: bold; }
+        .acga-rule-explanation { font-size: .875em; color: var(--color-subtle, #54595d); }
         .acga-rules .oo-ui-horizontalLayout { display: flex; flex-wrap: wrap; gap: .5em; }
+        /* 單個規則內以 gap 統一間距，避免 OOUI margin 與手動 margin 疊加。 */
+        .acga-rules .acga-rule-option { gap: 2px; }
+        .acga-rules .acga-rule-option > .oo-ui-widget { margin: 0; }
+        .acga-rules .acga-rule-option > .oo-ui-checkboxInputWidget { margin-inline-end: 4px; }
         @media (max-width: 600px) { .acga-edit-table { min-width: 340px; } .acga-editor .oo-ui-horizontalLayout { max-width: 100%; } }
     `);
 }
@@ -262,27 +263,30 @@ function ruleSummary(ruleStatus) {
 
 function RulesDialog(config) { RulesDialog.super.call(this, config); }
 /**
- * 建立共用規則彈窗。常用分類與已有選項的分類展開，其餘保留為摺疊區。
- * 選項直接更新目前提名的狀態；主編輯器的摘要在彈窗關閉後刷新。
+ * 建立共用規則彈窗。前四類與已有選項的分類展開，其餘保留為摺疊區。
+ * 選項只修改視窗內的副本；完成後才套用，取消或重新整理會捨棄未確認修改。
  */
 function initRuleDialog() {
     OO.inheritClass(RulesDialog, OO.ui.ProcessDialog);
     RulesDialog.static.name = 'ACGARules';
     RulesDialog.static.title = t('選擇規則', '选择规则');
-    RulesDialog.static.actions = [{action: 'done', label: t('完成'), flags: ['primary', 'progressive']}];
+    RulesDialog.static.actions = [
+        {action: 'cancel', label: t('取消'), flags: 'safe'},
+        {action: 'done', label: t('完成'), flags: ['primary', 'progressive']},
+    ];
     RulesDialog.prototype.initialize = function () {
         RulesDialog.super.prototype.initialize.call(this);
         this.panel = new OO.ui.PanelLayout({padded: true, expanded: false});
         this.panel.$element.addClass('acga-rules');
-        const nomination = state.nominations[this.nomidx];
+        const nomination = this.nomination;
         NominationRules().forEach((group, index) => {
             const rules = group.rules || group.tabs.flatMap(tab => tab.rules);
             const selected = rules.some(rule => nomination.ruleStatus[rule.rule]?.selected);
-            const $details = $('<details>').prop('open', index < 3 || selected);
+            const $details = $('<details>').prop('open', index < 4 || selected);
             $details.append($('<summary>').text(group.group));
-            $details.append($('<p>').text(group.explanation));
+            $details.append($('<p>').addClass('acga-rule-explanation').text(group.explanation));
             const addRules = items => {
-                const widgets = items.map(rule => new RuleCheckboxInputWidget({ruleset: rule, value: rule.rule, nomidx: this.nomidx, check: this.check}));
+                const widgets = items.map(rule => new RuleCheckboxInputWidget({ruleset: rule, value: rule.rule, nomination, check: this.check}));
                 $details.append(new OO.ui.HorizontalLayout({items: widgets}).$element);
             };
             if (group.rules) addRules(group.rules);
@@ -296,7 +300,8 @@ function initRuleDialog() {
         this.$body.append(this.panel.$element);
     };
     RulesDialog.prototype.getBodyHeight = function () { return this.panel.$element.outerHeight(true); };
-    RulesDialog.prototype.getActionProcess = function () { return new OO.ui.Process(() => { this.close(); }); };
+    RulesDialog.prototype.getEscapeAction = function () { return 'cancel'; };
+    RulesDialog.prototype.getActionProcess = function (action) { return new OO.ui.Process(() => { this.close({action}); }); };
 }
 
 /**
@@ -305,11 +310,17 @@ function initRuleDialog() {
  * @param {Function} onClose 更新主編輯器規則摘要的回呼。
  */
 async function openRules(nomidx, onClose) {
+    const nomination = state.nominations[nomidx];
+    // 視窗中的值不進入自動保存；保留 NaN 等尚未驗證的輸入直到使用者完成。
     const dialog = new RulesDialog({size: 'large'});
-    dialog.nomidx = nomidx;
+    dialog.nomination = {ruleStatus: Object.fromEntries(Object.entries(nomination.ruleStatus).map(([key, rule]) => [key, {...rule}]))};
     dialog.check = state.workspace.mode === 'check';
     windowManager.addWindows([dialog]);
-    await windowManager.openWindow(dialog).closed;
+    const result = await windowManager.openWindow(dialog).closed;
+    if (result?.action === 'done') {
+        nomination.ruleStatus = dialog.nomination.ruleStatus;
+        touchNomination(nomidx);
+    }
     onClose();
     await windowManager.removeWindows(['ACGARules']);
 }
@@ -812,15 +823,4 @@ function showConflicts($container, $panel) {
         } catch (error) { $error.text(error.message); reload.setDisabled(false); }
     });
     $container.append(reload.$element, $error);
-}
-
-/** 按日期歸檔的入口集中於懸浮條，不向正文標題附加操作連結。 */
-export function setArchiveActions(archives = []) {
-    dock.panes.archives.empty().addClass('acga-dock-archives');
-    for (const {date, action} of archives) {
-        const button = new OO.ui.ButtonWidget({label: `${date} · ${t('歸檔', '归档')}`});
-        button.on('click', action);
-        dock.panes.archives.append(button.$element);
-    }
-    dock.setActive(editorIsOpen());
 }

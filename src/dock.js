@@ -28,7 +28,7 @@ export function createDock(root) {
     const jumpButton = new OO.ui.ButtonWidget({label: t('回到表格')});
     toggles.drafts = new OO.ui.ButtonWidget({label: t('草稿箱')});
     $navigation.append(jumpButton.$element, toggles.drafts.$element);
-    for (const [name, label] of [['recovery', t('繼續編輯', '继续编辑')], ['archives', t('歸檔', '归档')], ['details', t('說明與儲存進度', '说明与储存进度')]]) {
+    for (const [name, label] of [['recovery', t('繼續編輯', '继续编辑')], ['details', t('說明與儲存進度', '说明与储存进度')]]) {
         panes[name] = $('<section>').attr({id: `acga-dock-${name}`, 'aria-label': label}).hide();
         const button = new OO.ui.ButtonWidget({label});
         button.$button.attr({'aria-expanded': 'false', 'aria-controls': `acga-dock-${name}`});
@@ -63,7 +63,6 @@ export function createDock(root) {
         jumpButton.toggle(active);
         $actions.toggle(active);
         toggles.details.toggle(active);
-        toggles.archives.toggle(!active && panes.archives.children().length > 0);
         if (!active) { $title.text('ACGATool'); $summary.empty(); showPanel(null); }
         position();
     };

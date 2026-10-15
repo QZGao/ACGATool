@@ -18,8 +18,7 @@ import {
 import {
     showCheckNominations,
     showEditNominationDialog,
-    showNewNominationDialog,
-    setArchiveActions
+    showNewNominationDialog
 } from "./dialog.js";
 
 
@@ -273,14 +272,20 @@ export async function addEditButtonsToPage() {
     const content = document.getElementById('mw-content-text');
     if (!content) return;
     const sections = getNominationSections(content);
-    setArchiveActions(sections.filter(section => section.tables.length).map(section => {
-        const date = section.heading.textContent.trim();
-        return {date, action: () => archiveChapter(date)};
-    }));
     for (const section of sections) {
         const h3 = $(section.heading);
         const date = h3.text().trim();
         let index = 0;
+
+        // 歸檔入口沿用標題的 editsection；由標題往上找容器，兼容 CD 的標題包裝。
+        const $heading = h3.closest('.mw-heading');
+        const $editsection = ($heading.length ? $heading : h3).find('.mw-editsection').first();
+        const $editLink = $editsection.find('a').first();
+        if ($editLink.length && !$editsection.find('.acga-archive').length) {
+            const $archive = $('<a>').addClass('acga-archive').attr('href', 'javascript:void(0)')
+                .text(state.convByVar({hant: '歸檔', hans: '归档'})).on('click', () => archiveChapter(date));
+            $editLink.after($('<span>').addClass('acga-archive-separator').html('&nbsp;|&nbsp;'), $archive);
+        }
 
         // 使用章節掃描取得的表格，容許 CD 將其包在 cd-comment-replacedPart 等容器內。
         for (const tableElement of section.tables) {
