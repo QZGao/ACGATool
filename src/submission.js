@@ -1,3 +1,4 @@
+import {t} from './state.js';
 /**
  * 編排登記處與積分榜的兩次獨立編輯。
  * operation 保留提交快照、入帳差額及各步驟狀態；部分完成時從未完成步驟恢復。
@@ -33,17 +34,17 @@ export function getNewNominationPlacement(dates, now = new Date()) {
  * @returns {object} text、results、按得分者彙總的差額 scores 及 operation。
  */
 export function prepareChecks(text, nominations, operation = newId()) {
-    if (!nominations.length || nominations.some(n => !n.reviewed)) throw new Error('請先逐筆完成核對。');
+    if (!nominations.length || nominations.some(n => !n.reviewed)) throw new Error(t('請先逐筆完成核對。', '请先逐项完成核对。'));
     const results = [];
     const entries = validateNominations(text, nominations);
     const updates = nominations.map((nomination, index) => {
         const entry = entries[index];
         assertCanCheck(entryOwnership(text, entry), mw.config.get('wgUserName'), nomination.awarder);
         const reason = generateReason(nomination.ruleStatus, true);
-        if (!reason) throw new Error('請檢查規則分數。');
+        if (!reason) throw new Error(t('請檢查規則分數。', '请检查规则分数。'));
         const score = nomination.invalid ? 0 : reason.reasonScore;
         nomination.id ||= newId();
-        if (!nomination.awarder.trim()) throw new Error('請填寫得分者。');
+        if (!nomination.awarder.trim()) throw new Error(t('請填寫得分者。', '请填写得分者。'));
         results.push({id: nomination.id, awarder: nomination.awarder.trim(), score, before: previousBooking(nomination)});
         return {entry, changes: {'用戶名稱': nomination.awarder.trim(), '核對用': checkWikitext(nomination, reason, operation)}};
     });
@@ -62,11 +63,11 @@ function makeAttempt(title, snapshot, text, operation, label) {
 }
 
 export function prepareNew(text, draft) {
-    if (!draft.nominations.length) throw new Error('請至少填寫一筆提名。');
+    if (!draft.nominations.length) throw new Error(t('請至少填寫一筆提名。', '请至少填写一项提名。'));
     let block = '{{ACG提名2';
     draft.nominations.forEach((nomination, index) => {
         const reason = generateReason(nomination.ruleStatus);
-        if (!nomination.awarder.trim() || !nomination.pageName.trim() || !reason) throw new Error('請填寫得分者、條目及規則。');
+        if (!nomination.awarder.trim() || !nomination.pageName.trim() || !reason) throw new Error(t('請填寫得分者、條目及規則。', '请填写得分者、条目及规则。'));
         block += `\n|條目名稱${index + 1} = ${nomination.pageName.trim()}\n|用戶名稱${index + 1} = ${nomination.awarder.trim()}\n|提名理由${index + 1} = {{ACG提名2/request|ver=1|${reason}}}\n|核對用${index + 1} = {{ACG提名2/check|ver=1|}}`;
     });
     block += "\n}}\n'''提名人：'''~~~~";
@@ -82,8 +83,8 @@ export function prepareNew(text, draft) {
 function prepareEdit(text, draft) {
     const nomination = draft.nominations[0];
     const reason = generateReason(nomination.ruleStatus);
-    if (!nomination.awarder.trim() || !nomination.pageName.trim() || !reason) throw new Error('請填寫得分者、條目及規則。');
-    if (parseCheck(nomination.source.values['核對用'])) throw new Error('此提名已有核分，請使用覆核／更正得分。');
+    if (!nomination.awarder.trim() || !nomination.pageName.trim() || !reason) throw new Error(t('請填寫得分者、條目及規則。', '请填写得分者、条目及规则。'));
+    if (parseCheck(nomination.source.values['核對用'])) throw new Error(t('此提名已有核分，請使用覆核／更正得分。', '此提名已有核分，请使用复核／更正得分。'));
     return updateEntries(text, [{entry: validateNominations(text, [nomination])[0], changes: {
         '條目名稱': nomination.pageName.trim(), '用戶名稱': nomination.awarder.trim(),
         '提名理由': '{{ACG提名2/request|ver=1|' + reason + '}}',
@@ -93,15 +94,15 @@ function prepareEdit(text, draft) {
 /** 混合操作共用同一份登記處版本；所有來源先驗證，新提名最後追加。 */
 export function prepareMixed(text, draft, operation) {
     const items = draft.items.filter(hasChanges);
-    if (!items.length) throw new Error('沒有待提交的操作。');
+    if (!items.length) throw new Error(t('沒有待提交的操作。', '没有待提交的操作。'));
     for (const item of items) {
         const status = operationStatus(item);
-        if (!status.ready) throw new Error(`${item.nomination.pageName || '未填條目'}：${status.errors[0].message}`);
+        if (!status.ready) throw new Error(`${item.nomination.pageName || t('未填條目', '未填条目')}：${status.errors[0].message}`);
     }
     const existing = items.filter(item => item.mode !== 'new');
     const entries = validateNominations(text, existing.map(item => item.nomination));
     const identities = entries.map(entry => `${entry.date}:${entry.index}`);
-    if (new Set(identities).size !== identities.length) throw new Error('同一筆提名不能在同一批重複提交。');
+    if (new Set(identities).size !== identities.length) throw new Error(t('同一筆提名不能在同一批重複提交。', '同一项提名不能在同一批重复提交。'));
     for (const item of items.filter(item => item.mode === 'edit')) text = prepareEdit(text, {nominations: [item.nomination]});
     const checks = items.filter(item => item.mode === 'check').map(item => item.nomination);
     const checked = checks.length ? prepareChecks(text, checks, operation) : {text, results: []};
@@ -136,7 +137,7 @@ async function prepareOperation(draft, io) {
         prepareScoreText(scoreboard.text, prepared.results, operation.id);
     }
     operation.steps.push({key: 'registry', title: REGISTER, status: 'pending',
-        attempt: makeAttempt(REGISTER, registry, text + '\n' + registryMarker(operation.id), operation.id, draft.summary || '[[User:SuperGrey/gadgets/ACGATool|提名與核分]]')});
+        attempt: makeAttempt(REGISTER, registry, text + '\n' + registryMarker(operation.id), operation.id, draft.summary || '[[User:SuperGrey/gadgets/ACGATool|' + t('提名與核分', '提名与核分') + ']]')});
     if (scoreboard) operation.steps.push({key: 'scores', title: SCORES, status: 'pending'});
     return operation;
 }
@@ -151,7 +152,7 @@ async function prepareOperation(draft, io) {
  */
 export async function submitWorkspace(draft, persist, io = wikiTransport, action = null) {
     if (draft.conflicts?.length) throw new ReviewConflict(draft.conflicts);
-    if (action && !draft.operation) throw new Error('沒有可查詢或重試的儲存步驟。');
+    if (action && !draft.operation) throw new Error(t('沒有可查詢或重試的儲存步驟。', '没有可查询或重试的保存步骤。'));
     if (!draft.operation) {
         try { draft.operation = await prepareOperation(draft, io); }
         catch (error) {
@@ -162,12 +163,12 @@ export async function submitWorkspace(draft, persist, io = wikiTransport, action
     }
     const operation = draft.operation;
     const selected = action ? operation.steps.filter(step => step.key === action.stepKey) : operation.steps;
-    if (!selected.length) throw new Error('找不到指定的儲存步驟。');
+    if (!selected.length) throw new Error(t('找不到指定的儲存步驟。', '找不到指定的保存步骤。'));
     for (const step of selected) {
         const index = operation.steps.indexOf(step);
-        if (operation.steps.slice(0, index).some(previous => previous.status !== 'succeeded')) throw new Error('請先完成前一個儲存步驟。');
-        if (action?.kind === 'query' && !['unknown', 'saving', 'succeeded'].includes(step.status)) throw new Error('此步驟沒有結果未明的請求。');
-        if (action?.kind === 'retry' && ['unknown', 'saving'].includes(step.status)) throw new Error('請先查詢上次儲存結果。');
+        if (operation.steps.slice(0, index).some(previous => previous.status !== 'succeeded')) throw new Error(t('請先完成前一個儲存步驟。', '请先完成前一个保存步骤。'));
+        if (action?.kind === 'query' && !['unknown', 'saving', 'succeeded'].includes(step.status)) throw new Error(t('此步驟沒有結果未明的請求。', '此步骤没有结果未明的请求。'));
+        if (action?.kind === 'retry' && ['unknown', 'saving'].includes(step.status)) throw new Error(t('請先查詢上次儲存結果。', '请先查询上次保存结果。'));
         if (step.status === 'succeeded') continue;
         // 確定尚未寫入的步驟才可依最新版本重建；結果未明時必須沿用原 attempt。
         if (!['saving', 'unknown'].includes(step.status)) {
@@ -180,7 +181,7 @@ export async function submitWorkspace(draft, persist, io = wikiTransport, action
                     validateAccounting(current.text, operation.results, operation.id);
                     const text = prepareScoreText(current.text, operation.results, operation.id);
                     if (text === current.text) { step.status = 'succeeded'; step.revid = current.revid; await persist(); continue; }
-                    step.attempt = makeAttempt(SCORES, current, text, operation.id, operation.submitted.summary || '[[User:SuperGrey/gadgets/ACGATool|積分調整]]');
+                    step.attempt = makeAttempt(SCORES, current, text, operation.id, operation.submitted.summary || '[[User:SuperGrey/gadgets/ACGATool|' + t('積分調整', '积分调整') + ']]');
                     step.attempt.marker = '"operation":' + JSON.stringify(operation.id);
                 } else {
                     const submitted = operation.submitted;
@@ -199,7 +200,7 @@ export async function submitWorkspace(draft, persist, io = wikiTransport, action
                             }};
                         });
                     }
-                    step.attempt = makeAttempt(REGISTER, current, text + '\n' + registryMarker(operation.id), operation.id, submitted.summary || '[[User:SuperGrey/gadgets/ACGATool|提名與核分]]');
+                    step.attempt = makeAttempt(REGISTER, current, text + '\n' + registryMarker(operation.id), operation.id, submitted.summary || '[[User:SuperGrey/gadgets/ACGATool|' + t('提名與核分', '提名与核分') + ']]');
                 }
             } catch (error) {
                 step.status = error instanceof ReviewConflict ? 'conflict' : 'failed';

@@ -1,3 +1,4 @@
+import {t} from './state.js';
 import {parseUserReason} from './api.js';
 import {NominationRuleSet} from './rules.js';
 import {previousBooking, newId, readRecord} from './scoring.js';
@@ -35,19 +36,19 @@ export function sameSource(a, b) {
 /** 純驗證不發通知；欄位提示、進度條與提交前驗證共用相同的完成條件。 */
 export function operationStatus(item) {
     const n = item.nomination, errors = [];
-    if (!n.pageName?.trim()) errors.push({field: 'pageName', message: '請填寫條目名稱。'});
-    if (!n.awarder?.trim()) errors.push({field: 'awarder', message: '請填寫得分者。'});
+    if (!n.pageName?.trim()) errors.push({field: 'pageName', message: t('請填寫條目名稱。', '请填写条目名称。')});
+    if (!n.awarder?.trim()) errors.push({field: 'awarder', message: t('請填寫得分者。', '请填写得分者。')});
     const {ruleDict} = NominationRuleSet();
     const rules = Object.entries(n.ruleStatus || {}).filter(([, rule]) => rule.selected || item.mode === 'check' && rule.applicable !== false);
-    if (item.mode !== 'check' && !rules.length) errors.push({field: 'ruleStatus', message: '請選擇提名規則。'});
+    if (item.mode !== 'check' && !rules.length) errors.push({field: 'ruleStatus', message: t('請選擇提名規則。', '请选择提名规则。')});
     if (rules.some(([key, rule]) => !ruleDict[key] || !Number.isFinite(rule.score) || rule.score < 0)) {
-        errors.push({field: 'ruleStatus', message: '請檢查規則分數，須為零或正數。'});
+        errors.push({field: 'ruleStatus', message: t('請檢查規則分數，須為零或正數。', '请检查规则分数，须为零或正数。')});
     }
     if (item.mode === 'check') {
         try { previousBooking(n); } catch (error) { errors.push({field: 'booking', message: error.message}); }
-        if (!n.reviewed) errors.push({field: 'reviewed', message: n.original ? '請完成此筆覆核。' : '請完成此筆核對。'});
+        if (!n.reviewed) errors.push({field: 'reviewed', message: n.original ? t('請完成此筆覆核。', '请完成这项复核。') : t('請完成此筆核對。', '请完成这项核对。')});
     }
-    if (item.needsReview) errors.push({field: 'source', message: '來源已變更，請確認標示的差異。'});
+    if (item.needsReview) errors.push({field: 'source', message: t('來源已變更，請確認標示的差異。', '来源已变更，请确认标示的差异。')});
     return {active: hasChanges(item), ready: errors.length === 0, errors};
 }
 

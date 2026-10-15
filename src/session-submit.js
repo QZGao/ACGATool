@@ -1,3 +1,4 @@
+import {t} from './state.js';
 import {copy, equal, sessionProgress} from './operations.js';
 import {newId} from './scoring.js';
 import {submitWorkspace} from './submission.js';
@@ -10,7 +11,7 @@ export function createSubmitController(store, changed, io = wikiTransport) {
     const persist = async (id, draft, error = '') => {
         await store.mutate(session => {
             const submission = session.submissions.find(item => item.id === id);
-            if (!submission) throw new Error('儲存紀錄已變更，請重新檢查。');
+            if (!submission) throw new Error(t('儲存紀錄已變更，請重新檢查。', '保存记录已变更，请重新检查。'));
             submission.draft = copy(draft);
             submission.error = error;
         });
@@ -49,8 +50,8 @@ export function createSubmitController(store, changed, io = wikiTransport) {
             return store.publish(async () => {
                 const draft = await prepareArchive(date, io), id = newId();
                 await store.mutate(session => {
-                    if (session.items.some(item => item.nomination.source?.date === date)) throw new Error('此小節仍有正在編輯的提名，請先送出、暫存或取消這些操作。');
-                    if (session.submissions.some(item => !item.finished && item.draft.archive?.date === date)) throw new Error('此小節已有未完成的歸檔，請從儲存結果繼續。');
+                    if (session.items.some(item => item.nomination.source?.date === date)) throw new Error(t('此小節仍有正在編輯的提名，請先送出、暫存或取消這些操作。', '此小节仍有正在编辑的提名，请先提交、暂存或取消这些操作。'));
+                    if (session.submissions.some(item => !item.finished && item.draft.archive?.date === date)) throw new Error(t('此小節已有未完成的歸檔，請從儲存結果繼續。', '此小节已有未完成的归档，请从保存结果继续。'));
                     session.submissions.push({id, itemIds: [], draft});
                 });
                 changed();
@@ -63,7 +64,7 @@ export function createSubmitController(store, changed, io = wikiTransport) {
                 await store.mutate(session => {
                     const progress = sessionProgress(session);
                     if (!progress.complete || !equal(progress.items, expected.items) || !equal(session.fields, expected.fields)) {
-                        throw new Error('表單已變更，請重新確認本次送出內容。');
+                        throw new Error(t('表單已變更，請重新確認本次送出內容。', '表单已变更，请重新确认本次提交内容。'));
                     }
                     const draft = {mode: 'mixed', items: copy(progress.items), message: session.fields.message, summary: session.fields.summary};
                     session.submissions.push({id, itemIds: progress.items.map(item => item.id), draft});
@@ -97,7 +98,7 @@ export function createSubmitController(store, changed, io = wikiTransport) {
                 await store.mutate(session => {
                     const submission = session.submissions.find(item => item.id === id);
                     if (submission?.draft.operation?.steps.some(step => ['saving', 'unknown', 'succeeded'].includes(step.status))) {
-                        throw new Error('已有儲存成功或結果未明的步驟，請先處理儲存結果。');
+                        throw new Error(t('已有儲存成功或結果未明的步驟，請先處理儲存結果。', '已有保存成功或结果未明的步骤，请先处理保存结果。'));
                     }
                     session.submissions = session.submissions.filter(item => item.id !== id);
                 });
@@ -107,7 +108,7 @@ export function createSubmitController(store, changed, io = wikiTransport) {
         dismiss(id) {
             return store.mutate(session => {
                 const submission = session.submissions.find(item => item.id === id);
-                if (!submission?.finished) throw new Error('尚未完成儲存。');
+                if (!submission?.finished) throw new Error(t('尚未完成儲存。', '尚未完成保存。'));
                 session.submissions = session.submissions.filter(item => item.id !== id);
             });
         },

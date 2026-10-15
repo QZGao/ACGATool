@@ -1,7 +1,6 @@
-import state from './state.js';
+import {t} from './state.js';
 import {NominationRules} from './rules.js';
 let windowManager;
-const t = (hant, hans = hant) => state.convByVar({hant, hans});
 
 /** 規則視窗只編輯自己的副本，未按完成的內容永不進入 localStorage。 */
 export function initRuleEditor(root) {
@@ -104,7 +103,7 @@ function RuleCheckboxInputWidget(config) {
     this.scoreInputWidget.$input.attr('aria-label', this.ruleset.rule + ' ' + t('分數', '分数'));
     this.scoreInputWidget.$element.addClass('DynamicWidthTextInputWidget');
     this.scoreInputWidget.adjustWidth();
-    this.rightBracketLabelWidget = new OO.ui.LabelWidget({label: '分)'});
+    this.rightBracketLabelWidget = new OO.ui.LabelWidget({label: t('分)')});
     this.rightBracketLabelWidget.$element.css({
         'vertical-align': 'baseline', 'border-bottom': '2px solid #fff',
     });

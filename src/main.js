@@ -7,8 +7,8 @@ function init() {
     if (pageName !== 'WikiProject:ACG/維基ACG專題獎' && pageName !== 'WikiProject:ACG/維基ACG專題獎/登記處') return;  // 非目標頁面，不執行
 
     mw.loader.using(['ext.gadget.HanAssist', 'mediawiki.api', 'mediawiki.util', 'oojs-ui-core', 'oojs-ui-widgets', 'oojs-ui-windows']).then(async (require) => {
-        const {convByVar} = require('ext.gadget.HanAssist');
-        state.init(convByVar);
+        const {conv} = require('ext.gadget.HanAssist');
+        state.init(conv);
 
         if (pageName.endsWith('/登記處')) await initOOUI();
         await addEditButtonsToPage();

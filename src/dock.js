@@ -1,7 +1,6 @@
-import state from './state.js';
+import {t} from './state.js';
 import {createCompletionProgress} from './completion-progress.js';
 
-const t = (hant, hans = hant) => state.convByVar({hant, hans});
 
 /**
  * 在正文容器內建立唯一的固定操作區。面板只覆蓋頁面，不參與正文排版。

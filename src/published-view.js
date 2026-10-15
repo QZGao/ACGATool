@@ -1,3 +1,4 @@
+import {t} from './state.js';
 import {getArticleRoot} from './page-dom.js';
 import {REGISTER} from './submission.js';
 import {wikiTransport} from './transport.js';
@@ -5,7 +6,7 @@ import {wikiTransport} from './transport.js';
 /** 成功後只讀取 MediaWiki 渲染結果；保留浮層節點及頁面捲動位置。 */
 export async function refreshRegistryContent(retained, beforeReplace) {
     const {html, text} = await wikiTransport.render(REGISTER);
-    if (typeof html !== 'string' || typeof text !== 'string') throw new Error('無法讀取儲存後的提名。');
+    if (typeof html !== 'string' || typeof text !== 'string') throw new Error(t('無法讀取儲存後的提名。', '无法读取保存后的提名。'));
     const $parsed = $('<div>').append($.parseHTML(html, document, false));
     const $content = $parsed.children('.mw-parser-output').first();
     const $root = $(getArticleRoot());

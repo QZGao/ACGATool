@@ -1,3 +1,4 @@
+import {t} from './state.js';
 /**
  * 核對結果與已入帳結果分開處理。
  * 提名 id 跨覆核沿用；operation 識別一次批次提交，供收據查證與重試去重。
@@ -17,7 +18,7 @@ export function readRecord(text) {
     const match = text.match(/<!--ACGATool:([^>]+)-->/);
     if (!match) return null;
     const record = JSON.parse(decodeURIComponent(match[1]));
-    if (!record.id || !record.before || !Number.isFinite(record.before.score)) throw new Error('入帳記錄格式不完整。');
+    if (!record.id || !record.before || !Number.isFinite(record.before.score)) throw new Error(t('入帳記錄格式不完整。', '入账记录格式不完整。'));
     return record;
 }
 
@@ -37,20 +38,20 @@ export function parseCheck(text) {
             else args[part.slice(0, equal).trim()] = part.slice(equal + 1).trim();
         }
         if (args.status === 'rescinded') continue;
-        if (args.ver !== '1') throw new Error('此核對結果的規則版本暫不支援。');
+        if (args.ver !== '1') throw new Error(t('此核對結果的規則版本暫不支援。', '此核对结果的规则版本暂不支持。'));
         if (!args['1'] && !args.no) continue;
         const invalid = args['1'] === '0';
         const yes = parseUserReason(invalid ? '' : (args['1'] || ''));
         const no = parseUserReason(args.no || '');
-        if (!yes || !no) throw new Error('無法完整讀取原核對結果，請手動覆核。');
+        if (!yes || !no) throw new Error(t('無法完整讀取原核對結果，請手動覆核。', '无法完整读取原核对结果，请手动复核。'));
         for (const value of Object.values(no)) value.selected = false;
         const ruleStatus = {...no, ...yes};
         active.push({score: invalid ? 0 : generateReason(ruleStatus, true).reasonScore,
             invalid, ruleStatus, status: args.status || 'done', start: match.index, end: match.index + match[0].length, raw: match[0]});
     }
-    if (active.length > 1) throw new Error('存在多個未撤銷的核對結果，請先確認有效的結果。');
+    if (active.length > 1) throw new Error(t('存在多個未撤銷的核對結果，請先確認有效的結果。', '存在多个未撤销的核对结果，请先确认有效的结果。'));
     if (!active.length && stripComments(text).replace(/{{\s*ACG提名2\/check\s*\|[^{}]*}}/g, '').trim()) {
-        throw new Error('原核對內容不是可辨識的核分模板，請手動覆核。');
+        throw new Error(t('原核對內容不是可辨識的核分模板，請手動覆核。', '原核对内容不是可辨识的核分模板，请手动复核。'));
     }
     return active[0] || null;
 }
@@ -65,10 +66,10 @@ export function scoreReceipts(text) {
     for (const line of text.split('\n')) {
         if (!line.startsWith('-- ACGATool ')) continue;
         const receipt = JSON.parse(line.slice('-- ACGATool '.length));
-        if (!receipt.operation || !Array.isArray(receipt.entries)) throw new Error('積分榜入帳記錄格式錯誤。');
+        if (!receipt.operation || !Array.isArray(receipt.entries)) throw new Error(t('積分榜入帳記錄格式錯誤。', '积分榜入账记录格式错误。'));
         operations.set(receipt.operation, receipt);
         for (const entry of receipt.entries) {
-            if (!entry.id || !entry.awarder || !Number.isFinite(entry.score) || entry.score < 0) throw new Error('積分榜入帳記錄格式錯誤。');
+            if (!entry.id || !entry.awarder || !Number.isFinite(entry.score) || entry.score < 0) throw new Error(t('積分榜入帳記錄格式錯誤。', '积分榜入账记录格式错误。'));
             entries.set(entry.id, entry);
         }
     }
@@ -97,7 +98,7 @@ export function reviewData(data, source, scoreText) {
  */
 export function previousBooking(nomination) {
     if (nomination.baseline) return nomination.baseline;
-    if (nomination.booking === 'unknown') throw new Error('請確認原核分是否已登記至積分榜。');
+    if (nomination.booking === 'unknown') throw new Error(t('請確認原核分是否已登記至積分榜。', '请确认原核分是否已登记至积分榜。'));
     return {awarder: stripComments(nomination.source.values['用戶名稱']),
         score: nomination.booking === 'booked' ? nomination.original.score : 0};
 }
@@ -150,12 +151,12 @@ export function prepareScoreText(text, results, operation) {
     const receipts = scoreReceipts(text);
     const entries = results.map(({id, awarder, score}) => ({id, awarder, score}));
     if (receipts.operations.has(operation)) {
-        if (JSON.stringify(receipts.operations.get(operation).entries) !== JSON.stringify(entries)) throw new Error('提交識別與入帳內容不符。');
+        if (JSON.stringify(receipts.operations.get(operation).entries) !== JSON.stringify(entries)) throw new Error(t('提交識別與入帳內容不符。', '提交标识与入账内容不符。'));
         return text;
     }
     for (const result of results) {
         const existing = receipts.entries.get(result.id);
-        if (existing && (existing.awarder !== result.before.awarder || existing.score !== result.before.score)) throw new Error('此提名的已入帳結果已變更，請重新覆核。');
+        if (existing && (existing.awarder !== result.before.awarder || existing.score !== result.before.score)) throw new Error(t('此提名的已入帳結果已變更，請重新覆核。', '此提名的已入账结果已变更，请重新复核。'));
     }
     const deltas = scoreDeltas(results);
     const seen = new Set();
@@ -166,19 +167,19 @@ export function prepareScoreText(text, results, operation) {
         if (trimmed === 'return {' && !opened) { opened = true; return line; }
         if (trimmed === '}' && opened && !closed) { closed = true; return line; }
         const match = line.match(/^(\s*\[(["'])((?:\\.|[^\\])*?)\2\]\s*=\s*)([+-]?\d+(?:\.\d+)?)(\s*,?\s*)$/);
-        if (!opened || closed || !match) throw new Error('積分榜格式無法安全修改。');
+        if (!opened || closed || !match) throw new Error(t('積分榜格式無法安全修改。', '积分榜格式无法安全修改。'));
         const user = match[3].replace(/\\([\\"'])/g, '$1');
-        if (seen.has(user)) throw new Error('積分榜有重複用戶。');
+        if (seen.has(user)) throw new Error(t('積分榜有重複用戶。', '积分榜有重复用户。'));
         seen.add(user);
         const score = Number(match[4]) + (deltas.get(user) || 0);
-        if (!Number.isFinite(score) || score < 0) throw new Error('調整後總分不合理，請確認原分數是否已入帳。');
+        if (!Number.isFinite(score) || score < 0) throw new Error(t('調整後總分不合理，請確認原分數是否已入帳。', '调整后总分不合理，请确认原分数是否已入账。'));
         return deltas.has(user) ? match[1] + score + match[5] : line;
     });
-    if (!opened || !closed) throw new Error('積分榜格式無法安全修改。');
+    if (!opened || !closed) throw new Error(t('積分榜格式無法安全修改。', '积分榜格式无法安全修改。'));
     const newLines = [];
     for (const [user, score] of deltas) {
         if (seen.has(user) || score === 0) continue;
-        if (!Number.isFinite(score) || score < 0 || /[\r\n]/.test(user)) throw new Error('原得分者的積分無法扣回。');
+        if (!Number.isFinite(score) || score < 0 || /[\r\n]/.test(user)) throw new Error(t('原得分者的積分無法扣回。', '原得分者的积分无法扣回。'));
         newLines.push(`    [${quoteLua(user)}] = ${score},`);
     }
     lines.splice(lines.findIndex(line => line.trim() === '}'), 0, ...newLines);

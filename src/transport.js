@@ -1,3 +1,4 @@
+import {t} from './state.js';
 /**
  * MediaWiki 實際讀寫邊界；提交狀態機透過 io 介面使用它。
  * 單元測試以記憶體 io 取代此物件，禁止建立真實 mw.Api 或發出網路請求。
@@ -26,7 +27,7 @@ export const wikiTransport = {
         const response = await request(getWikiApi().get({action: 'query', titles: title, prop: 'revisions', rvslots: 'main', rvprop: 'ids|timestamp|content', curtimestamp: 1, formatversion: 2}));
         const page = response.query.pages[0];
         if (page.missing && allowMissing) return {text: '', revid: 0, missing: true, starttimestamp: response.curtimestamp};
-        if (page.missing || !page.revisions?.[0]) throw new Error('找不到待修改頁面。');
+        if (page.missing || !page.revisions?.[0]) throw new Error(t('找不到待修改頁面。', '找不到待修改页面。'));
         const revision = page.revisions[0];
         return {text: revision.slots.main.content, revid: revision.revid, timestamp: revision.timestamp, starttimestamp: response.curtimestamp};
     },
@@ -38,7 +39,7 @@ export const wikiTransport = {
             ...(attempt.create ? {createonly: true} : {nocreate: true}), assert: 'user', assertuser: mw.config.get('wgUserName'),
         }));
         if (response.edit?.result !== 'Success') {
-            const error = new Error(response.edit?.captcha ? '請在維基頁面完成驗證後重試。' : '伺服器未確認儲存成功。');
+            const error = new Error(response.edit?.captcha ? t('請在維基頁面完成驗證後重試。', '请在维基页面完成验证后重试。') : t('伺服器未確認儲存成功。', '服务器未确认保存成功。'));
             error.uncertain = !response.edit?.captcha;
             throw error;
         }
@@ -90,8 +91,8 @@ export async function writeStep(step, persist, io) {
         try {
             const receipt = await confirmAttempt(step.attempt, io);
             if (receipt) { step.status = 'succeeded'; step.revid = receipt.revid; step.error = ''; }
-            else { step.status = 'unknown'; step.error = '尚無法確認上次儲存結果，請稍後重新查詢。'; }
-        } catch (error) { step.status = 'unknown'; step.error = '無法查詢上次儲存結果：' + error.message; }
+            else { step.status = 'unknown'; step.error = t('尚無法確認上次儲存結果，請稍後重新查詢。', '尚无法确认上次保存结果，请稍后重新查询。'); }
+        } catch (error) { step.status = 'unknown'; step.error = t('無法查詢上次儲存結果：', '无法查询上次保存结果：') + error.message; }
         await persist();
         return step.status === 'succeeded';
     }

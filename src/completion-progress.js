@@ -1,7 +1,6 @@
-import state from './state.js';
+import {t} from './state.js';
 import {cdxIconUserAdd, cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from './icons.js';
 
-const t = (hant, hans = hant) => state.convByVar({hant, hans});
 
 /**
  * 色塊先排已完成、再排未完成；各組依新提名／修改／核對／覆核排列，共用一次插值。

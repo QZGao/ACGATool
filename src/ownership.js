@@ -1,3 +1,4 @@
+import {t} from './state.js';
 import {entryValues} from './api.js';
 
 /**
@@ -36,7 +37,7 @@ export function isOwnNomination(ownership, username) {
  * 隱藏按鈕不足以保護恢復的舊草稿；無法辨識提名人時也不能假定可以核對。
  */
 export function assertCanCheck(ownership, username, proposedAwarder) {
-    if (!username) throw new Error('請先登入後再核對。');
-    if (isOwnNomination(ownership, username) || normalizeUser(proposedAwarder) === normalizeUser(username)) throw new Error('不能核對自己提名或自己得分的項目。');
-    if (!ownership.nominators.length) throw new Error('無法辨識提名人，請手動核對此筆提名。');
+    if (!username) throw new Error(t('請先登入後再核對。', '请先登录后再核对。'));
+    if (isOwnNomination(ownership, username) || normalizeUser(proposedAwarder) === normalizeUser(username)) throw new Error(t('不能核對自己提名或自己得分的項目。', '不能核对自己提名或自己得分的项目。'));
+    if (!ownership.nominators.length) throw new Error(t('無法辨識提名人，請手動核對此筆提名。', '无法辨识提名人，请手动核对这项提名。'));
 }

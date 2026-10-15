@@ -1,3 +1,4 @@
+import {t} from './state.js';
 import {readLegacyDrafts} from './drafts.js';
 import {copy, equal, createItem, sameSource, lockedItem} from './operations.js';
 import {newId} from './scoring.js';
@@ -14,11 +15,11 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
     const read = () => {
         const raw = storage.getItem(key);
         const session = raw ? JSON.parse(raw) : empty();
-        if (session.schema !== 3 || !['items', 'drafts', 'conflicts', 'submissions'].every(name => Array.isArray(session[name])) || !session.fields) throw new Error('無法讀取編輯資料，原資料已保留。');
+        if (session.schema !== 3 || !['items', 'drafts', 'conflicts', 'submissions'].every(name => Array.isArray(session[name])) || !session.fields) throw new Error(t('無法讀取編輯資料，原資料已保留。', '无法读取编辑资料，原资料已保留。'));
         return session;
     };
     const lock = (name, callback, options = {}) => {
-        if (!locks?.request) return Promise.reject(new Error('此瀏覽器無法協調多個分頁的編輯，請更新瀏覽器後重試。'));
+        if (!locks?.request) return Promise.reject(new Error(t('此瀏覽器無法協調多個分頁的編輯，請更新瀏覽器後重試。', '此浏览器无法协调多个分页的编辑，请更新浏览器后重试。')));
         return locks.request(`${prefix}:${name}`, options, callback);
     };
     const mutate = callback => lock('state', () => {
@@ -31,8 +32,8 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
     });
     const editable = (session, id) => {
         const item = session.items.find(item => item.id === id);
-        if (!item) throw new Error('此操作已在另一個分頁取消或暫存。');
-        if (lockedItem(session, id)) throw new Error('此操作正在儲存，請先處理其儲存結果。');
+        if (!item) throw new Error(t('此操作已在另一個分頁取消或暫存。', '此操作已在另一个分页取消或暂存。'));
+        if (lockedItem(session, id)) throw new Error(t('此操作正在儲存，請先處理其儲存結果。', '此操作正在保存，请先处理其保存结果。'));
         return item;
     };
     const merge = (session, target, before, after, itemId) => {
@@ -49,7 +50,7 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
     };
     const moveToDrafts = (session, items) => {
         const ids = new Set(items.map(item => item.id));
-        if (session.conflicts.some(conflict => ids.has(conflict.itemId))) throw new Error('請先處理待暫存操作的分頁衝突。');
+        if (session.conflicts.some(conflict => ids.has(conflict.itemId))) throw new Error(t('請先處理待暫存操作的分頁衝突。', '请先处理待暂存操作的分页冲突。'));
         session.drafts.push(...items);
         session.items = session.items.filter(item => !ids.has(item.id));
         return items.length;
@@ -80,10 +81,10 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
         },
         add(mode, nominations) {
             return mutate(session => nominations.map(nomination => {
-                if (nomination.source && session.submissions.some(item => !item.finished && item.draft.archive?.date === nomination.source.date)) throw new Error('此小節正在歸檔，請先處理其儲存結果。');
+                if (nomination.source && session.submissions.some(item => !item.finished && item.draft.archive?.date === nomination.source.date)) throw new Error(t('此小節正在歸檔，請先處理其儲存結果。', '此小节正在归档，请先处理其保存结果。'));
                 const existing = session.items.find(item => sameSource(item.nomination.source, nomination.source));
                 if (existing) {
-                    if (existing.mode !== mode) throw new Error('這筆提名已有另一種編輯操作，請先暫存或取消該筆操作。');
+                    if (existing.mode !== mode) throw new Error(t('這筆提名已有另一種編輯操作，請先暫存或取消該筆操作。', '这项提名已有另一种编辑操作，请先暂存或取消该项操作。'));
                     return existing.id;
                 }
                 const item = createItem(mode, nomination);
@@ -124,11 +125,11 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
         restore(ids) {
             return mutate(session => {
                 const selected = ids.map(id => session.drafts.find(item => item.id === id));
-                if (selected.some(item => !item)) throw new Error('草稿箱已在另一個分頁變更，請重新選取。');
+                if (selected.some(item => !item)) throw new Error(t('草稿箱已在另一個分頁變更，請重新選取。', '草稿箱已在另一个分页变更，请重新选择。'));
                 const sources = [...session.items];
                 for (const item of selected) {
-                    if (item.nomination.source && session.submissions.some(submission => !submission.finished && submission.draft.archive?.date === item.nomination.source.date)) throw new Error('此小節正在歸檔，請先處理其儲存結果。');
-                    if (sources.some(other => sameSource(other.nomination.source, item.nomination.source))) throw new Error('此提名已在表單中，請先處理目前的操作。');
+                    if (item.nomination.source && session.submissions.some(submission => !submission.finished && submission.draft.archive?.date === item.nomination.source.date)) throw new Error(t('此小節正在歸檔，請先處理其儲存結果。', '此小节正在归档，请先处理其保存结果。'));
+                    if (sources.some(other => sameSource(other.nomination.source, item.nomination.source))) throw new Error(t('此提名已在表單中，請先處理目前的操作。', '此提名已在表单中，请先处理目前的操作。'));
                     sources.push(item);
                 }
                 session.items.push(...selected);
@@ -148,7 +149,7 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
         // 網路寫入另用一把鎖；其他分頁仍可編輯未提交項目，但不會重複發出請求。
         publish(callback) {
             return lock('publish', held => {
-                if (!held) throw new Error('另一個分頁正在儲存，進度會自動同步。');
+                if (!held) throw new Error(t('另一個分頁正在儲存，進度會自動同步。', '另一个分页正在保存，进度会自动同步。'));
                 return callback();
             }, {ifAvailable: true});
         },

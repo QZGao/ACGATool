@@ -1,3 +1,4 @@
+import {t} from './state.js';
 import {entryValues, listEntries} from './api.js';
 import {readRecord, scoreReceipts, stripComments} from './scoring.js';
 import {entryOwnership} from './ownership.js';
@@ -5,7 +6,7 @@ import {entryOwnership} from './ownership.js';
 // changes 是可存入草稿的欄位差異資料，供介面高亮與重新核對使用。
 export class ReviewConflict extends Error {
     constructor(changes) {
-        super('提名或已入帳分數已變更，提交已停止。請查看標示內容並重新核對。');
+        super(t('提名或已入帳分數已變更，提交已停止。請查看標示內容並重新核對。', '提名或已入账分数已变更，提交已停止。请查看标示内容并重新核对。'));
         this.changes = changes;
     }
 }
@@ -89,7 +90,7 @@ export function validateAccounting(text, results, operation) {
  * @param {object} io 唯讀查詢使用的實際或 dry-run 介面。
  */
 export async function reloadForReview(draft, io) {
-    if (draft.operation?.steps.some(step => ['saving', 'unknown'].includes(step.status))) throw new Error('請先確認上次儲存結果。');
+    if (draft.operation?.steps.some(step => ['saving', 'unknown'].includes(step.status))) throw new Error(t('請先確認上次儲存結果。', '请先确认上次保存结果。'));
     const {REGISTER, SCORES} = await import('./submission.js');
     const {queried2NomData} = await import('./api.js');
     const {reviewData} = await import('./scoring.js');
@@ -102,13 +103,13 @@ export async function reloadForReview(draft, io) {
     const [registry, scoreboard] = await Promise.all([io.read(REGISTER), existing.some(item => item.mode === 'check') ? io.read(SCORES) : null]);
     const sources = existing.map(item => registrySaved ? draft.operation.expectedNominations.find(n => n.id === item.nomination.id) : item.nomination);
     const inspection = inspectNominations(registry.text, sources);
-    if (inspection.entries.some(entry => !entry)) throw new Error('無法唯一辨識原提名。原輸入仍保留，請核實提名是否已移動或刪除。');
+    if (inspection.entries.some(entry => !entry)) throw new Error(t('無法唯一辨識原提名。原輸入仍保留，請核實提名是否已移動或刪除。', '无法唯一辨识原提名。原输入仍保留，请核实提名是否已移动或删除。'));
     const changes = [...(draft.conflicts || []), ...inspection.changes];
     const refreshed = new Map(existing.map((item, index) => {
         const old = item.nomination, entry = inspection.entries[index];
         const source = {date: entry.date, index: entry.index, values: entryValues(entry), ownership: entryOwnership(registry.text, entry)};
         const data = queried2NomData(entry);
-        if (!data) throw new Error('目前提名格式無法讀取，原輸入仍保留。');
+        if (!data) throw new Error(t('目前提名格式無法讀取，原輸入仍保留。', '目前提名格式无法读取，原输入仍保留。'));
         const fresh = item.mode === 'check' ? reviewData(data, source, scoreboard.text) : {...data, source, id: old.id};
         if (!readRecord(source.values['核對用'])) fresh.id = old.id;
         const diff = changes.filter(change => change.id === old.id);

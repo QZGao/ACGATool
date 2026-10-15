@@ -1,4 +1,4 @@
-import state from "./state.js";
+import {t} from "./state.js";
 import {NominationRuleAliases, NominationRuleSet} from "./rules.js";
 
 let mwApi;
@@ -442,7 +442,7 @@ export function listEntries(text) {
 export function findUnchangedEntry(text, source) {
     const matches = listEntries(text).filter(entry => entry.date === source.date &&
         JSON.stringify(entryValues(entry)) === JSON.stringify(source.values));
-    if (matches.length !== 1) throw new Error('提名已變更、移除或無法唯一辨識，請重新核對。');
+    if (matches.length !== 1) throw new Error(t('提名已變更、移除或無法唯一辨識，請重新核對。', '提名已变更、移除或无法唯一辨识，请重新核对。'));
     return matches[0];
 }
 
@@ -505,12 +505,12 @@ export function parseUserReason(reason) {
             if (ruleScoreMod !== '') {
                 ruleStatus[rule].score = Number(ruleScoreMod);
                 if (!Number.isFinite(ruleStatus[rule].score)) {
-                    console.log('[ACGATool] 分數不是數字', ruleScoreMod);  // 分數不是數字，報錯
+                    console.log(t('[ACGATool] 分數不是數字', '[ACGATool] 分数不是数字'), ruleScoreMod);  // 分數不是數字，報錯
                     return null;
                 }
             }
         } else {
-            console.log('[ACGATool] 不在提名規則中', rule);  // 不在提名規則中，報錯
+            console.log(t('[ACGATool] 不在提名規則中', '[ACGATool] 不在提名规则中'), rule);  // 不在提名規則中，報錯
             return null;
         }
     }
