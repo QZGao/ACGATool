@@ -11,7 +11,7 @@ import {copy, equal, operationStatus, sessionProgress, lockedItem, sameSource} f
 import {newId} from './scoring.js';
 import {getNewNominationPlacement} from './submission.js';
 import {appendDifferences, fieldText} from './review-ui.js';
-import {cdxIconCheck, cdxIconEdit} from './icons.js';
+import {cdxIconUserAdd, cdxIconEdit, cdxIconHighlight} from './icons.js';
 import {refreshRegistryContent} from './published-view.js';
 
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
@@ -209,14 +209,14 @@ function renderItem(item) {
             message: proposed.message || '', invalid: !!proposed.invalid, reviewed: false}));
     }).$element);
     const status = operationStatus(item);
-    const complete = status.active && status.ready && !session.conflicts.some(conflict => conflict.itemId === item.id);
-    if (complete) {
-        $cell.addClass(`acga-ready acga-ready-${item.mode}`);
-        const $mark = $('<span>').addClass('acga-ready-mark').attr('aria-hidden', 'true');
-        if (item.mode === 'new') $mark.text('NEW');
-        else $mark.append($('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">').html(item.mode === 'check' ? cdxIconCheck : cdxIconEdit));
-        $cell.append($mark, $('<span>').addClass('acga-ready-label').text(t('已準備送出', '已准备提交')));
-    }
+    const complete = status.active && status.ready && !$rows.hasClass('acga-needs-review') && !session.conflicts.some(conflict => conflict.itemId === item.id);
+    // 背景與類型圖標隨表單常駐；完成狀態只切換底色與提示。
+    $cell.addClass(`acga-operation-background acga-type-${item.mode}`).toggleClass('acga-ready', complete);
+    const $mark = $('<span>').addClass('acga-background-mark').attr('aria-hidden', 'true');
+    const icon = {new: cdxIconUserAdd, edit: cdxIconEdit, check: cdxIconHighlight}[item.mode];
+    $mark.append($('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">').html(icon));
+    $cell.append($mark);
+    if (complete) $cell.append($('<span>').addClass('acga-ready-label').text(t('已準備送出', '已准备提交')));
     const $errors = $('<ul>').addClass('acga-validation');
     for (const error of status.errors.filter(error => error.field !== 'reviewed')) {
         $errors.append($('<li>').text(t(error.message)));
@@ -269,7 +269,7 @@ function sync() {
     const pending = session.items.filter(item => lockedItem(session, item.id)).length;
     dock.$summary.text((progress.total || !pending ? `${progress.ready} / ${progress.total} ${t('筆已準備完成', '项已准备完成')}` : '') +
         (pending ? `${progress.total ? '；' : ''}${pending} ${t('筆儲存尚未完成', '项保存尚未完成')}` : ''));
-    dock.setProgress(progress.ready, progress.total);
+    dock.setProgress(progress);
     saveButton.setDisabled(!progress.complete || busy);
     addButton.toggle(session.items.some(item => item.mode === 'new'));
     dock.toggles.drafts.setLabel(`${t('草稿箱')} (${session.drafts.length})`);

@@ -108,3 +108,24 @@ test('successful submission clears only its frozen items and preserves later inp
     assert.deepEqual(a.read().fields, {message: '下一批說明', summary: '下一批摘要'});
     assert.equal(a.read().submissions[0].finished, true);
 });
+
+test('per-type completion counts share submission eligibility and exclude unchanged or submitted work', () => {
+    const valid = {...nomination, ruleStatus: parseUserReason('1a')};
+    const source = {date: '10月14日', index: 1, values: {'條目名稱': '甲', '用戶名稱': 'A', '提名理由': '{{ACG提名2/request|ver=1|1a}}', '核對用': ''}};
+    const check = {...valid, source, booking: 'unbooked', reviewed: true};
+    const session = {items: [
+        {id: 'new-ready', mode: 'new', nomination: valid},
+        {id: 'new-empty', mode: 'new', nomination: {...valid, pageName: ''}},
+        {id: 'new-saving', mode: 'new', nomination: valid},
+        {id: 'edit-ready', mode: 'edit', nomination: {...valid, source, pageName: '乙'}},
+        {id: 'edit-unchanged', mode: 'edit', nomination: {...valid, source}},
+        {id: 'check-ready', mode: 'check', nomination: check},
+        {id: 'check-pending', mode: 'check', nomination: {...check, reviewed: false}},
+        {id: 'check-conflict', mode: 'check', nomination: check},
+    ], submissions: [{itemIds: ['new-saving']}], conflicts: [{itemId: 'check-conflict'}]};
+    const progress = sessionProgress(session);
+    assert.deepEqual(progress.byMode, {new: {ready: 1, total: 2}, edit: {ready: 1, total: 1}, check: {ready: 1, total: 3}});
+    assert.equal(progress.ready, 3);
+    assert.equal(progress.total, 6);
+    assert.equal(progress.complete, false);
+});

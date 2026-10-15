@@ -5,7 +5,7 @@
 import state from './state.js';
 import {NominationRuleSet} from './rules.js';
 import {parseUserReason} from './api.js';
-import {cdxIconTrash} from './icons.js';
+import {cdxIconTrash, cdxIconLogIn} from './icons.js';
 import {iconButton} from './icon-button.js';
 import {previousBooking, scoreDeltas} from './scoring.js';
 
@@ -130,9 +130,11 @@ export function appendNominationRows($table, nomination, index, {checking, openR
 
     const $actions = $('<div>').addClass('acga-row-actions');
     if (onRemove) $actions.append(checking || nomination.source ? action(t('取消'), onRemove) :
-        iconButton(cdxIconTrash, t('取消此筆提名', '取消此项提名'), onRemove, {destructive: true}).addClass('acga-remove-nomination'));
-    if (onStash) $actions.append($('<button>').attr({type: 'button', title: t('暫存此筆操作', '暂存此项操作')}).addClass('acga-icon-button acga-stash-nomination').text(t('暫存', '暂存')).on('click', onStash));
-    $title.append($actions);
+        iconButton(cdxIconTrash, t('刪除', '删除'), onRemove, {showLabel: true, destructive: true})
+            .attr('title', t('刪除此筆未發布提名', '删除此项未发布提名')).addClass('acga-remove-nomination'));
+    if (onStash) $actions.append(iconButton(cdxIconLogIn, t('暫存', '暂存'), onStash, {showLabel: true})
+        .attr('title', t('暫存此筆操作', '暂存此项操作')).addClass('acga-stash-nomination'));
+    if (!checking) $title.append($actions);
 
     // 只重繪衍生的理由與核分預覽，避免重建輸入元件而遺失使用者正在輸入的內容。
     const refresh = () => {
@@ -205,5 +207,7 @@ export function appendNominationRows($table, nomination, index, {checking, openR
     };
     $reviewed.on('change', () => { nomination.reviewed = $reviewed.prop('checked'); onReviewed(); });
     $resultCell.append($('<label>').addClass('acga-inline-option acga-reviewed').append($reviewed, ' ', t('核對完成', '核对完成')));
+    // 核對操作跟在完成標記後；按鈕放在 label 外，避免點擊時切換 checkbox。
+    $resultCell.append($actions.addClass('acga-review-actions'));
     return {$entry, $check, reviewWidget};
 }

@@ -167,7 +167,7 @@ export async function addEditButtonsToPage(sourceText) {
                     // 已核分項目由核對列的覆核入口處理，避免鉛筆暗中切換操作種類。
                     if (currentEntry && !parseCheck(entryValues(currentEntry)['核對用'])) {
                         const editButton = iconButton(cdxIconEdit, state.convByVar({hant: '編輯提名', hans: '编辑提名'}), () =>
-                            editNomination(date, currentIndex)).addClass('acga-control');
+                            editNomination(date, currentIndex), {showLabel: true}).addClass('acga-control acga-edit-button');
                         nomEntry.append(' ').append(editButton);
                     }
                 } else {

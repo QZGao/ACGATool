@@ -1,10 +1,11 @@
 import state from './state.js';
+import {createCompletionProgress} from './completion-progress.js';
 
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
 
 /**
  * 在正文容器內建立唯一的固定操作區。面板只覆蓋頁面，不參與正文排版。
- * 工作草稿切換時只替換 actions/details 的內容，保留整個懸浮條的位置與導覽。
+ * 操作與儲存面板共用同一懸浮條，六色進度與各類計數由完成狀態元件管理。
  * @param {Element} root .mw-parser-output 容器。
  * @returns {object} 各內容區、導覽按鈕及面板顯示方法。
  */
@@ -15,13 +16,7 @@ export function createDock(root) {
     const $actions = $('<div>').addClass('acga-actions');
     const $navigation = $('<div>').addClass('acga-actions');
     const $panel = $('<div>').addClass('acga-dock-panel').hide();
-    const $progress = $('<div>').addClass('acga-completion-progress').attr({role: 'progressbar', 'aria-label': t('操作完成進度', '操作完成进度'), 'aria-valuemin': 0, 'aria-valuemax': 100});
-    const $fill = $('<div>').addClass('acga-completion-fill').appendTo($progress);
-    const setProgress = (ready, total) => {
-        const percentage = total ? ready / total * 100 : 0;
-        $progress.attr({'aria-valuenow': percentage, 'aria-valuetext': `${ready}/${total}`});
-        $fill.css('transform', `scaleX(${percentage / 100})`);
-    };
+    const completion = createCompletionProgress();
     const panes = {}, toggles = {};
     let currentPanel = null;
     const showPanel = name => {
@@ -46,8 +41,8 @@ export function createDock(root) {
     }
     panes.confirm = $('<section>').attr('aria-label', t('確認送出', '确认提交')).hide().appendTo($panel);
     const $notice = $('<span>').attr('role', 'status').addClass('acga-notice');
-    const $bar = $('<div>').addClass('acga-dock-bar').append($('<div>').addClass('acga-dock-heading').append($title, $summary), $actions, $navigation, $notice);
-    $element.append($progress, $panel, $bar);
+    const $bar = $('<div>').addClass('acga-dock-bar').append($('<div>').addClass('acga-dock-heading').append($title, $summary, completion.$legend), $actions, $navigation, $notice);
+    $element.append(completion.$element, $panel, $bar);
     $(root).append($element);
 
     // 固定於視窗底部，但左右邊界跟隨正文欄，避免覆蓋 Vector 側欄。
@@ -75,5 +70,5 @@ export function createDock(root) {
         position();
     };
     setActive(false);
-    return {$element, $title, $summary, $actions, $notice, panes, toggles, jumpButton, showPanel, setActive, setProgress};
+    return {$element, $title, $summary, $actions, $notice, panes, toggles, jumpButton, showPanel, setActive, setProgress: completion.update};
 }

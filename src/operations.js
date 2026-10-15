@@ -57,6 +57,14 @@ export function lockedItem(session, id) {
 
 export function sessionProgress(session) {
     const items = session.items.filter(item => !lockedItem(session, item.id) && hasChanges(item));
-    const ready = items.filter(item => operationStatus(item).ready && !session.conflicts.some(conflict => conflict.itemId === item.id)).length;
-    return {items, ready, total: items.length, complete: items.length > 0 && ready === items.length && !session.conflicts.length};
+    const byMode = {new: {ready: 0, total: 0}, edit: {ready: 0, total: 0}, check: {ready: 0, total: 0}};
+    let ready = 0;
+    for (const item of items) {
+        const counts = byMode[item.mode];
+        counts.total++;
+        if (operationStatus(item).ready && !session.conflicts.some(conflict => conflict.itemId === item.id)) {
+            counts.ready++; ready++;
+        }
+    }
+    return {items, byMode, ready, total: items.length, complete: items.length > 0 && ready === items.length && !session.conflicts.length};
 }

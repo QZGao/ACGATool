@@ -3,28 +3,32 @@ export function initEditorStyles() {
         .acga-editor { margin: 1.5em 0; }
         .acga-editor { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
         .acga-dock { position: fixed; bottom: max(8px, env(safe-area-inset-bottom)); z-index: 100; box-sizing: border-box; color: var(--color-base, #202122); background: var(--background-color-base, #fff); border: 1px solid var(--border-color-base, #a2a9b1); border-radius: 2px; }
-        .acga-completion-progress { position: absolute; inset: -1px -1px auto; height: 4px; overflow: hidden; background: var(--background-color-neutral, #eaecf0); }
-        .acga-completion-fill { height: 100%; background: var(--color-progressive, #36c); transform: scaleX(0); transform-origin: left; transition: transform 450ms cubic-bezier(.22,1,.36,1); }
+        .acga-completion-progress { position: absolute; inset: -1px -1px auto; height: 4px; display: flex; overflow: hidden; background: var(--background-color-neutral, #eaecf0); }
+        .acga-completion-segment { flex: none; width: 0; height: 100%; background: rgb(var(--acga-ready-rgb)); }
+        .acga-completion-pending { background: rgba(var(--acga-ready-rgb),.25); }
+        .acga-operation-counts { display: flex; flex-wrap: wrap; gap: .4em .85em; }
+        .acga-operation-count { display: inline-flex; align-items: center; gap: .3em; white-space: nowrap; }
+        .acga-operation-count svg { flex: none; width: 14px; height: 14px; fill: rgb(var(--acga-ready-rgb)); }
         .acga-editor-row { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
-        .acga-ready { position: relative; padding-inline-end: 3.6em !important; }
-        .acga-ready-new { --acga-ready-rgb: 51,102,204; }
-        .acga-ready-edit { --acga-ready-rgb: 172,102,0; }
-        .acga-ready-check { --acga-ready-rgb: 20,134,107; }
+        .acga-operation-background { position: relative; padding-inline-end: 3.6em !important; }
+        .acga-type-new { --acga-ready-rgb: 51,102,204; }
+        .acga-edit-button, .acga-type-edit { --acga-ready-rgb: 172,102,0; }
+        .acga-check-button, .acga-type-check { --acga-ready-rgb: 20,134,107; }
         /* 蒙版只覆在背景；輸入與正文保持原本的對比與可點擊性。 */
-        .acga-ready::before { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 0%, rgba(var(--acga-ready-rgb),.035) 50%, rgba(var(--acga-ready-rgb),.12) 90%, rgba(var(--acga-ready-rgb),.12) 100%); pointer-events: none; }
-        .acga-ready-mark { position: absolute; inset-inline-end: .6em; top: 50%; transform: translateY(-50%); width: 2.3em; color: rgba(var(--acga-ready-rgb),.65); font-weight: bold; text-align: center; pointer-events: none; }
-        .acga-ready-mark svg { width: 2em; height: 2em; fill: currentColor; }
+        .acga-operation-background::before { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 0%, rgba(var(--acga-ready-rgb),.035) 50%, rgba(var(--acga-ready-rgb),.12) 90%, rgba(var(--acga-ready-rgb),.12) 100%); pointer-events: none; }
+        .acga-operation-background.acga-ready::before { background: rgba(var(--acga-ready-rgb),.12); }
+        .acga-background-mark { position: absolute; inset-inline-end: .6em; top: 50%; transform: translateY(-50%); width: 2.3em; color: rgba(var(--acga-ready-rgb),.65); font-weight: bold; text-align: center; pointer-events: none; }
+        .acga-background-mark svg { width: 2em; height: 2em; fill: currentColor; }
         .acga-ready-label { display: block; color: var(--color-subtle, #54595d); font-size: .8em; margin-top: .25em; }
         .acga-validation { font-size: .85em; color: var(--color-destructive, #b32424); margin-block: .3em; }
         .acga-validation:empty, .acga-notice:empty { display: none; }
         .acga-submit-message, .acga-submit-summary { margin-block: .6em; }
         .acga-score-preview { font-size: .9em; margin-block: .4em; }
         .acga-save-result + .acga-save-result { border-top: 1px solid var(--border-color-base, #a2a9b1); margin-top: 1em; padding-top: 1em; }
-        @media (prefers-reduced-motion: reduce) { .acga-completion-fill { transition: none; } }
         /* OOUI 模態視窗開啟時暫藏底欄，避免底欄遮住視窗或接受提交操作。 */
         .oo-ui-windowManager-modal-active .acga-dock { visibility: hidden; }
         .acga-dock-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5em 1em; padding: .6em .8em; }
-        .acga-dock-heading { display: flex; flex: 1 1 auto; align-items: baseline; flex-wrap: wrap; gap: .5em 1em; }
+        .acga-dock-heading { display: flex; flex: 1 1 22em; min-width: 0; align-items: baseline; flex-wrap: wrap; gap: .5em 1em; }
         .acga-dock-panel { max-height: min(55vh, 32em); overflow: auto; padding: .8em; border-bottom: 1px solid var(--border-color-base, #a2a9b1); }
         .acga-dock-panel > section > :first-child { margin-top: 0; }
         .acga-dock-panel p { margin-block: .4em; }
@@ -58,11 +62,18 @@ export function initEditorStyles() {
         .acga-icon-button--destructive:enabled:hover { background: var(--background-color-destructive-subtle, #fee7e6); }
         .acga-icon-button:focus-visible { outline: 2px solid var(--color-progressive, #36c); outline-offset: 1px; }
         .acga-icon-button:disabled { opacity: .5; cursor: default; }
+        /* 操作入口與完成背景共用色相，懸停與鍵盤焦點也沿用同一顏色。 */
+        .acga-icon-button.acga-edit-button, .acga-icon-button.acga-check-button { color: rgb(var(--acga-ready-rgb)); }
+        .acga-edit-button:enabled:hover, .acga-check-button:enabled:hover { background: rgba(var(--acga-ready-rgb),.12); }
+        .acga-edit-button:focus-visible, .acga-check-button:focus-visible { outline-color: currentColor; }
         .acga-row-actions { display: flex; justify-content: center; align-items: center; gap: 4px; margin-top: .3em; }
-        .acga-stash-nomination { font-size: 12px; }
+        .acga-row-actions.acga-review-actions { display: inline-flex; margin: 0; vertical-align: baseline; }
+        .acga-row-actions .acga-icon-button { font-size: 12px; }
+        .acga-stash-nomination svg { transform: rotate(90deg); }
         .acga-draft-picker .oo-ui-fieldLayout { margin-top: .75em; }
         .acga-draft-picker .oo-ui-fieldLayout:first-child { margin-top: 0; }
-        .acga-check-button { margin-left: 5px; font-size: .857em; font-weight: bold; }
+        .acga-edit-button, .acga-check-button { font-size: .857em; font-weight: bold; }
+        .acga-check-button { margin-left: 5px; }
         .acga-inline-option { display: inline-flex; align-items: baseline; gap: .25em; margin: .4em .75em .25em 0; }
         .acga-check-message { max-width: none; margin-top: .4em; }
         .acga-original-check { margin-block: .4em; }
