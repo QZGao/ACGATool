@@ -13,11 +13,14 @@ import {getNewNominationPlacement} from './submission.js';
 import {appendDifferences, fieldText} from './review-ui.js';
 import {cdxIconUserAdd, cdxIconEdit, cdxIconHighlight} from './icons.js';
 import {refreshRegistryContent} from './published-view.js';
+import {bindTextInput} from './text-input.js';
 
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
 let store, controller, dock, windows, ready, session, queue = Promise.resolve(), busy = false;
 let $newSection, $newTable, $date, previewTimer, confirming = false, confirmation;
-let saveButton, addButton, messageInput, summaryInput, confirmButton, fieldsBaseline, syncingFields = false;
+let saveButton, addButton, messageInput, summaryInput, confirmButton, fieldsBaseline;
+const fieldInputs = new Map();
+let queuedUpdates = 0;
 let storageFailure = null, unsavedTasks = [];
 const views = new Map();
 const renderedResults = new Set();
@@ -28,24 +31,45 @@ function signature(item) {
         session.submissions.flatMap(submission => submission.draft.conflicts || []).filter(conflict => conflict.id === item.nomination.id)]);
 }
 
+
+// 只有來源結構改變（例如使用者載入新版本）才需要重新建立表單。
+function structure(item) {
+    const n = item.nomination;
+    return JSON.stringify([item.mode, n.source, n.original, n.baseline, n.previousProposal]);
+}
+
+function composing() {
+    return [...views.values()].some(view => view.rows.isComposing()) || [...fieldInputs.values()].some(input => input.isComposing());
+}
+
+function afterComposition() { queue.catch(() => {}).then(sync); }
+
+async function settleInputs() {
+    await Promise.all([...views.values()].map(view => view.rows.settled()).concat([...fieldInputs.values()].map(input => input.settled())));
+    await queue.catch(() => {});
+}
+
 function report(error) {
     const message = error.message || String(error);
     dock.$notice.text(message);
     mw.notify(message, {type: 'error'});
 }
 
-/** 本分頁的輸入依事件順序排隊；持久保存完成後才從共同來源重繪。 */
-function update(task) {
+/** 本分頁的輸入依事件順序保存；完成後同步資料與派生顯示，保留原輸入框。 */
+function update(task, retainInput = false) {
+    queuedUpdates++;
     const next = queue.catch(() => {}).then(async () => {
         if (storageFailure) { unsavedTasks.push(task); throw storageFailure; }
         try { return await task(); }
         catch (error) {
-            if (error.code === 'local-storage') { storageFailure = error; unsavedTasks.push(task); }
+            // 本地輸入保存失敗時保留畫面，不以舊資料蓋回去；另一分頁可能剛送出或取消該筆。
+            if (error.code === 'local-storage' || retainInput) { storageFailure = error; unsavedTasks.push(task); }
             throw error;
         }
     });
     queue = next;
-    next.then(() => { if (queue === next) sync(); }, error => {
+    next.then(() => { queuedUpdates--; if (queue === next) sync(); }, error => {
+        queuedUpdates--;
         if (storageFailure) showStorageFailure();
         else { report(error); if (queue === next) sync(); }
     });
@@ -149,119 +173,162 @@ function refreshPlacement() {
 }
 
 function removeView(view) {
+    view.rows.destroy();
     view.rows.$entry.add(view.rows.$check).remove();
     view.$container?.remove();
     for (const [element, display] of view.hidden) element.style.display = display;
 }
 
 function renderItem(item) {
-    const view = {item: copy(item), signature: signature(item), hidden: [], lastSent: copy(item.nomination)};
+    const view = {item: copy(item), structure: structure(item), hidden: [], lastSent: copy(item.nomination)};
     const n = view.item.nomination;
     const save = () => {
         const before = view.lastSent, after = copy(n);
+        if (equal(before, after)) return;
         view.lastSent = after;
-        update(() => store.patch(item.id, before, after));
+        update(() => store.patch(item.id, before, after), true);
     };
     const touch = () => { if (item.mode === 'check') n.reviewed = false; save(); };
     const $table = item.mode === 'new' ? (ensureNewTable(), $newTable) : createNominationTable();
     view.rows = appendNominationRows($table, n, session.items.indexOf(item), {
-        checking: item.mode === 'check', touch, onReviewed: save,
+        checking: item.mode === 'check', touch, onReviewed: save, onInputSettled: afterComposition,
         openRules: async () => {
+            await settleInputs();
             const before = copy(n);
             const rules = await chooseRules(before, item.mode === 'check');
             if (rules) await update(() => store.patch(item.id, before, {...before, ruleStatus: rules,
                 ...(item.mode === 'check' ? {reviewed: false} : {})}));
+            afterComposition();
         },
-        onRemove: () => discard(item.id),
-        onStash: () => update(() => store.stash(item.id)),
+        onRemove: async () => { await settleInputs(); return discard(item.id); },
+        onStash: async () => { await settleInputs(); return update(() => store.stash(item.id)); },
     });
     const $rows = view.rows.$entry.add(view.rows.$check);
     $rows.attr('data-acga-operation', item.id).addClass('acga-editor-row');
-    $rows.toggleClass('acga-needs-review', !!item.needsReview || session.submissions.some(submission => submission.draft.conflicts?.some(conflict => conflict.id === n.id)));
-    if (item.mode !== 'new') {
-        const $source = sourceRows(n.source);
+    view.$table = $table;
+    const $cell = view.rows.$check.children('td');
+    view.$extras = $('<div>').appendTo($cell);
+    $cell.addClass(`acga-operation-background acga-type-${item.mode}`);
+    const icon = {new: cdxIconUserAdd, edit: cdxIconEdit, check: cdxIconHighlight}[item.mode];
+    $cell.append($('<span>').addClass('acga-background-mark').attr('aria-hidden', 'true')
+        .append($('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">').html(icon)));
+    view.$label = $('<span>').addClass('acga-ready-label').appendTo($cell);
+    view.$errors = $('<ul>').addClass('acga-validation').appendTo($cell);
+    views.set(item.id, view);
+    placeView(view);
+    refreshView(view, item);
+}
+
+/** 只在初次開啟或正文真正刷新後放置表單，不隨自動保存搬動節點。 */
+function placeView(view) {
+    const {item, rows} = view;
+    const $rows = rows.$entry.add(rows.$check);
+    if (item.mode === 'new') {
+        ensureNewTable();
+        if (rows.$entry.parent()[0] !== $newTable.children('tbody')[0]) $newTable.children('tbody').append($rows);
+        view.$table = $newTable;
+    } else {
+        const $source = sourceRows(item.nomination.source);
         if ($source.length) {
             $rows.addClass('acga-editor');
             $source.first().before($rows);
             $source.closest('table').addClass('acga-edit-table');
             $source.each((_, element) => { view.hidden.push([element, element.style.display]); element.style.display = 'none'; });
         } else {
-            // 來源已移動時仍呈現完整本地輸入；送出前的來源驗證會阻止套錯提名。
-            view.$container = $('<section>').addClass('acga-editor').attr('aria-label', t('既有提名的編輯', '现有提名的编辑')).append($table);
+            // 原提名不在本頁時仍呈現本地輸入；提交前會重新驗證來源。
+            view.$table.children('tbody').append($rows);
+            view.$container = $('<section>').addClass('acga-editor').attr('aria-label', t('既有提名的編輯', '现有提名的编辑')).append(view.$table);
             if ($newSection) $newSection.before(view.$container);
             else $(getArticleRoot()).append(view.$container);
         }
     }
-    const $cell = view.rows.$check.children('td');
-    if (item.reviewDiff?.length) {
-        const $diff = $('<details>').addClass('acga-conflicts').prop('open', true).append($('<summary>').text(t('來源變更與先前輸入', '来源变更与先前输入')));
-        appendDifferences($diff, item.reviewDiff);
-        if (item.needsReview) $diff.append(button('已檢視差異，保留目前修改', () => update(() => store.mutate(current => {
-            const target = current.items.find(row => row.id === item.id);
-            if (target && equal(target, item)) target.needsReview = false;
-            else throw new Error('內容已變更，請重新檢視。');
-        }))).$element);
-        $cell.append($diff);
-    }
-    if (n.previousProposal && item.mode === 'check') $cell.append(button('套用先前輸入', () => {
-        const proposed = n.previousProposal;
-        return update(() => store.patch(item.id, n, {...n, awarder: proposed.awarder, ruleStatus: proposed.ruleStatus,
-            message: proposed.message || '', invalid: !!proposed.invalid, reviewed: false}));
-    }).$element);
-    const status = operationStatus(item);
-    const complete = status.active && status.ready && !$rows.hasClass('acga-needs-review') && !session.conflicts.some(conflict => conflict.itemId === item.id);
-    // 背景與類型圖標隨表單常駐；完成狀態只切換底色與提示。
-    $cell.addClass(`acga-operation-background acga-type-${item.mode}`).toggleClass('acga-ready', complete);
-    const $mark = $('<span>').addClass('acga-background-mark').attr('aria-hidden', 'true');
-    const icon = {new: cdxIconUserAdd, edit: cdxIconEdit, check: cdxIconHighlight}[item.mode];
-    $mark.append($('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">').html(icon));
-    $cell.append($mark);
-    if (complete) $cell.append($('<span>').addClass('acga-ready-label').text(t('已準備送出', '已准备提交')));
-    const $errors = $('<ul>').addClass('acga-validation');
-    for (const error of status.errors.filter(error => error.field !== 'reviewed')) {
-        $errors.append($('<li>').text(t(error.message)));
-        $rows.find(`[data-acga-field="${error.field}"]`).attr('aria-invalid', 'true');
-    }
-    $cell.append($errors);
-    const locked = lockedItem(session, item.id);
-    if (locked) $cell.find('.acga-ready-label').text(t('已送出，等待儲存完成', '已提交，等待保存完成'));
-    $rows.prop('inert', locked).toggleClass('acga-saving', locked);
-    if (locked) $rows.attr('inert', '');
-    views.set(item.id, view);
+    view.placed = true;
 }
 
-/** 僅重建實際改變的操作；跨分頁更新後保留正在輸入的欄位與游標位置。 */
-function sync() {
-    if (storageFailure) { showStorageFailure(); return; }
-    session = store.read();
-    const active = document.activeElement;
-    const focusId = $(active).closest('[data-acga-operation]').attr('data-acga-operation');
-    const field = $(active).attr('data-acga-field');
-    const selection = [active?.selectionStart, active?.selectionEnd];
-    for (const [id, view] of views) {
-        const item = session.items.find(item => item.id === id);
-        if (!item || view.signature !== signature(item) || view.locked !== lockedItem(session, id)) {
-            removeView(view); views.delete(id);
+/** 保存不重建表單；僅同步真正不同的欄位值與派生顯示。 */
+function refreshView(view, item) {
+    const n = view.item.nomination;
+    Object.assign(n, copy(item.nomination));
+    view.item = {...copy(item), nomination: n};
+    view.lastSent = copy(n);
+    view.signature = signature(item);
+    view.rows.sync();
+    const $rows = view.rows.$entry.add(view.rows.$check), $cell = view.rows.$check.children('td');
+    $rows.toggleClass('acga-needs-review', !!item.needsReview || session.submissions.some(submission => submission.draft.conflicts?.some(conflict => conflict.id === n.id)));
+    const extras = JSON.stringify([item.reviewDiff, item.needsReview, n.previousProposal]);
+    if (extras !== view.extras) {
+        view.extras = extras;
+        const $extras = view.$extras.empty();
+        if (item.reviewDiff?.length) {
+            const $diff = $('<details>').addClass('acga-conflicts').prop('open', true).append($('<summary>').text(t('來源變更與先前輸入', '来源变更与先前输入')));
+            appendDifferences($diff, item.reviewDiff);
+            if (item.needsReview) $diff.append(button('已檢視差異，保留目前修改', () => {
+                const expected = copy(view.item);
+                return update(() => store.mutate(current => {
+                    const target = current.items.find(row => row.id === item.id);
+                    if (target && equal(target, expected)) target.needsReview = false;
+                    else throw new Error('內容已變更，請重新檢視。');
+                }));
+            }).$element);
+            $extras.append($diff);
+        }
+        if (n.previousProposal && item.mode === 'check') $extras.append(button('套用先前輸入', async () => {
+            await settleInputs();
+            const proposed = n.previousProposal;
+            return update(() => store.patch(item.id, n, {...n, awarder: proposed.awarder, ruleStatus: proposed.ruleStatus,
+                message: proposed.message || '', invalid: !!proposed.invalid, reviewed: false}));
+        }).$element);
+    }
+    const status = operationStatus(item);
+    const complete = status.active && status.ready && !$rows.hasClass('acga-needs-review') && !session.conflicts.some(conflict => conflict.itemId === item.id);
+    $cell.toggleClass('acga-ready', complete);
+    const locked = lockedItem(session, item.id);
+    view.$label.toggle(complete).text(locked ? t('已送出，等待儲存完成', '已提交，等待保存完成') : t('已準備送出', '已准备提交'));
+    const errors = status.errors.filter(error => error.field !== 'reviewed');
+    if (JSON.stringify(errors) !== view.errors) {
+        view.errors = JSON.stringify(errors);
+        view.$errors.empty(); $rows.find('[aria-invalid]').removeAttr('aria-invalid');
+        for (const error of errors) {
+            view.$errors.append($('<li>').text(t(error.message)));
+            $rows.find(`[data-acga-field="${error.field}"]`).attr('aria-invalid', 'true');
         }
     }
-    for (const item of session.items) if (!views.has(item.id)) { renderItem(item); views.get(item.id).locked = lockedItem(session, item.id); }
-    // 恢復的項目按共同工作區順序追加，編輯現有提名仍留在其原表格位置。
-    for (const item of session.items.filter(item => item.mode === 'new')) {
-        const rows = views.get(item.id).rows;
-        $newTable.children('tbody').append(rows.$entry, rows.$check);
+    if (view.locked !== locked) {
+        $rows.prop('inert', locked).toggleClass('acga-saving', locked);
+        if (locked) $rows.attr('inert', '');
+        else $rows.removeAttr('inert');
+        view.locked = locked;
+    }
+}
+
+/** 同步持久資料；本地保存只更新派生顯示，IME 組合中的操作留待輸入結束。 */
+function sync() {
+    if (queuedUpdates) return;
+    if (storageFailure) { showStorageFailure(); return; }
+    session = store.read();
+    for (const [id, view] of views) {
+        if (view.rows.isComposing()) continue;
+        const item = session.items.find(item => item.id === id);
+        if (!item || view.structure !== structure(item)) {
+            removeView(view); views.delete(id);
+        } else if (view.signature !== signature(item) || view.locked !== lockedItem(session, id)) refreshView(view, item);
+    }
+    for (const item of session.items) {
+        if (!views.has(item.id)) renderItem(item);
+        else if (!views.get(item.id).placed && !views.get(item.id).rows.isComposing()) placeView(views.get(item.id));
+    }
+    // 原順序已正確時不重新 append；這也保留焦點、撤銷歷史與輸入法掛載位置。
+    if ($newTable && !composing()) {
+        let previous = $newTable.find('.acgnom-header')[0];
+        for (const item of session.items.filter(item => item.mode === 'new')) {
+            const {rows} = views.get(item.id);
+            if (previous.nextElementSibling !== rows.$entry[0]) rows.$entry.insertAfter(previous);
+            if (rows.$entry[0].nextElementSibling !== rows.$check[0]) rows.$check.insertAfter(rows.$entry);
+            previous = rows.$check[0];
+        }
     }
     if ($newSection && !$newTable.find('.acgnom-entry').length) {
         $newSection.remove(); $newSection = $newTable = $date = null; clearTimeout(previewTimer);
-    }
-    if (focusId && field && !document.contains(active)) {
-        const view = views.get(focusId);
-        if (view) {
-            const $rows = view.rows.$entry.add(view.rows.$check);
-            if (field === 'awarder' && !$rows.find('[data-acga-field="awarder"]').length) $rows.find('.acga-change-awarder').trigger('click');
-            const input = $rows.find(`[data-acga-field="${field}"]`)[0];
-            input?.focus();
-            if (input?.setSelectionRange && selection[0] !== null) try { input.setSelectionRange(...selection); } catch { /* checkbox/select 沒有文字游標。 */ }
-        }
     }
     const progress = sessionProgress(session);
     dock.setActive(session.items.length > 0);
@@ -284,17 +351,34 @@ function sync() {
 /** 成功結果直接更新正文；浮層與尚未提交的輸入留在共同工作區，不靠整頁重載。 */
 async function updatePublishedResults() {
     const pending = session.submissions.filter(submission => submission.finished && !renderedResults.has(submission.id));
-    if (refreshing || !pending.length) return;
+    if (refreshing || !pending.length || composing() || queuedUpdates || windows.getCurrentWindow()) return;
     refreshing = true;
-    pending.forEach(submission => renderedResults.add(submission.id));
     try {
-        await refreshRegistryContent([dock.$element, windows.$element], () => {
-            for (const view of views.values()) removeView(view);
-            views.clear();
+        let active, selection;
+        const replaced = await refreshRegistryContent([dock.$element, windows.$element], () => {
+            // 讀取正文期間也可能開始了輸入法組合，替換前必須再檢查。
+            if (composing() || queuedUpdates || windows.getCurrentWindow()) return false;
+            active = document.activeElement;
+            selection = [active?.selectionStart, active?.selectionEnd];
+            for (const view of views.values()) {
+                view.rows.$entry.add(view.rows.$check).detach();
+                for (const [element, display] of view.hidden) element.style.display = display;
+                view.hidden = []; view.placed = false;
+                view.$container?.remove(); view.$container = null;
+            }
             $newSection?.remove(); $newSection = $newTable = $date = null;
             clearTimeout(previewTimer);
         });
+        if (replaced) {
+            pending.forEach(submission => renderedResults.add(submission.id));
+            sync();
+            if (document.contains(active) && document.activeElement !== active && active?.matches('input, textarea')) {
+                active.focus();
+                if (selection[0] !== null) try { active.setSelectionRange(...selection); } catch { /* 非文字輸入沒有選取範圍。 */ }
+            }
+        }
     } catch (error) {
+        pending.forEach(submission => renderedResults.add(submission.id));
         dock.$notice.text(t('儲存已完成，但正文更新失敗。可查看已儲存版本，或使用「關閉並重新載入頁面」。', '储存已完成，但正文更新失败。可查看已保存版本，或使用「关闭并重新载入页面」。'));
     } finally {
         refreshing = false;
@@ -322,6 +406,7 @@ async function openDraftBox() {
     windows.addWindows([dialog]);
     await windows.openWindow(dialog).closed;
     await windows.removeWindows(['ACGADrafts']);
+    afterComposition();
 }
 
 function initConfirmation() {
@@ -332,15 +417,15 @@ function initConfirmation() {
     for (const [field, input, label] of [['message', messageInput, t('本批新提名的說明', '本批新提名的说明')], ['summary', summaryInput, t('編輯摘要', '编辑摘要')]]) {
         input.$input.attr('aria-label', label);
         $pane.append($('<div>').addClass(`acga-submit-${field}`).append($('<label>').attr('for', input.getInputId()).text(label), input.$element));
-        input.on('change', value => {
-            if (syncingFields || !fieldsBaseline) return;
+        fieldInputs.set(field, bindTextInput(input, value => {
+            if (!fieldsBaseline || fieldsBaseline[field] === value) return;
             const before = {...fieldsBaseline}, after = {...before, [field]: value};
             fieldsBaseline = after;
-            update(() => store.fields(before, after));
-        });
+            update(() => store.fields(before, after), true);
+        }, afterComposition));
     }
     confirmButton = button('確認送出', async () => {
-        await queue.catch(() => {});
+        await settleInputs();
         if (!confirmation) return;
         const expected = copy(confirmation);
         confirming = false;
@@ -350,7 +435,7 @@ function initConfirmation() {
 }
 
 async function openConfirmation() {
-    await queue.catch(() => {});
+    await settleInputs();
     if (storageFailure) return showStorageFailure();
     sync();
     confirming = true;
@@ -359,14 +444,12 @@ async function openConfirmation() {
 }
 
 function syncConfirmation(progress) {
+    if ([...fieldInputs.values()].some(input => input.isComposing())) return;
     const counts = {new: 0, edit: 0, check: 0};
     progress.items.forEach(item => counts[item.mode]++);
     dock.panes.confirm.find('.acga-confirm-summary').text(`新提名 ${counts.new} 筆、修改 ${counts.edit} 筆、核對 ${counts.check} 筆`);
     dock.panes.confirm.find('.acga-submit-message').toggle(counts.new > 0);
-    syncingFields = true;
-    messageInput.setValue(session.fields.message);
-    summaryInput.setValue(session.fields.summary);
-    syncingFields = false;
+    for (const [field, input] of fieldInputs) input.sync(session.fields[field]);
     fieldsBaseline = {...session.fields};
     confirmButton.setDisabled(!progress.complete || busy);
     if (confirming) confirmation = {items: copy(progress.items), fields: {...session.fields}};
@@ -389,7 +472,7 @@ function renderSyncConflicts() {
             button('使用目前保存的內容', () => update(() => store.resolve(conflict.id, false))).$element,
             button('使用這次輸入', () => update(() => store.resolve(conflict.id, true))).$element));
     }
-    if (session.conflicts.length) dock.showPanel('sync');
+    if (session.conflicts.length && !composing()) dock.showPanel('sync');
 }
 
 function renderProgress() {

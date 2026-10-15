@@ -10,7 +10,7 @@ export async function refreshRegistryContent(retained, beforeReplace) {
     const $content = $parsed.children('.mw-parser-output').first();
     const $root = $(getArticleRoot());
     const position = window.scrollY;
-    beforeReplace();
+    if (beforeReplace() === false) return false;
     retained.forEach($element => $element.detach());
     $root.empty().append($content.length ? $content.contents() : $parsed.contents());
     retained.forEach($element => $root.append($element));
@@ -19,4 +19,5 @@ export async function refreshRegistryContent(retained, beforeReplace) {
     const {addEditButtonsToPage} = await import('./dom.js');
     await addEditButtonsToPage(text);
     window.scrollTo({top: position});
+    return true;
 }
