@@ -93,23 +93,36 @@ export async function reloadForReview(draft, io) {
     const {REGISTER, SCORES} = await import('./submission.js');
     const {queried2NomData} = await import('./api.js');
     const {reviewData} = await import('./scoring.js');
-    const [registry, scoreboard] = await Promise.all([io.read(REGISTER), draft.mode === 'check' ? io.read(SCORES) : null]);
+    const {copy} = await import('./operations.js');
+    const items = draft.items || draft.nominations.map(nomination => ({mode: draft.mode, nomination}));
     const registrySaved = draft.operation?.steps.find(step => step.key === 'registry')?.status === 'succeeded';
-    // 登記處若已完成，應以本次發布後的快照定位；仍用發布前快照會把自己的修改當成衝突。
-    const sources = registrySaved ? draft.operation.expectedNominations : draft.nominations;
+    // 登記處已完成的新增與一般修改不重送；只重建尚待入帳的核對操作。
+    const pending = registrySaved ? items.filter(item => item.mode === 'check') : items;
+    const existing = pending.filter(item => item.mode !== 'new');
+    const [registry, scoreboard] = await Promise.all([io.read(REGISTER), existing.some(item => item.mode === 'check') ? io.read(SCORES) : null]);
+    const sources = existing.map(item => registrySaved ? draft.operation.expectedNominations.find(n => n.id === item.nomination.id) : item.nomination);
     const inspection = inspectNominations(registry.text, sources);
-    if (inspection.entries.some(entry => !entry)) throw new Error('無法唯一辨識原提名。草稿已保留，請從頁面重新選取正確項目。');
-    const changed = new Set([...(draft.conflicts || []), ...inspection.changes].map(change => change.id));
-    draft.nominations = inspection.entries.map((entry, index) => {
-        const old = draft.nominations[index];
+    if (inspection.entries.some(entry => !entry)) throw new Error('無法唯一辨識原提名。原輸入仍保留，請核實提名是否已移動或刪除。');
+    const changes = [...(draft.conflicts || []), ...inspection.changes];
+    const refreshed = new Map(existing.map((item, index) => {
+        const old = item.nomination, entry = inspection.entries[index];
         const source = {date: entry.date, index: entry.index, values: entryValues(entry), ownership: entryOwnership(registry.text, entry)};
         const data = queried2NomData(entry);
-        if (!data) throw new Error('目前提名格式無法讀取，草稿已保留。');
-        const fresh = draft.mode === 'check' ? reviewData(data, source, scoreboard.text) : {...data, source, id: old.id};
+        if (!data) throw new Error('目前提名格式無法讀取，原輸入仍保留。');
+        const fresh = item.mode === 'check' ? reviewData(data, source, scoreboard.text) : {...data, source, id: old.id};
         if (!readRecord(source.values['核對用'])) fresh.id = old.id;
-        if (changed.has(old.id)) return {...fresh, reviewed: false, previousProposal: {awarder: old.awarder, ruleStatus: old.ruleStatus, message: old.message, invalid: old.invalid}};
-        return {...old, source, original: fresh.original, baseline: fresh.baseline, booking: fresh.booking};
-    });
+        const diff = changes.filter(change => change.id === old.id);
+        if (!diff.length) return [item, {...item, nomination: {...old, source, original: fresh.original, baseline: fresh.baseline, booking: fresh.booking}}];
+        // 完整保留舊提案（包含條目名稱與無效標記）。一般修改繼續使用本地輸入，
+        // 由使用者檢視新來源後確認；核對則先展示最新核分並允許重新套用舊提案。
+        const previousProposal = copy(old);
+        delete previousProposal.previousProposal;
+        const nomination = item.mode === 'edit' ? {...old, source, previousProposal} : {...fresh, reviewed: false, previousProposal};
+        return [item, {...item, nomination, reviewDiff: diff, needsReview: item.mode === 'edit'}];
+    }));
+    const updated = pending.map(item => refreshed.get(item) || item);
+    if (draft.items) draft.items = updated;
+    else draft.nominations = updated.map(item => item.nomination);
     draft.operation = null;
     draft.conflicts = [];
 }

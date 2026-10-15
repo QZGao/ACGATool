@@ -102,7 +102,6 @@ export function createDraftStore(storage, prefix) {
                 sources.push({draft, remaining});
             }
             if (!sources.length) throw new Error('請選擇要恢復的提名。');
-            if (next.nominations.length > 25) throw new Error('表單最多容納 25 筆提名，請減少本次恢復的數量。');
             for (const {remaining} of sources) {
                 if (remaining.nominations.length) replace(library, remaining);
                 else remove(library, remaining.id);

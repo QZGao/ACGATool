@@ -36,7 +36,7 @@ test('stash and multi-restore move individual entries and preserve live form ref
     assert.ok(!store.list().some(d => d.id === 'stash'));
 });
 
-test('stale selections and capacity limits leave every draft unchanged', () => {
+test('stale selections leave drafts unchanged and restoring more than 25 entries succeeds', () => {
     const {store, values} = fixture();
     const source = draft('source', ['A']); store.save(source);
     const stale = structuredClone(source); source.message = '更新'; store.save(source);
@@ -44,10 +44,9 @@ test('stale selections and capacity limits leave every draft unchanged', () => {
     assert.throws(() => store.transfer([{draft: stale, nominationIds: ['A']}], target), /另一個分頁/);
     assert.equal(JSON.stringify([...values]), before);
     const full = draft('full', Array.from({length: 25}, (_, i) => `item${i}`)); store.save(full);
-    const fullBefore = JSON.stringify([...values]);
-    assert.throws(() => store.transfer([{draft: source, nominationIds: ['A']}], full), /25/);
-    assert.equal(JSON.stringify([...values]), fullBefore);
-    assert.equal(full.nominations.length, 25);
+    store.transfer([{draft: source, nominationIds: ['A']}], full);
+    assert.equal(full.nominations.length, 26);
+    assert.equal(full.nominations.at(-1).id, 'A');
 });
 
 test('a failed local write cannot remove rows from either source or target', () => {

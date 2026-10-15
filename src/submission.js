@@ -7,6 +7,7 @@ import {ReviewConflict, validateNominations, validateAccounting} from './conflic
 import {entryOwnership, assertCanCheck} from './ownership.js';
 import {wikiTransport, writeStep} from './transport.js';
 import {generateReason} from './rules.js';
+import {operationStatus, hasChanges} from './operations.js';
 import {newId, readRecord, parseCheck, previousBooking, checkWikitext, prepareScoreText, scoreDeltas} from './scoring.js';
 
 export const REGISTER = 'WikiProject:ACG/維基ACG專題獎/登記處';
@@ -60,8 +61,8 @@ function makeAttempt(title, snapshot, text, operation, label) {
         base: {revid: snapshot.revid, starttimestamp: snapshot.starttimestamp}};
 }
 
-function prepareNew(text, draft) {
-    if (!draft.nominations.length || draft.nominations.length > 25) throw new Error('每次請提交 1 至 25 筆提名。');
+export function prepareNew(text, draft) {
+    if (!draft.nominations.length) throw new Error('請至少填寫一筆提名。');
     let block = '{{ACG提名2';
     draft.nominations.forEach((nomination, index) => {
         const reason = generateReason(nomination.ruleStatus);
@@ -89,15 +90,43 @@ function prepareEdit(text, draft) {
     }}]);
 }
 
+/** 混合操作共用同一份登記處版本；所有來源先驗證，新提名最後追加。 */
+export function prepareMixed(text, draft, operation) {
+    const items = draft.items.filter(hasChanges);
+    if (!items.length) throw new Error('沒有待提交的操作。');
+    for (const item of items) {
+        const status = operationStatus(item);
+        if (!status.ready) throw new Error(`${item.nomination.pageName || '未填條目'}：${status.errors[0].message}`);
+    }
+    const existing = items.filter(item => item.mode !== 'new');
+    const entries = validateNominations(text, existing.map(item => item.nomination));
+    const identities = entries.map(entry => `${entry.date}:${entry.index}`);
+    if (new Set(identities).size !== identities.length) throw new Error('同一筆提名不能在同一批重複提交。');
+    for (const item of items.filter(item => item.mode === 'edit')) text = prepareEdit(text, {nominations: [item.nomination]});
+    const checks = items.filter(item => item.mode === 'check').map(item => item.nomination);
+    const checked = checks.length ? prepareChecks(text, checks, operation) : {text, results: []};
+    const added = items.filter(item => item.mode === 'new').map(item => item.nomination);
+    return {text: added.length ? prepareNew(checked.text, {nominations: added, message: draft.message}) : checked.text, results: checked.results};
+}
+
 /**
  * 建立提交快照與分步操作，並在任何寫入前驗證所需頁面與積分調整。
  * 此函式只讀取及準備資料；呼叫端須先持久保存 operation 才能開始送出。
  */
 async function prepareOperation(draft, io) {
-    const operation = {id: newId(), mode: draft.mode, submitted: JSON.parse(JSON.stringify({nominations: draft.nominations, message: draft.message})), steps: []};
-    const [registry, scoreboard] = await Promise.all([io.read(REGISTER), draft.mode === 'check' ? io.read(SCORES) : null]);
+    const operation = {id: newId(), mode: draft.mode, submitted: JSON.parse(JSON.stringify({nominations: draft.nominations, items: draft.items, message: draft.message, summary: draft.summary})), steps: []};
+    const checking = draft.mode === 'check' || draft.items?.some(item => item.mode === 'check');
+    const [registry, scoreboard] = await Promise.all([io.read(REGISTER), checking ? io.read(SCORES) : null]);
     let text;
-    if (draft.mode === 'new') text = prepareNew(registry.text, draft);
+    if (draft.mode === 'mixed') {
+        const prepared = prepareMixed(registry.text, draft, operation.id);
+        text = prepared.text;
+        operation.results = prepared.results;
+        if (scoreboard) {
+            validateAccounting(scoreboard.text, prepared.results, operation.id);
+            prepareScoreText(scoreboard.text, prepared.results, operation.id);
+        }
+    } else if (draft.mode === 'new') text = prepareNew(registry.text, draft);
     else if (draft.mode === 'edit') text = prepareEdit(registry.text, draft);
     else {
         const prepared = prepareChecks(registry.text, draft.nominations, operation.id);
@@ -107,7 +136,7 @@ async function prepareOperation(draft, io) {
         prepareScoreText(scoreboard.text, prepared.results, operation.id);
     }
     operation.steps.push({key: 'registry', title: REGISTER, status: 'pending',
-        attempt: makeAttempt(REGISTER, registry, text + '\n' + registryMarker(operation.id), operation.id, '[[User:SuperGrey/gadgets/ACGATool|提名與核分]]')});
+        attempt: makeAttempt(REGISTER, registry, text + '\n' + registryMarker(operation.id), operation.id, draft.summary || '[[User:SuperGrey/gadgets/ACGATool|提名與核分]]')});
     if (scoreboard) operation.steps.push({key: 'scores', title: SCORES, status: 'pending'});
     return operation;
 }
@@ -120,18 +149,25 @@ async function prepareOperation(draft, io) {
  * @param {object} [io] read、write、findReceipt 介面；dry-run 測試注入記憶體實作。
  * @returns {Promise<boolean>} 全部完成為 true；需重試或查證為 false；前置驗證失敗會拋錯。
  */
-export async function submitWorkspace(draft, persist, io = wikiTransport) {
+export async function submitWorkspace(draft, persist, io = wikiTransport, action = null) {
     if (draft.conflicts?.length) throw new ReviewConflict(draft.conflicts);
+    if (action && !draft.operation) throw new Error('沒有可查詢或重試的儲存步驟。');
     if (!draft.operation) {
         try { draft.operation = await prepareOperation(draft, io); }
         catch (error) {
-            if (error instanceof ReviewConflict) { draft.conflicts = error.changes; persist(); }
+            if (error instanceof ReviewConflict) { draft.conflicts = error.changes; await persist(); }
             throw error;
         }
-        persist();
+        await persist();
     }
     const operation = draft.operation;
-    for (const step of operation.steps) {
+    const selected = action ? operation.steps.filter(step => step.key === action.stepKey) : operation.steps;
+    if (!selected.length) throw new Error('找不到指定的儲存步驟。');
+    for (const step of selected) {
+        const index = operation.steps.indexOf(step);
+        if (operation.steps.slice(0, index).some(previous => previous.status !== 'succeeded')) throw new Error('請先完成前一個儲存步驟。');
+        if (action?.kind === 'query' && !['unknown', 'saving', 'succeeded'].includes(step.status)) throw new Error('此步驟沒有結果未明的請求。');
+        if (action?.kind === 'retry' && ['unknown', 'saving'].includes(step.status)) throw new Error('請先查詢上次儲存結果。');
         if (step.status === 'succeeded') continue;
         // 確定尚未寫入的步驟才可依最新版本重建；結果未明時必須沿用原 attempt。
         if (!['saving', 'unknown'].includes(step.status)) {
@@ -143,16 +179,17 @@ export async function submitWorkspace(draft, persist, io = wikiTransport) {
                     validateNominations(registered.text, operation.expectedNominations);
                     validateAccounting(current.text, operation.results, operation.id);
                     const text = prepareScoreText(current.text, operation.results, operation.id);
-                    if (text === current.text) { step.status = 'succeeded'; step.revid = current.revid; persist(); continue; }
-                    step.attempt = makeAttempt(SCORES, current, text, operation.id, '[[User:SuperGrey/gadgets/ACGATool|積分調整]]');
+                    if (text === current.text) { step.status = 'succeeded'; step.revid = current.revid; await persist(); continue; }
+                    step.attempt = makeAttempt(SCORES, current, text, operation.id, operation.submitted.summary || '[[User:SuperGrey/gadgets/ACGATool|積分調整]]');
                     step.attempt.marker = '"operation":' + JSON.stringify(operation.id);
                 } else {
                     const submitted = operation.submitted;
                     let text;
-                    if (operation.mode === 'new') text = prepareNew(current.text, submitted);
+                    if (operation.mode === 'mixed') text = prepareMixed(current.text, submitted, operation.id).text;
+                    else if (operation.mode === 'new') text = prepareNew(current.text, submitted);
                     else if (operation.mode === 'edit') text = prepareEdit(current.text, submitted);
                     else text = prepareChecks(current.text, submitted.nominations, operation.id).text;
-                    if (operation.mode === 'check') {
+                    if (operation.results?.length) {
                         validateAccounting((await io.read(SCORES)).text, operation.results, operation.id);
                         // 第一步成功後，用發布後的快照檢查第二步；不能再拿發布前的核分作比較。
                         operation.expectedNominations = operation.results.map(result => {
@@ -162,15 +199,15 @@ export async function submitWorkspace(draft, persist, io = wikiTransport) {
                             }};
                         });
                     }
-                    step.attempt = makeAttempt(REGISTER, current, text + '\n' + registryMarker(operation.id), operation.id, '[[User:SuperGrey/gadgets/ACGATool|提名與核分]]');
+                    step.attempt = makeAttempt(REGISTER, current, text + '\n' + registryMarker(operation.id), operation.id, submitted.summary || '[[User:SuperGrey/gadgets/ACGATool|提名與核分]]');
                 }
             } catch (error) {
                 step.status = error instanceof ReviewConflict ? 'conflict' : 'failed';
                 if (error instanceof ReviewConflict) draft.conflicts = error.changes;
-                step.error = error.message; persist(); return false;
+                step.error = error.message; await persist(); return false;
             }
         }
         if (!await writeStep(step, persist, io)) return false;
     }
-    return true;
+    return operation.steps.every(step => step.status === 'succeeded');
 }

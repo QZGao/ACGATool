@@ -731,7 +731,7 @@ export function showNewNominationDialog(workspace) {
     dock.panes.details.append($('<div>').addClass('acga-dock-options').append($('<label>').attr('for', messageInput.getInputId()).text(t('提名說明', '提名说明')), messageInput.$element));
     const add = new OO.ui.ButtonWidget({label: t('新增一筆', '新增一项')});
     add.on('click', () => {
-        if (workspace.operation || state.nominations.length >= 25) return;
+        if (workspace.operation) return;
         appendEditableNomination($table); state.changed();
     });
     addEditorActions($panel, [add]);

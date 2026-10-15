@@ -157,3 +157,53 @@ test('expanded signatures and unrelated score increases do not invalidate the re
     assert.equal(await submitWorkspace(draft, () => {}, io), true);
     assert.match(pages.get(SCORES).text, /\["A"\] = 61,/);
 });
+
+test('one mixed batch edits, reviews and appends more than 25 nominations with shared submission fields', async () => {
+    const {draft, io, writes, pages} = fixture();
+    const {createItem} = await import('../src/operations.js');
+    const page = pages.get(REGISTER);
+    page.text += '\n{{ACG提名2\n|條目名稱1=Second\n|用戶名稱1=B\n|提名理由1={{ACG提名2/request|ver=1|1a}}\n|核對用1={{ACG提名2/check|ver=1|}}\n}}\n提名人：[[User:Nominator]]';
+    const entry = queryEntry(page.text, '10月14日', 2);
+    const edit = queried2NomData(entry);
+    edit.source = {date: '10月14日', index: 2, values: entryValues(entry)};
+    edit.pageName = 'Edited';
+    const added = Array.from({length: 30}, (_, i) => createItem('new', {...draft.nominations[0], id: `added-${i}`, source: undefined, pageName: `New ${i}`}));
+    const mixed = {mode: 'mixed', message: '這批新提名的說明', summary: '修正與核對', items: [createItem('check', draft.nominations[0]), createItem('edit', edit), ...added]};
+    assert.equal(await submitWorkspace(mixed, async () => {}, io), true);
+    assert.deepEqual(writes, [REGISTER, SCORES]);
+    assert.match(pages.get(REGISTER).text, /條目名稱1=Edited/);
+    assert.match(pages.get(REGISTER).text, /條目名稱30 = New 29/);
+    assert.equal(pages.get(REGISTER).text.split('這批新提名的說明').length, 2);
+    assert.ok(mixed.operation.steps.every(step => step.attempt.summary.startsWith('修正與核對')));
+});
+
+test('querying an uncertain registry write never writes the scoreboard and retries only the named step', async () => {
+    const {draft, io, pages, writes} = fixture();
+    const write = io.write;
+    io.write = async () => { throw Object.assign(new Error('timeout'), {uncertain: true}); };
+    assert.equal(await submitWorkspace(draft, () => {}, io), false);
+    pages.set(REGISTER, {text: draft.operation.steps[0].attempt.text, revid: 2});
+    io.write = write;
+    assert.equal(await submitWorkspace(draft, () => {}, io, {stepKey: 'registry', kind: 'query'}), false);
+    assert.deepEqual(writes, []);
+    assert.equal(draft.operation.steps[1].status, 'pending');
+    assert.equal(await submitWorkspace(draft, () => {}, io, {stepKey: 'scores', kind: 'retry'}), true);
+    assert.deepEqual(writes, [SCORES]);
+});
+
+test('reloading an edit conflict retains the complete local proposal and requires acknowledgement', async () => {
+    const {draft, io, pages, writes} = fixture();
+    const {createItem} = await import('../src/operations.js');
+    const {reloadForReview} = await import('../src/conflicts.js');
+    const item = createItem('edit', {...draft.nominations[0], pageName: 'Local title', invalid: true, message: 'Local explanation'});
+    const mixed = {mode: 'mixed', items: [item]};
+    pages.get(REGISTER).text = pages.get(REGISTER).text.replace('request|ver=1|1a', 'request|ver=1|1b');
+    await assert.rejects(submitWorkspace(mixed, () => {}, io), /已變更/);
+    await reloadForReview(mixed, io);
+    assert.equal(mixed.items[0].nomination.pageName, 'Local title');
+    assert.equal(mixed.items[0].nomination.previousProposal.invalid, true);
+    assert.equal(mixed.items[0].nomination.previousProposal.message, 'Local explanation');
+    assert.equal(mixed.items[0].needsReview, true);
+    await assert.rejects(submitWorkspace(mixed, () => {}, io), /差異/);
+    assert.deepEqual(writes, []);
+});

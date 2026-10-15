@@ -87,12 +87,12 @@ export async function writeStep(step, persist, io) {
             if (receipt) { step.status = 'succeeded'; step.revid = receipt.revid; step.error = ''; }
             else { step.status = 'unknown'; step.error = '尚無法確認上次儲存結果，請稍後重新查詢。'; }
         } catch (error) { step.status = 'unknown'; step.error = '無法查詢上次儲存結果：' + error.message; }
-        persist();
+        await persist();
         return step.status === 'succeeded';
     }
     // 先保存 attempt 與 saving 狀態；本機保存失敗時不發出寫入請求。
     step.status = 'saving';
-    persist();
+    await persist();
     try {
         const result = await io.write(step.attempt);
         step.status = 'succeeded';
@@ -108,6 +108,6 @@ export async function writeStep(step, persist, io) {
             } catch { /* Keep the uncertain result until it can be queried. */ }
         }
     }
-    persist();
+    await persist();
     return step.status === 'succeeded';
 }
