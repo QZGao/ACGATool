@@ -18,7 +18,7 @@ import {bindTextInput} from './text-input.js';
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
 let store, controller, dock, windows, ready, session, queue = Promise.resolve(), busy = false;
 let $newSection, $newTable, $date, previewTimer, confirming = false, confirmation;
-let saveButton, addButton, messageInput, summaryInput, confirmButton, fieldsBaseline;
+let saveButton, messageInput, summaryInput, confirmButton, fieldsBaseline;
 const fieldInputs = new Map();
 let queuedUpdates = 0;
 let storageFailure = null, unsavedTasks = [];
@@ -78,6 +78,7 @@ function update(task, retainInput = false) {
 
 function showStorageFailure() {
     saveButton.setDisabled(true); confirmButton.setDisabled(true);
+    dock.stashButton.setDisabled(true);
     dock.$notice.empty().append(t('自動保存失敗，畫面上的輸入尚未保存：', '自动保存失败，画面上的输入尚未保存：'), storageFailure.message,
         ' ', button('重試保存', async () => {
             await queue.catch(() => {});
@@ -108,12 +109,8 @@ export function initOOUI() {
     ready = store.init();
     controller = createSubmitController(store, () => { if (session) sync(); });
     saveButton = button('送出全部', openConfirmation, ['primary', 'progressive']);
-    addButton = button('新增一筆', () => showNewNominationDialog());
-    dock.$actions.append(saveButton.$element, addButton.$element);
-    dock.jumpButton.on('click', () => {
-        const item = session.items.find(item => !operationStatus(item).ready) || session.items[0];
-        focusItem(item?.id);
-    });
+    dock.$actions.append(saveButton.$element);
+    dock.stashButton.on('click', () => stashAll().catch(report));
     dock.toggles.drafts.on('click', () => openDraftBox().catch(report));
     initConfirmation();
     window.addEventListener('storage', event => {
@@ -151,12 +148,20 @@ function focusItem(id) {
     view.rows.$entry.find('input').first().trigger('focus');
 }
 
+/** 新表單排在正文最後、頁尾新增入口之前；只在建立或恢復位置時插入，不搬動既有輸入框。 */
+function appendEditorSection($section) {
+    const $root = $(getArticleRoot());
+    const $footer = $root.children('.acga-new-nomination-footer');
+    if ($footer.length) $section.insertBefore($footer);
+    else $root.append($section);
+}
+
 function ensureNewTable() {
     if ($newSection) return;
     $date = $('<div>').addClass('mw-heading mw-heading3').append($('<h3>'));
     $newTable = createNominationTable();
     $newSection = $('<section>').addClass('acga-editor acga-new-editor').append($date, $('<div>').addClass('acga-table-scroll').append($newTable));
-    $(getArticleRoot()).append($newSection);
+    appendEditorSection($newSection);
     refreshPlacement();
 }
 
@@ -240,7 +245,7 @@ function placeView(view) {
             view.$table.children('tbody').append($rows);
             view.$container = $('<section>').addClass('acga-editor').attr('aria-label', t('既有提名的編輯', '现有提名的编辑')).append(view.$table);
             if ($newSection) $newSection.before(view.$container);
-            else $(getArticleRoot()).append(view.$container);
+            else appendEditorSection(view.$container);
         }
     }
     view.placed = true;
@@ -339,7 +344,7 @@ function sync() {
         (pending ? `${progress.total ? '；' : ''}${pending} ${t('筆儲存尚未完成', '项保存尚未完成')}` : ''));
     dock.setProgress(progress);
     saveButton.setDisabled(!progress.complete || busy);
-    addButton.toggle(session.items.some(item => item.mode === 'new'));
+    dock.stashButton.setDisabled(busy || !session.items.some(item => !lockedItem(session, item.id)));
     dock.toggles.drafts.setLabel(`${t('草稿箱')} (${session.drafts.length})`);
     dock.toggles.sync.toggle(session.conflicts.length > 0);
     dock.toggles.progress.toggle(session.submissions.length > 0);
@@ -408,6 +413,14 @@ async function openDraftBox() {
     await windows.openWindow(dialog).closed;
     await windows.removeWindows(['ACGADrafts']);
     afterComposition();
+}
+
+async function stashAll() {
+    await settleInputs();
+    if (storageFailure) return showStorageFailure();
+    const {result: count} = await update(() => store.stashAll());
+    if (confirming) { confirming = false; dock.showPanel(null); }
+    dock.$notice.text(t(`已暫存 ${count} 筆操作。`, `已暂存 ${count} 项操作。`));
 }
 
 function initConfirmation() {

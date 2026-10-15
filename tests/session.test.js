@@ -66,6 +66,40 @@ test('failed local writes leave source and destination intact and stale edits ca
     assert.equal(a.read().items.length, 0);
 });
 
+test('stash all moves current editable work atomically and retains pending saves and submission fields', async () => {
+    const {a, b, storage} = fixture(); await a.init();
+    await a.fields({message: '', summary: ''}, {message: '整批說明', summary: '摘要'});
+    const ids = [];
+    for (const [mode, data] of [['new', nomination], ['edit', nomination], ['check', nomination], ['check', {...nomination, original: {score: 0}}]]) {
+        const {result: [id]} = await a.add(mode, [data]); ids.push(id);
+    }
+    const {result: [pending]} = await a.add('new', [nomination]);
+    await a.mutate(session => session.submissions.push({id: 'saving', itemIds: [pending], draft: {}}));
+    // 另一分頁在暫存前完成的輸入，應直接進入草稿箱，而不是被舊快照蓋回去。
+    const beforeEdit = b.read().items[1].nomination;
+    await b.patch(ids[1], beforeEdit, {...beforeEdit, pageName: '另一分頁的修改'});
+    const before = a.read(), write = storage.setItem;
+    storage.setItem = () => { throw new Error('quota'); };
+    await assert.rejects(a.stashAll(), /quota/);
+    assert.deepEqual(a.read(), before);
+    storage.setItem = write;
+    await a.mutate(session => session.conflicts.push({id: 'conflict', itemId: ids[2], field: 'pageName', current: '甲', proposed: '乙'}));
+    const conflicted = a.read();
+    await assert.rejects(a.stashAll(), /分頁衝突/);
+    assert.deepEqual(a.read(), conflicted);
+    await b.resolve('conflict', false);
+    assert.equal((await a.stashAll()).result, 4);
+    const after = b.read();
+    assert.deepEqual(after.items.map(item => item.id), [pending]);
+    assert.deepEqual(after.drafts.map(item => item.id), ids);
+    assert.equal(after.drafts[1].nomination.pageName, '另一分頁的修改');
+    assert.deepEqual(after.fields, before.fields);
+    assert.deepEqual(after.submissions, before.submissions);
+    await b.restore(ids);
+    assert.equal(a.read().items.length, 5);
+    assert.equal(a.read().drafts.length, 0);
+});
+
 test('migration preserves pending requests and separates old stashes from open work', async () => {
     const {a, storage} = fixture();
     const operation = {id: 'request', steps: [{status: 'unknown', attempt: {text: '已發出的原文'}}]};

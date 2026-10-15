@@ -1,5 +1,5 @@
 import state from "./state.js";
-import {getNominationSections} from "./page-dom.js";
+import {getArticleRoot, getNominationSections} from "./page-dom.js";
 import {entryOwnership, isOwnNomination, assertCanCheck} from "./ownership.js";
 import {reviewData, parseCheck} from "./scoring.js";
 import {SCORES} from "./submission.js";
@@ -87,6 +87,13 @@ function newNomination() {
     showNewNominationDialog().catch(error => mw.notify(error.message || String(error), {type: 'error'}));
 }
 
+/** 頁首與頁尾使用相同的按鈕樣式及新增流程，標記自身以免再次掃描時被當成手動入口。 */
+function createNewNominationButton() {
+    const $button = $('<span>').addClass('mw-ui-button mw-ui-progressive acga-new-nomination-button').attr('role', 'button')
+        .text(state.convByVar({hant: '登記新提名', hans: '登记新提名'}));
+    return $('<a>').attr('href', 'javascript:void(0)').append($button).on('click', newNomination);
+}
+
 /**
  * 點擊歸檔按鈕時的事件處理。
  */
@@ -103,20 +110,20 @@ function archiveChapter(date) {
  */
 export async function addEditButtonsToPage(sourceText) {
     // 保留使用者熟悉的頁首雙按鈕：手動入口在前，小工具的藍色入口在後。
-    const newNominationButton = $('span[role="button"]').filter(function () {
+    const newNominationButton = $('span[role="button"]').not('.acga-new-nomination-button').filter(function () {
         return $(this).text() === '登記新提名' || $(this).text() === '登记新提名';
     });
     if (newNominationButton.length > 0) {
         newNominationButton.text(state.convByVar({hant: '手動登記新提名', hans: '手动登记新提名'}));
         newNominationButton.removeClass('mw-ui-progressive');
-        const editUIButton = $('<span>').addClass('mw-ui-button mw-ui-progressive').attr('role', 'button').text(state.convByVar({
-            hant: '登記新提名', hans: '登记新提名',
-        }));
-        const editButton = $('<a>').attr('href', 'javascript:void(0)').append(editUIButton).click(newNomination);
-        newNominationButton.parent().parent().append(' ', editButton);
+        newNominationButton.parent().parent().append(' ', createNewNominationButton());
     }
 
     if (mw.config.get('wgPageName') !== 'WikiProject:ACG/維基ACG專題獎/登記處') return;
+    const root = getArticleRoot();
+    if (root && !$(root).children('.acga-new-nomination-footer').length) {
+        $('<div>').addClass('acga-new-nomination-footer mw-notalk noprint').append(createNewNominationButton()).appendTo(root);
+    }
     let fulltext;
     try { fulltext = sourceText ?? await getFullText(); }
     catch { mw.notify('無法讀取提名資料，請重新整理後再試。', {type: 'error'}); return; }

@@ -1,8 +1,10 @@
 import state from './state.js';
+import {operationType} from './operations.js';
+import {cdxIconUserAdd, cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from './icons.js';
 
 const t = (hant, hans = hant) => state.convByVar({hant, hans});
 
-/** 草稿箱只列出用戶、條目與規則；勾選不修改資料，確認後才交由呼叫端搬移。 */
+/** 草稿箱列出操作類型、用戶、條目與規則；勾選不修改資料，確認後才交由呼叫端搬移。 */
 export function DraftDialog(config) {
     DraftDialog.super.call(this, config);
     this.items = config.items;
@@ -23,9 +25,21 @@ export function initDraftDialog() {
         DraftDialog.super.prototype.initialize.call(this);
         this.panel = new OO.ui.PanelLayout({padded: true, expanded: false});
         this.panel.$element.addClass('acga-draft-picker');
+        const types = {
+            new: {label: t('新提名'), icon: cdxIconUserAdd},
+            edit: {label: t('編輯提名', '编辑提名'), icon: cdxIconEdit},
+            check: {label: t('核對分數', '核对分数'), icon: cdxIconHighlight},
+            recheck: {label: t('分數覆核', '分数复核'), icon: cdxIconSandbox},
+        };
         this.choices = this.items.map(item => {
             const checkbox = new OO.ui.CheckboxInputWidget();
-            const field = new OO.ui.FieldLayout(checkbox, {label: item.label, align: 'inline'});
+            // 與表單共用類型判定，已有的 check 草稿也能依原核分結果辨認為覆核。
+            const type = operationType(item), {label, icon} = types[type];
+            const $type = $('<span>').addClass(`acga-draft-type acga-type-${type}`).append(
+                $('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" aria-hidden="true" focusable="false">').html(icon),
+                $('<span>').text(label));
+            const $label = $('<span>').append($type, $('<span>').text(` · ${item.label}`));
+            const field = new OO.ui.FieldLayout(checkbox, {label: $label, align: 'inline'});
             checkbox.on('change', () => this.actions.setAbilities({restore: this.choices.some(choice => choice.checkbox.isSelected()), discard: this.choices.some(choice => choice.checkbox.isSelected())}));
             this.panel.$element.append(field.$element);
             return {item, checkbox};

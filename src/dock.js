@@ -5,7 +5,7 @@ const t = (hant, hans = hant) => state.convByVar({hant, hans});
 
 /**
  * 在正文容器內建立唯一的固定操作區。面板只覆蓋頁面，不參與正文排版。
- * 操作與儲存面板共用同一懸浮條，六色進度與各類計數由完成狀態元件管理。
+ * 操作與儲存面板共用同一懸浮條，各類進度與計數由完成狀態元件管理。
  * @param {Element} root .mw-parser-output 容器。
  * @returns {object} 各內容區、導覽按鈕及面板顯示方法。
  */
@@ -27,9 +27,9 @@ export function createDock(root) {
             toggles[key]?.$button.attr('aria-expanded', key === name ? 'true' : 'false');
         }
     };
-    const jumpButton = new OO.ui.ButtonWidget({label: t('回到表格')});
+    const stashButton = new OO.ui.ButtonWidget({label: t('全部暫存', '全部暂存')});
     toggles.drafts = new OO.ui.ButtonWidget({label: t('草稿箱')});
-    $navigation.append(jumpButton.$element, toggles.drafts.$element);
+    $navigation.append(stashButton.$element, toggles.drafts.$element);
     for (const [name, label] of [['progress', t('儲存結果', '储存结果')], ['sync', t('同步衝突', '同步冲突')]]) {
         panes[name] = $('<section>').attr({id: `acga-dock-${name}`, 'aria-label': label}).hide();
         const button = new OO.ui.ButtonWidget({label});
@@ -64,11 +64,11 @@ export function createDock(root) {
     position();
 
     const setActive = active => {
-        jumpButton.toggle(active);
+        stashButton.toggle(active);
         $actions.toggle(active);
         if (!active) $title.text('ACGATool');
         position();
     };
     setActive(false);
-    return {$element, $title, $summary, $actions, $notice, panes, toggles, jumpButton, showPanel, setActive, setProgress: completion.update};
+    return {$element, $title, $summary, $actions, $notice, panes, toggles, stashButton, showPanel, setActive, setProgress: completion.update};
 }

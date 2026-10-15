@@ -2,13 +2,14 @@ export function initEditorStyles() {
     mw.util.addCSS(`
         .acga-editor { margin: 1.5em 0; }
         .acga-editor { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
+        .acga-new-nomination-footer { margin-block: .75em; }
         .acga-dock { position: fixed; bottom: max(8px, env(safe-area-inset-bottom)); z-index: 100; box-sizing: border-box; color: var(--color-base, #202122); background: var(--background-color-base, #fff); border: 1px solid var(--border-color-base, #a2a9b1); border-radius: 2px; }
         .acga-completion-progress { position: absolute; inset: -1px -1px auto; height: 4px; display: flex; overflow: hidden; background: var(--background-color-neutral, #eaecf0); }
         .acga-completion-segment { flex: none; width: 0; height: 100%; background: rgb(var(--acga-ready-rgb)); }
         .acga-completion-pending { background: rgba(var(--acga-ready-rgb),.25); }
         .acga-operation-counts { display: flex; flex-wrap: wrap; gap: .4em .85em; }
-        .acga-operation-count { display: inline-flex; align-items: center; gap: .3em; white-space: nowrap; }
-        .acga-operation-count svg { flex: none; width: 14px; height: 14px; fill: rgb(var(--acga-ready-rgb)); }
+        .acga-operation-count, .acga-draft-type { display: inline-flex; align-items: center; gap: .3em; white-space: nowrap; }
+        .acga-operation-count svg, .acga-draft-type svg { flex: none; width: 14px; height: 14px; fill: rgb(var(--acga-ready-rgb)); }
         .acga-editor-row { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
         .acga-editor-row > .acgnom-check-cell { position: relative; padding-inline-end: 3.6em !important; }
         /* 藍色沿用 Codex blue700；青綠 #177878、黃綠 #4d7a1f 拉開色相以區分操作。

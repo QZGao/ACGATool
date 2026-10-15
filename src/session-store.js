@@ -47,6 +47,13 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
             } else target[field] = copy(after[field] ?? null);
         }
     };
+    const moveToDrafts = (session, items) => {
+        const ids = new Set(items.map(item => item.id));
+        if (session.conflicts.some(conflict => ids.has(conflict.itemId))) throw new Error('請先處理待暫存操作的分頁衝突。');
+        session.drafts.push(...items);
+        session.items = session.items.filter(item => !ids.has(item.id));
+        return items.length;
+    };
     return {
         key, read, mutate,
         async init() {
@@ -107,12 +114,12 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
             });
         },
         stash(id) {
-            return mutate(session => {
-                const item = editable(session, id);
-                if (session.conflicts.some(conflict => conflict.itemId === id)) throw new Error('請先處理這筆操作的分頁衝突。');
-                session.drafts.push(item);
-                session.items = session.items.filter(item => item.id !== id);
-            });
+            return mutate(session => moveToDrafts(session, [editable(session, id)]));
+        },
+        stashAll() {
+            // 在同一把狀態鎖內選取與搬移，避免跨分頁更新遺失或保存失敗時只暫存半批。
+            // 已送出的操作仍由儲存流程持有；空白、未改動及未完成的表單都可以暫存。
+            return mutate(session => moveToDrafts(session, session.items.filter(item => !lockedItem(session, item.id))));
         },
         restore(ids) {
             return mutate(session => {
