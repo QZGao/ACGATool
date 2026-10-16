@@ -36,6 +36,13 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
         if (lockedItem(session, id)) throw new Error(t('此操作正在儲存，請先處理其儲存結果。', '此操作正在保存，请先处理其保存结果。'));
         return item;
     };
+    // 所有提名內容更新共用此入口，包括跨分頁衝突的取值；核對只對修改前的內容有效。
+    const updateNomination = (session, id, update) => {
+        const item = editable(session, id);
+        const before = copy({...item.nomination, reviewed: false});
+        update(item.nomination);
+        if (item.mode === 'check' && !equal(before, {...item.nomination, reviewed: false})) item.nomination.reviewed = false;
+    };
     const merge = (session, target, before, after, itemId) => {
         for (const field of Object.keys(after)) {
             if (equal(before[field], after[field])) continue;
@@ -93,24 +100,23 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
             }));
         },
         patch(id, before, after) {
-            return mutate(session => {
-                const item = editable(session, id);
+            return mutate(session => updateNomination(session, id, nomination => {
                 // 不能在另一分頁已改動內容後，對過期畫面直接標記核對完成。
-                if (after.reviewed && !before.reviewed && !equal({...item.nomination, reviewed: false}, {...before, reviewed: false})) {
+                if (after.reviewed && !before.reviewed && !equal({...nomination, reviewed: false}, {...before, reviewed: false})) {
                     session.conflicts.push({id: newId(), itemId: id, field: 'reviewed', current: false, proposed: true});
                     return;
                 }
-                merge(session, item.nomination, before, after, id);
-                if (item.mode === 'check' && Object.keys(after).some(field => field !== 'reviewed' && !equal(before[field], after[field]))) item.nomination.reviewed = false;
-            });
+                merge(session, nomination, before, after, id);
+            }));
         },
         fields(before, after) { return mutate(session => merge(session, session.fields, before, after, null)); },
         resolve(id, useProposed) {
             return mutate(session => {
                 const conflict = session.conflicts.find(item => item.id === id);
                 if (!conflict) return;
-                const target = conflict.itemId ? editable(session, conflict.itemId).nomination : session.fields;
-                if (useProposed) target[conflict.field] = copy(conflict.proposed);
+                const apply = target => { if (useProposed) target[conflict.field] = copy(conflict.proposed); };
+                if (conflict.itemId) updateNomination(session, conflict.itemId, apply);
+                else apply(session.fields);
                 session.conflicts = session.conflicts.filter(item => item.id !== id);
             });
         },

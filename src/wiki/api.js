@@ -470,7 +470,7 @@ function removeComments(text) {
 /**
  * 根據用戶的提名理由，解析出規則狀態。
  * @param reason {string} 用戶的提名理由。
- * @returns {object|null} 含預設說明、分數及上限的規則狀態；無法解析時為 null。
+ * @returns {object|null} 規則選取及原文明確指定的說明、分數；無法解析時為 null。
  */
 export function parseUserReason(reason) {
     reason = removeComments(reason);
@@ -524,13 +524,6 @@ export function parseUserReason(reason) {
             console.log(t('[ACGATool] 不在提名規則中', '[ACGATool] 不在提名规则中'), rule);  // 不在提名規則中，報錯
             return null;
         }
-    }
-    for (const [key, value] of Object.entries(ruleStatus)) {
-        const rule = ruleSet.ruleDict[key];
-        value.desc ??= rule.desc;
-        value.ogDesc = rule.desc;
-        value.score ??= rule.score;
-        value.maxScore = rule.score;
     }
     return ruleStatus;
 }

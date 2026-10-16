@@ -1,5 +1,5 @@
 import {t} from '../../i18n.js';
-import {NominationRules} from '../../nomination/rules.js';
+import {NominationRules, normalizeRuleStatus, ruleValues} from '../../nomination/rules.js';
 let windowManager;
 
 /** 規則視窗只編輯自己的副本，未按完成的內容永不進入 localStorage。 */
@@ -15,11 +15,11 @@ export function initRuleEditor(root) {
 
 export async function chooseRules(nomination, checking) {
     const dialog = new RulesDialog({size: 'large'});
-    dialog.nomination = {ruleStatus: Object.fromEntries(Object.entries(nomination.ruleStatus).map(([key, rule]) => [key, {...rule}]))};
+    dialog.nomination = {ruleStatus: normalizeRuleStatus(nomination.ruleStatus)};
     dialog.check = checking;
     windowManager.addWindows([dialog]);
     const result = await windowManager.openWindow(dialog).closed;
-    const rules = result?.action === 'done' ? dialog.nomination.ruleStatus : null;
+    const rules = result?.action === 'done' ? normalizeRuleStatus(dialog.nomination.ruleStatus) : null;
     await windowManager.removeWindows(['ACGARules']);
     windowManager.$element.children('.acga-rule-measure').remove();
     return rules;
@@ -68,25 +68,14 @@ function RuleCheckboxInputWidget(config) {
     this.check = config.check || false;
     if (!this.nomination.ruleStatus[this.ruleset.rule]) {
         this.nomination.ruleStatus[this.ruleset.rule] = {
-            selected: this.isSelected(),
-            desc: this.ruleset.desc,
-            ogDesc: this.ruleset.desc,
-            score: this.ruleset.score,
-            maxScore: this.ruleset.score, applicable: !this.check,
+            selected: this.isSelected(), applicable: !this.check,
         };
     } else {
         this.setSelected(this.nomination.ruleStatus[this.ruleset.rule].selected);
-        if (!this.nomination.ruleStatus[this.ruleset.rule].desc) {
-            this.nomination.ruleStatus[this.ruleset.rule].desc = this.ruleset.desc;
-        }
-        this.nomination.ruleStatus[this.ruleset.rule].ogDesc = this.ruleset.desc;
-        if (!Object.prototype.hasOwnProperty.call(this.nomination.ruleStatus[this.ruleset.rule], 'score')) {
-            this.nomination.ruleStatus[this.ruleset.rule].score = this.ruleset.score;
-        }
-        this.nomination.ruleStatus[this.ruleset.rule].maxScore = this.ruleset.score;
     }
+    const values = ruleValues(this.nomination.ruleStatus[this.ruleset.rule], this.ruleset);
     this.ruleInputWidget = new DynamicWidthTextInputWidget({
-        value: this.nomination.ruleStatus[this.ruleset.rule].desc,
+        value: values.desc,
         disabled: this.check ? false : (!this.isSelected()),
     });
     this.ruleInputWidget.$input.attr('aria-label', this.ruleset.rule + ' ' + t('規則說明', '规则说明'));
@@ -97,7 +86,7 @@ function RuleCheckboxInputWidget(config) {
         'vertical-align': 'baseline', 'border-bottom': '2px solid #fff',
     });
     this.scoreInputWidget = new DynamicWidthTextInputWidget({
-        value: this.nomination.ruleStatus[this.ruleset.rule].scoreInput ?? this.nomination.ruleStatus[this.ruleset.rule].score,
+        value: values.scoreInput ?? values.score,
         disabled: this.check ? false : (!this.isSelected()),
     });
     this.scoreInputWidget.$input.attr('aria-label', this.ruleset.rule + ' ' + t('分數', '分数'));
@@ -137,14 +126,22 @@ function initRuleCheckboxInputWidget() {
             this.ruleInputWidget.adjustWidth();
             this.scoreInputWidget.setValue(this.ruleset.score);
             this.scoreInputWidget.adjustWidth();
+            const rule = this.nomination.ruleStatus[this.ruleset.rule];
+            delete rule.desc; delete rule.score; delete rule.scoreInput;
         }
     };
     RuleCheckboxInputWidget.prototype.handleRuleInputChange = function (newValue) {
-        this.nomination.ruleStatus[this.ruleset.rule].desc = newValue;
+        const rule = this.nomination.ruleStatus[this.ruleset.rule];
+        if (newValue === this.ruleset.desc) delete rule.desc;
+        else rule.desc = newValue;
     };
     RuleCheckboxInputWidget.prototype.handleScoreInputChange = function (newValue) {
-        this.nomination.ruleStatus[this.ruleset.rule].scoreInput = newValue;
-        this.nomination.ruleStatus[this.ruleset.rule].score = newValue.trim() === '' ? null : Number(newValue);
+        const rule = this.nomination.ruleStatus[this.ruleset.rule];
+        const score = newValue.trim() === '' ? null : Number(newValue);
+        if (score === this.ruleset.score) delete rule.score;
+        else rule.score = score;
+        if (Number.isFinite(score)) delete rule.scoreInput;
+        else rule.scoreInput = newValue;
     };
 }
 

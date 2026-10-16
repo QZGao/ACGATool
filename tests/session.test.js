@@ -35,6 +35,28 @@ test('shared edits merge distinct fields and retain both versions of a competing
     assert.equal(b.read().items[0].nomination.awarder, 'B');
 });
 
+test('adopting a conflicting recipient after review requires a fresh review of the changed content', async () => {
+    const {a, b} = fixture(); await a.init();
+    const source = {date: '10月14日', index: 1, values: {'條目名稱': '甲', '用戶名稱': 'A', '提名理由': '{{ACG提名2/request|ver=1|1a}}', '核對用': ''}};
+    const {result: [id]} = await a.add('check', [{...nomination, source, ruleStatus: parseUserReason('1a'), reviewed: false, booking: 'unbooked'}]);
+    const before = a.read().items[0].nomination;
+    await a.patch(id, before, {...before, awarder: 'B'});
+    await b.patch(id, before, {...before, awarder: 'C'});
+    const current = a.read().items[0].nomination;
+    await a.patch(id, current, {...current, reviewed: true});
+    assert.equal(a.read().items[0].nomination.reviewed, true);
+    await b.resolve(b.read().conflicts[0].id, true);
+    const resolved = a.read().items[0].nomination;
+    assert.equal(resolved.awarder, 'C');
+    assert.equal(resolved.reviewed, false);
+    assert.equal(sessionProgress(a.read()).complete, false);
+    await a.patch(id, resolved, {...resolved, reviewed: true});
+    assert.equal(sessionProgress(b.read()).complete, true);
+    const reviewed = b.read().items[0].nomination;
+    await b.patch(id, reviewed, {...reviewed, ruleStatus: parseUserReason('1b')});
+    assert.equal(sessionProgress(a.read()).complete, false, 'ordinary content updates enforce the same review boundary');
+});
+
 test('all operation types move through the draft box without moving submission fields', async () => {
     const {a, b} = fixture(); await a.init();
     await a.fields({message: '', summary: ''}, {message: '整批說明', summary: '摘要'});

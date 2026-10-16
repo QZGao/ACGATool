@@ -3,7 +3,7 @@
  * 本模組只建立畫面並更新傳入的提名；發布與草稿保存由呼叫端的回呼處理。
  */
 import {t} from '../i18n.js';
-import {NominationRuleSet} from '../nomination/rules.js';
+import {NominationRuleSet, normalizeRuleStatus, ruleValues} from '../nomination/rules.js';
 import {parseUserReason} from '../wiki/api.js';
 import {cdxIconTrash, cdxIconLogIn} from './icons.js';
 import {iconButton} from './icon-button.js';
@@ -54,6 +54,7 @@ function action(label, handler) {
  * 只展示尚未使用的規則選項不算否決；無效分數顯示問號，提交驗證仍由計分模組負責。
  */
 export function ruleFragments(ruleStatus, selected = true) {
+    ruleStatus = normalizeRuleStatus(ruleStatus);
     const {ruleNames, ruleDict} = NominationRuleSet();
     const $result = $('<span>');
     let count = 0, total = 0;
@@ -61,9 +62,9 @@ export function ruleFragments(ruleStatus, selected = true) {
         const rule = ruleStatus[key];
         if (!rule || !!rule.selected !== selected || rule.applicable === false && !rule.selected) continue;
         if (count++) $result.append('、');
-        const score = Object.prototype.hasOwnProperty.call(rule, 'score') ? rule.score : ruleDict[key].score;
+        const {score, desc: description} = ruleValues(rule, ruleDict[key]);
         const shownScore = Number.isFinite(score) ? score : '?';
-        let desc = rule.desc || ruleDict[key].desc;
+        let desc = description;
         if (score !== ruleDict[key].score) desc += ` (${t('得')} ${shownScore} ${t('分')})`;
         $result.append($('<span>').addClass('acgnom-rule').append(
             $('<span>').addClass('acgnom-rule-code').text(key.slice(0, 1)),

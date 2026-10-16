@@ -34,21 +34,26 @@ export function getNewNominationPlacement(dates, now = new Date()) {
  * @returns {object} text、results、按得分者彙總的差額 scores 及 operation。
  */
 export function prepareChecks(text, nominations, operation = newId()) {
-    if (!nominations.length || nominations.some(n => !n.reviewed)) throw new Error(t('請先逐筆完成核對。', '请先逐项完成核对。'));
-    const results = [];
+    if (!nominations.length) throw new Error(t('請先逐筆完成核對。', '请先逐项完成核对。'));
     const entries = validateNominations(text, nominations);
-    const updates = nominations.map((nomination, index) => {
-        const entry = entries[index];
-        assertCanCheck(entryOwnership(text, entry), mw.config.get('wgUserName'), nomination.awarder);
-        const reason = generateReason(nomination.ruleStatus, true);
-        if (!reason) throw new Error(t('請檢查規則分數。', '请检查规则分数。'));
-        const score = nomination.invalid ? 0 : reason.reasonScore;
-        nomination.id ||= newId();
-        if (!nomination.awarder.trim()) throw new Error(t('請填寫得分者。', '请填写得分者。'));
-        results.push({id: nomination.id, awarder: nomination.awarder.trim(), score, before: previousBooking(nomination)});
-        return {entry, changes: {'用戶名稱': nomination.awarder.trim(), '核對用': checkWikitext(nomination, reason, operation)}};
-    });
-    return {text: updateEntries(text, updates), scores: scoreDeltas(results), results, operation};
+    const prepared = nominations.map((nomination, index) => checkUpdate(text, entries[index], nomination, operation));
+    const results = prepared.map(item => item.result);
+    return {text: updateEntries(text, prepared.map(item => item.update)), scores: scoreDeltas(results), results, operation};
+}
+
+/** 以已驗證的來源產生單筆修改與入帳資料，不重查修改中的本文。 */
+function checkUpdate(text, entry, nomination, operation) {
+    if (!nomination.reviewed) throw new Error(t('請先逐筆完成核對。', '请先逐项完成核对。'));
+    assertCanCheck(entryOwnership(text, entry), mw.config.get('wgUserName'), nomination.awarder);
+    const reason = generateReason(nomination.ruleStatus, true);
+    if (!reason) throw new Error(t('請檢查規則分數。', '请检查规则分数。'));
+    const score = nomination.invalid ? 0 : reason.reasonScore;
+    nomination.id ||= newId();
+    if (!nomination.awarder.trim()) throw new Error(t('請填寫得分者。', '请填写得分者。'));
+    return {
+        result: {id: nomination.id, awarder: nomination.awarder.trim(), score, before: previousBooking(nomination)},
+        update: {entry, changes: {'用戶名稱': nomination.awarder.trim(), '核對用': checkWikitext(nomination, reason, operation)}},
+    };
 }
 
 function registryMarker(id) { return `<!--ACGATool-save:${id}-->`; }
@@ -80,15 +85,19 @@ export function prepareNew(text, draft) {
 /**
  * 修改尚未核分的提名；已有核分的項目必須走覆核流程以同步處理積分。
  */
-function prepareEdit(text, draft) {
-    const nomination = draft.nominations[0];
+function editUpdate(entry, nomination) {
     const reason = generateReason(nomination.ruleStatus);
     if (!nomination.awarder.trim() || !nomination.pageName.trim() || !reason) throw new Error(t('請填寫得分者、條目及規則。', '请填写得分者、条目及规则。'));
     if (parseCheck(nomination.source.values['核對用'])) throw new Error(t('此提名已有核分，請使用覆核／更正得分。', '此提名已有核分，请使用复核／更正得分。'));
-    return updateEntries(text, [{entry: validateNominations(text, [nomination])[0], changes: {
+    return {entry, changes: {
         '條目名稱': nomination.pageName.trim(), '用戶名稱': nomination.awarder.trim(),
         '提名理由': '{{ACG提名2/request|ver=1|' + reason + '}}',
-    }}]);
+    }};
+}
+
+function prepareEdit(text, draft) {
+    const nomination = draft.nominations[0];
+    return updateEntries(text, [editUpdate(validateNominations(text, [nomination])[0], nomination)]);
 }
 
 /** 混合操作共用同一份登記處版本；所有來源先驗證，新提名最後追加。 */
@@ -103,11 +112,18 @@ export function prepareMixed(text, draft, operation) {
     const entries = validateNominations(text, existing.map(item => item.nomination));
     const identities = entries.map(entry => `${entry.date}:${entry.index}`);
     if (new Set(identities).size !== identities.length) throw new Error(t('同一筆提名不能在同一批重複提交。', '同一项提名不能在同一批重复提交。'));
-    for (const item of items.filter(item => item.mode === 'edit')) text = prepareEdit(text, {nominations: [item.nomination]});
-    const checks = items.filter(item => item.mode === 'check').map(item => item.nomination);
-    const checked = checks.length ? prepareChecks(text, checks, operation) : {text, results: []};
+    // 每筆的定位與所有替換位置都來自同一份原文，避免前一筆改名後誤判後一筆衝突。
+    const updates = [], results = [];
+    existing.forEach((item, index) => {
+        if (item.mode === 'edit') updates.push(editUpdate(entries[index], item.nomination));
+        else {
+            const prepared = checkUpdate(text, entries[index], item.nomination, operation);
+            updates.push(prepared.update); results.push(prepared.result);
+        }
+    });
+    text = updateEntries(text, updates);
     const added = items.filter(item => item.mode === 'new').map(item => item.nomination);
-    return {text: added.length ? prepareNew(checked.text, {nominations: added, message: draft.message}) : checked.text, results: checked.results};
+    return {text: added.length ? prepareNew(text, {nominations: added, message: draft.message}) : text, results};
 }
 
 /**

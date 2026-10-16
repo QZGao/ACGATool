@@ -1,6 +1,6 @@
 import {t} from '../i18n.js';
 import {parseUserReason} from '../wiki/api.js';
-import {NominationRuleSet} from './rules.js';
+import {NominationRuleSet, normalizeRuleStatus, ruleValues} from './rules.js';
 import {previousBooking, newId, readRecord} from './scoring.js';
 
 export const copy = value => JSON.parse(JSON.stringify(value));
@@ -8,7 +8,7 @@ export const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /** 比較實際發布內容，忽略視窗建立的預設選項、輸入快取及空白。 */
 function editable(nomination) {
-    const rules = Object.entries(nomination.ruleStatus || {}).filter(([, rule]) => rule.selected)
+    const rules = Object.entries(normalizeRuleStatus(nomination.ruleStatus)).filter(([, rule]) => rule.selected)
         .map(([key, rule]) => [key, rule.desc, rule.score]).sort(([a], [b]) => a.localeCompare(b));
     return {pageName: nomination.pageName.trim(), awarder: nomination.awarder.trim(), rules};
 }
@@ -39,9 +39,13 @@ export function operationStatus(item) {
     if (!n.pageName?.trim()) errors.push({field: 'pageName', message: t('請填寫條目名稱。', '请填写条目名称。')});
     if (!n.awarder?.trim()) errors.push({field: 'awarder', message: t('請填寫得分者。', '请填写得分者。')});
     const {ruleDict} = NominationRuleSet();
-    const rules = Object.entries(n.ruleStatus || {}).filter(([, rule]) => rule.selected || item.mode === 'check' && rule.applicable !== false);
+    const rules = Object.entries(normalizeRuleStatus(n.ruleStatus)).filter(([, rule]) => rule.selected || item.mode === 'check' && rule.applicable !== false);
     if (item.mode !== 'check' && !rules.length) errors.push({field: 'ruleStatus', message: t('請選擇提名規則。', '请选择提名规则。')});
-    if (rules.some(([key, rule]) => !ruleDict[key] || !Number.isFinite(rule.score) || rule.score < 0)) {
+    if (rules.some(([key, rule]) => {
+        if (!ruleDict[key]) return true;
+        const {score} = ruleValues(rule, ruleDict[key]);
+        return !Number.isFinite(score) || score < 0;
+    })) {
         errors.push({field: 'ruleStatus', message: t('請檢查規則分數，須為零或正數。', '请检查规则分数，须为零或正数。')});
     }
     if (item.mode === 'check') {

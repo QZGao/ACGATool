@@ -61,17 +61,21 @@ export function bindTitleStatus(cell, pageName) {
         const existing = cells.get(cell); existing.update(pageName); return existing;
     }
     // 核對表格可能由原標題格複製而來，先移除副本中的標記再建立自己的綁定。
-    $(cell).children('.acga-title-status').remove();
-    const $icons = $('<span>').addClass('acga-title-status').prependTo(cell);
-    let current, version = 0, timer = null, destroyed = false;
+    for (const child of [...cell.children]) if (child.classList.contains('acga-title-status')) child.remove();
+    const icons = cell.ownerDocument.createElement('span');
+    icons.className = 'acga-title-status'; cell.prepend(icons);
+    let current, status = 'idle', version = 0, timer = null, destroyed = false;
     const binding = {
         update(name, delay = 0) {
             const title = mw.Title.newFromText((name || '').replace(/<!--[\s\S]*?-->/g, '').trim());
             const talk = title?.getTalkPage()?.getPrefixedText() || '';
-            if (destroyed || talk === current) return;
+            // 同名成功或進行中的查詢不重做；失敗後再次綁定則可重試，或使用別格已取得的快取。
+            if (destroyed || talk === current && status !== 'failed') return;
             current = talk;
+            status = 'loading';
             const requestVersion = ++version;
-            clearTimeout(timer); $icons.empty();
+            clearTimeout(timer); icons.replaceChildren();
+            cell.style.setProperty('--acga-title-status-space', '0px');
             if (!talk) return;
             const load = async () => {
                 if (destroyed) return;
@@ -79,16 +83,21 @@ export function bindTitleStatus(cell, pageName) {
                     const found = await categories.get(talk);
                     // 正文刷新會暫時 detach 待編輯列；結果仍寫回原節點，重新掛載即可顯示。
                     if (destroyed || version !== requestVersion) return;
+                    status = 'loaded';
                     const matched = getTitleStatuses(found);
                     // 全寬輸入框只讓出圖標及原有間距，避免編輯時把圖標擠到上一行。
                     cell.style.setProperty('--acga-title-status-space', `calc(${matched.length * 14}px + ${matched.length * .25}em)`);
-                    for (const status of matched) {
-                        const edition = status.pattern ? status.pattern.exec(status.matchedCategories[0])[1] : undefined;
-                        const label = status.label(edition);
-                        $icons.append($('<img>').attr({src: status.image, width: 14, height: 14,
-                            alt: label, title: label}));
+                    for (const match of matched) {
+                        const edition = match.pattern ? match.pattern.exec(match.matchedCategories[0])[1] : undefined;
+                        const label = match.label(edition);
+                        const image = cell.ownerDocument.createElement('img');
+                        image.src = match.image; image.width = 14; image.height = 14;
+                        image.alt = image.title = label;
+                        icons.append(image);
                     }
                 } catch {
+                    if (destroyed || version !== requestVersion) return;
+                    status = 'failed';
                     if (!notified) {
                         notified = true;
                         mw.notify(t('無法讀取討論頁分類，部分條目圖標暫時無法顯示。', '无法读取讨论页分类，部分条目图标暂时无法显示。'), {type: 'warn'});

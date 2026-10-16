@@ -421,6 +421,27 @@ export function getOrderedRuleStatus(ruleNames, ruleStatus) {
 }
 
 /**
+ * 規則只保存選取狀態與自訂值，預設文字及分數在使用時取得。
+ * 舊草稿以 ogDesc／maxScore 記錄當時的預設值；依這些基準移除預設副本，
+ * 不拿當前語言判斷自訂文字，也不改寫結果未明的提交快照或原請求。
+ */
+export function normalizeRuleStatus(ruleStatus = {}) {
+    return Object.fromEntries(Object.entries(ruleStatus || {}).map(([key, value]) => {
+        const {ogDesc, maxScore, ...rule} = value;
+        if (ogDesc !== undefined && rule.desc === ogDesc) delete rule.desc;
+        if (maxScore !== undefined && rule.score === maxScore) delete rule.score;
+        // 合法數字可由 score 還原；不合法的原輸入須保留，供使用者繼續修正。
+        if (!Object.prototype.hasOwnProperty.call(rule, 'score') || Number.isFinite(rule.score)) delete rule.scoreInput;
+        return [key, rule];
+    }));
+}
+
+/** 只補上缺省值；明確輸入的零分、空白說明或不合法分數不能被預設值蓋掉。 */
+export function ruleValues(rule, defaults) {
+    return {desc: defaults.desc, score: defaults.score, ...rule};
+}
+
+/**
  * 生成提名理由。
  * @param {object} ruleStatus 規則選取、說明及分數。
  * @param {boolean} [check=false] 核對模式同時輸出否決規則及總分。
@@ -430,13 +451,14 @@ export function generateReason(ruleStatus, check = false) {
     // 拼湊提名理由
     let reasonText = '', unselectedReasonText = '';
     let reasonScore = 0;
-    let {ruleNames} = NominationRuleSet();
-    let orderedRuleStatus = getOrderedRuleStatus(ruleNames, ruleStatus);
+    let {ruleNames, ruleDict} = NominationRuleSet();
+    let orderedRuleStatus = getOrderedRuleStatus(ruleNames, normalizeRuleStatus(ruleStatus));
     for (const ruleItem of orderedRuleStatus) {
         // 規則彈窗會建立所有選項；從未申請或採用的未選項不能自動寫成「不符合」。
         if (check && ruleItem.applicable === false && !ruleItem.selected) continue;
         if (check || ruleItem.selected) {
-            if (!Number.isFinite(ruleItem.score) || ruleItem.score < 0) {
+            const {score} = ruleValues(ruleItem, ruleDict[ruleItem.rule]);
+            if (!Number.isFinite(score) || score < 0) {
                 mw.notify(state.conv({
                     hant: '規則', hans: '规则',
                 }) + '「' + ruleItem.rule + '」' + state.conv({
@@ -448,22 +470,15 @@ export function generateReason(ruleStatus, check = false) {
                 });
                 return null;
             }
-            // if (ruleItem.score > ruleItem.maxScore) {
-            //     mw.notify(
-            //         state.conv({ hant: '規則', hans: '规则' }) + '「' + ruleItem.rule + '」' + state.conv({ hant: '的分數超過最大值', hans: '的分数超过最大值' }) + '「' + ruleItem.maxScore + '」' + state.conv({ hant: '，請檢查！', hans: '，请检查！' }),
-            //         { type: 'error', title: state.conv({ hant: '錯誤', hans: '错误' }) }
-            //     );
-            //     return null;
-            // }
+            // 缺省值不寫入 wikitext；自訂值按原樣輸出，不受顯示語言影響。
+            let fragment = ' ' + ruleItem.rule;
+            if (Object.prototype.hasOwnProperty.call(ruleItem, 'desc')) fragment += '(' + ruleItem.desc + ')';
+            if (Object.prototype.hasOwnProperty.call(ruleItem, 'score')) fragment += '[' + score + ']';
             if (ruleItem.selected) {
-                reasonText += ' ' + ruleItem.rule;
-                if (ruleItem.desc !== ruleItem.ogDesc) reasonText += '(' + ruleItem.desc + ')';
-                if (ruleItem.score !== ruleItem.maxScore) reasonText += '[' + ruleItem.score + ']';
-                reasonScore += ruleItem.score;
+                reasonText += fragment;
+                reasonScore += score;
             } else if (check) {
-                unselectedReasonText += ' ' + ruleItem.rule;
-                if (ruleItem.desc !== ruleItem.ogDesc) unselectedReasonText += '(' + ruleItem.desc + ')';
-                if (ruleItem.score !== ruleItem.maxScore) unselectedReasonText += '[' + ruleItem.score + ']';
+                unselectedReasonText += fragment;
             }
         }
     }
