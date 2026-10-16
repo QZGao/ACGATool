@@ -2,6 +2,11 @@ import {t} from "../i18n.js";
 import {NominationRuleAliases, NominationRuleSet} from "../nomination/rules.js";
 
 let mwApi;
+let queryTitleLimit = 50, haveUserRights = false;
+
+/** titles 的一般上限為 50；具 apihighlimits 權限時為 500，不以使用者群組猜測權限。 */
+export function getQueryTitleLimit() { return queryTitleLimit; }
+
 /**
  * 延後到第一次請求才建立 mw.Api，讓 ResourceLoader 先完成 API 模組載入。
  */
@@ -23,7 +28,13 @@ export async function getFullText(pageName = '') {
         rvslots: '*',
         rvprop: 'content',
         indexpageids: 1,
+        // 利用既有頁面查詢確認批次上限，不為分類圖標另發權限查詢。
+        ...(!haveUserRights ? {meta: 'userinfo', uiprop: 'rights'} : {}),
     });
+    if (Array.isArray(response.query.userinfo?.rights)) {
+        queryTitleLimit = response.query.userinfo.rights.includes('apihighlimits') ? 500 : 50;
+        haveUserRights = true;
+    }
     if (!response.query.pageids[0] || response.query.pages[response.query.pageids[0]].missing) {
         return '';  // 頁面不存在，返回空字串
     }

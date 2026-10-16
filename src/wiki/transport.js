@@ -19,6 +19,10 @@ function request(promise) {
 }
 
 export const wikiTransport = {
+    /** action=query 的只讀 POST，讓批次標題不受 GET 網址長度限制。 */
+    query(params) {
+        return request(getWikiApi().post({...params, action: 'query'}));
+    },
     async render(title) {
         const response = await request(getWikiApi().get({action: 'parse', page: title, prop: 'text|wikitext', formatversion: 2}));
         return {html: response.parse?.text, text: response.parse?.wikitext};

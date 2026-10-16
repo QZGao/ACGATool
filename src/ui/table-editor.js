@@ -9,6 +9,7 @@ import {cdxIconTrash, cdxIconLogIn} from './icons.js';
 import {iconButton} from './icon-button.js';
 import {previousBooking, scoreDeltas} from '../nomination/scoring.js';
 import {bindTextInput} from './text-input.js';
+import {bindTitleStatus} from '../page/title-status.js';
 
 
 /**
@@ -141,6 +142,7 @@ export function appendNominationRows($table, nomination, index, {checking, openR
     if (onStash) $actions.append(iconButton(cdxIconLogIn, t('暫存', '暂存'), onStash, {showLabel: true})
         .attr('title', t('暫存此筆操作', '暂存此项操作')).addClass('acga-stash-nomination'));
     if (!checking) $title.append($actions);
+    const titleStatus = bindTitleStatus($title[0], nomination.pageName);
 
     // 派生內容另外更新；輸入框和規則按鈕維持同一個節點。
     const $reasonText = $('<span>').appendTo($reason);
@@ -176,9 +178,11 @@ export function appendNominationRows($table, nomination, index, {checking, openR
         $entry, $check,
         isComposing: () => [...inputs.values()].some(input => input.isComposing()),
         settled: () => Promise.all([...inputs.values()].map(input => input.settled())),
-        destroy: () => inputs.forEach(input => input.destroy()),
+        destroy: () => { titleStatus.destroy(); inputs.forEach(input => input.destroy()); },
         sync: () => {
             for (const [key, input] of inputs) input.sync(nomination[key]);
+            // 連續輸入先合併，IME 未確認文字不會進入 nomination，也不會觸發查詢。
+            titleStatus.update(nomination.pageName, 350);
             if (checking && !inputs.has('awarder') && displayedAwarder !== nomination.awarder) {
                 $userDisplay.empty().append(userContents(nomination));
                 displayedAwarder = nomination.awarder;

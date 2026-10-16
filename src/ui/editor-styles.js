@@ -3,6 +3,8 @@ export function initEditorStyles() {
         .acga-editor { margin: 1.5em 0; }
         .acga-editor { scroll-margin-block: 1em var(--acga-dock-clearance, 100px); }
         .acga-new-nomination-footer { margin-block: .75em; }
+        .acga-title-status { white-space: nowrap; }
+        .acga-title-status img { width: 14px; height: 14px; object-fit: contain; vertical-align: -.125em; margin-inline-end: .25em; }
         a.acga-archive.acga-archive-recent { color: var(--color-subtle, #54595d); }
         .acga-dock { position: fixed; bottom: max(8px, env(safe-area-inset-bottom)); z-index: 100; box-sizing: border-box; color: var(--color-base, #202122); background: var(--background-color-base, #fff); border: 1px solid var(--border-color-base, #a2a9b1); border-radius: 2px; }
         .acga-completion-progress { position: absolute; inset: -1px -1px auto; height: 4px; display: flex; overflow: hidden; background: var(--background-color-neutral, #eaecf0); }
@@ -57,6 +59,7 @@ export function initEditorStyles() {
         .acga-edit-table { width: 100%; }
         .acga-edit-table .acgnom-title-heading, .acga-edit-table .acgnom-user-heading { width: 25%; }
         .acga-edit-table .acga-cell-input { width: 100%; max-width: none; }
+        .acga-edit-table .acgnom-title-cell > .acga-title-status:not(:empty) + .acga-cell-input { display: inline-block; vertical-align: middle; margin: 0; width: calc(100% - var(--acga-title-status-space)); }
         .acga-edit-table .acga-cell-input input { min-width: 0; background: transparent; color: inherit; font: inherit; padding: .25em; }
         .acga-inline-action { border: 0; background: transparent; padding: 0; color: var(--color-progressive, #36c); cursor: pointer; font: inherit; font-size: smaller; }
         .acga-inline-action::before { content: '［'; } .acga-inline-action::after { content: '］'; }

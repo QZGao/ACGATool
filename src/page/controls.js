@@ -4,6 +4,7 @@ import {entryOwnership, isOwnNomination, assertCanCheck} from "../nomination/own
 import {reviewData, parseCheck} from "../nomination/scoring.js";
 import {SCORES} from "../wiki/submission.js";
 import {hasRecentActivity} from "../wiki/archive.js";
+import {bindTitleStatus} from "./title-status.js";
 import {cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from "../ui/icons.js";
 import {iconButton} from "../ui/icon-button.js";
 import {
@@ -180,7 +181,11 @@ export async function addEditButtonsToPage(sourceText) {
                     const currentIndex = index;
                     row.attr({'data-acga-date': date, 'data-acga-source-index': currentIndex});
                     const currentEntry = queryEntry(fulltext, date, currentIndex);
-                    if (currentEntry) row.attr('data-acga-source-values', JSON.stringify(entryValues(currentEntry)));
+                    if (currentEntry) {
+                        const values = entryValues(currentEntry);
+                        row.attr('data-acga-source-values', JSON.stringify(values));
+                        bindTitleStatus(nomEntry[0], values['條目名稱']);
+                    }
                     // 已核分項目由核對列的覆核入口處理，避免鉛筆暗中切換操作種類。
                     if (currentEntry && !parseCheck(entryValues(currentEntry)['核對用'])) {
                         const editButton = iconButton(cdxIconEdit, state.conv({hant: '編輯提名', hans: '编辑提名'}), () =>
