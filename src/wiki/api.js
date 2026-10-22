@@ -1,7 +1,19 @@
-import state from "./state.js";
-import {NominationRuleAliases, NominationRuleSet} from "./rules.js";
+import {t} from "../i18n.js";
+import {NominationRuleAliases, NominationRuleSet} from "../nomination/rules.js";
 
-const mwApi = new mw.Api({userAgent: 'ACGATool/1.1.0'});  // MediaWiki API實例
+let mwApi;
+let queryTitleLimit = 50, haveUserRights = false;
+
+/** titles 的一般上限為 50；具 apihighlimits 權限時為 500，不以使用者群組猜測權限。 */
+export function getQueryTitleLimit() { return queryTitleLimit; }
+
+/**
+ * 延後到第一次請求才建立 mw.Api，讓 ResourceLoader 先完成 API 模組載入。
+ */
+export function getWikiApi() {
+    if (!mwApi) mwApi = new mw.Api({userAgent: 'ACGATool/2.0.0'});
+    return mwApi;
+}
 
 /**
  * 獲取完整的wikitext。
@@ -9,14 +21,20 @@ const mwApi = new mw.Api({userAgent: 'ACGATool/1.1.0'});  // MediaWiki API實例
  * @returns {Promise<string>} 包含完整wikitext的Promise。
  */
 export async function getFullText(pageName = '') {
-    let response = await mwApi.get({
+    let response = await getWikiApi().get({
         action: 'query',
         titles: pageName || 'WikiProject:ACG/維基ACG專題獎/登記處',
         prop: 'revisions',
         rvslots: '*',
         rvprop: 'content',
         indexpageids: 1,
+        // 利用既有頁面查詢確認批次上限，不為分類圖標另發權限查詢。
+        ...(!haveUserRights ? {meta: 'userinfo', uiprop: 'rights'} : {}),
     });
+    if (Array.isArray(response.query.userinfo?.rights)) {
+        queryTitleLimit = response.query.userinfo.rights.includes('apihighlimits') ? 500 : 50;
+        haveUserRights = true;
+    }
     if (!response.query.pageids[0] || response.query.pages[response.query.pageids[0]].missing) {
         return '';  // 頁面不存在，返回空字串
     }
@@ -85,24 +103,53 @@ function splitParameters(innerContent, offset) {
  * @param {number} start The starting index where "{{" is found.
  * @returns {object} An object { endIndex } where endIndex is the index immediately after the closing "}}".
  */
-function findTemplateEnd(text, start) {
-    let braceCount = 0;
+export function findTemplateEnd(text, start) {
+    const closing = [];
     let i = start;
     while (i < text.length) {
+        if (text.startsWith('<!--', i)) {
+            const end = text.indexOf('-->', i + 4);
+            i = end < 0 ? text.length : end + 3;
+            continue;
+        }
+        if (text.startsWith('{{{', i)) {
+            closing.push('}}}'); i += 3; continue;
+        }
         if (text.slice(i, i + 2) === '{{') {
-            braceCount++;
+            closing.push('}}');
             i += 2;
             continue;
         }
-        if (text.slice(i, i + 2) === '}}') {
-            braceCount--;
-            i += 2;
-            if (braceCount === 0) break;
+        if (closing.length && text.startsWith(closing.at(-1), i)) {
+            i += closing.pop().length;
+            if (!closing.length) break;
             continue;
         }
         i++;
     }
     return {endIndex: i};
+}
+
+/** 只在模板與連結之外切分參數；規則文字另保留括號內的空白與巢狀說明。 */
+export function splitWikitext(text, delimiter, ruleGroups = false) {
+    const parts = [], closing = [];
+    const pairs = [['{{{', '}}}'], ['{{', '}}'], ['[[', ']]'], ...(ruleGroups ? [['(', ')'], ['[', ']']] : [])];
+    let start = 0;
+    for (let i = 0; i < text.length;) {
+        if (text.startsWith('<!--', i)) {
+            const end = text.indexOf('-->', i + 4);
+            i = end < 0 ? text.length : end + 3; continue;
+        }
+        if (closing.length && text.startsWith(closing.at(-1), i)) { i += closing.pop().length; continue; }
+        const pair = pairs.find(([open]) => text.startsWith(open, i));
+        if (pair) { closing.push(pair[1]); i += pair[0].length; continue; }
+        if (!closing.length && (delimiter === null ? /\s/.test(text[i]) : text[i] === delimiter)) {
+            parts.push(text.slice(start, i)); start = i + 1;
+        }
+        i++;
+    }
+    parts.push(text.slice(start));
+    return parts;
 }
 
 /**
@@ -185,6 +232,8 @@ function parseTemplate(text, start) {
             group.fullLocation = {
                 start: startPos, end: endPos,
             };
+            // 保留來源的實際編號；補寫缺少的欄位時不能用陣列位置重新編號。
+            group.parameterSuffix = String(num);
             entries.push(group);
         }
         templateObj.entries = entries;
@@ -295,7 +344,9 @@ export function getDateSections(text) {
  * Each entry is either a main template ({{ACG提名}}), a nested extra template, or an entry from {{ACG提名2}}.
  * @param {string} text The full wikitext.
  * @param {object} section A section object { date, start, end }.
- * @returns {Array} Array of entry objects: { template, start, end, type }.
+ * @returns {Array} Entries with template, start, end, type and containerEnd.
+ * containerEnd points past the enclosing nomination template, whose following signature
+ * is shared by its grouped entries and nested extras.
  */
 function collectEntriesInSection(text, section) {
     let entries = [];
@@ -314,19 +365,19 @@ function collectEntriesInSection(text, section) {
                 for (let entry of template.entries) {
                     entries.push({
                         template: entry, // entry holds the grouped key-value parameters
-                        start: entry.fullLocation.start, end: entry.fullLocation.end, type: 'acg2',
+                        start: entry.fullLocation.start, end: entry.fullLocation.end, type: 'acg2', containerEnd: template.location.end,
                     });
                 }
             }
         } else {
             // For regular ACG提名
             entries.push({
-                template: template, start: template.location.start, end: template.location.end, type: 'main',
+                template: template, start: template.location.start, end: template.location.end, type: 'main', containerEnd: template.location.end,
             });
             if (template.params['額外提名'] && template.params['額外提名'].nestedTemplates) {
                 for (let nested of template.params['額外提名'].nestedTemplates) {
                     entries.push({
-                        template: nested, start: nested.location.start, end: nested.location.end, type: 'extra',
+                        template: nested, start: nested.location.start, end: nested.location.end, type: 'extra', containerEnd: template.location.end,
                     });
                 }
             }
@@ -360,7 +411,7 @@ export function queryEntry(text, date, index) {
 /**
  * Given an entry (from queryEntry) and a set of changes (mapping parameter key to new value),
  * updates only those parameter values in the original wikitext by using the precise location data.
- * This function does not replace the entire entry substring—only the changed parameter values.
+ * Existing parameters are changed in place; missing parameters are inserted with the original suffix.
  *
  * For main or extra entries, changes should be provided as an object where keys are parameter names
  * (e.g. "條目名稱") and values are the new text.
@@ -373,37 +424,55 @@ export function queryEntry(text, date, index) {
  * @returns {string} The updated wikitext.
  */
 export function updateEntryParameters(original, entry, changes) {
-    let mods = [];
-    if (entry.type === 'main' || entry.type === 'extra') {
-        let params = entry.template.params;
-        for (let key in changes) {
-            if (params[key] && params[key].valueLocation) {
-                mods.push({
-                    start: params[key].valueLocation.start,
-                    end: params[key].valueLocation.end,
-                    replacement: changes[key],
-                });
-            }
-        }
-    } else if (entry.type === 'acg2') {
-        // For ACG提名2 grouped entry, keys are like "條目名稱1", "用戶名稱1", etc.
-        for (let key in changes) {
-            if (entry.template[key]) {
-                let token = entry.template[key];
-                // Use token.valueLocation for precise updating.
-                mods.push({
-                    start: token.valueLocation.start, end: token.valueLocation.end, replacement: changes[key],
-                });
+    return updateEntries(original, [{entry, changes}]);
+}
+
+/**
+ * 批次改寫提名參數；所有 entry 的字元位置必須來自同一份 original。
+ * 先收集全部替換，再由後往前套用，避免前一筆修改使後面的字元位置失效。
+ * 缺少的參數會補入原模板，ACG提名2 沿用原參數編號。
+ * @param {string} original 產生 entry 位置的完整 wikitext。
+ * @param {Array<{entry: object, changes: Object<string, string>}>} updates 待修改的參數。
+ * @returns {string} 修改後的完整 wikitext，不執行儲存。
+ */
+export function updateEntries(original, updates) {
+    const mods = [];
+    for (const {entry, changes} of updates) {
+        const params = entry.type === 'acg2' ? entry.template : entry.template.params;
+        for (const [key, value] of Object.entries(changes)) {
+            if (params[key]?.valueLocation) {
+                mods.push({...params[key].valueLocation, replacement: value});
+            } else {
+                const end = entry.type === 'acg2' ? entry.end : entry.template.location.end - 2;
+                const suffix = entry.type === 'acg2' ? entry.template.parameterSuffix : '';
+                mods.push({start: end, end, replacement: `\n|${key}${suffix} = ${value}\n`});
             }
         }
     }
-    // Apply modifications in descending order of start position.
     mods.sort((a, b) => b.start - a.start);
     let updated = original;
-    for (let mod of mods) {
-        updated = updated.slice(0, mod.start) + mod.replacement + updated.slice(mod.end);
-    }
+    for (const mod of mods) updated = updated.slice(0, mod.start) + mod.replacement + updated.slice(mod.end);
     return updated;
+}
+
+/**
+ * 取出供草稿與變更比對使用的四個原始欄位。
+ * 保留 wikitext 與註解，使核對結果、說明及識別資訊的變更都能被發現。
+ * @param {object} entry 已解析的提名。
+ * @returns {Object<string, string>} 欄位名稱到原始文字的對應。
+ */
+export function entryValues(entry) {
+    const params = entry.type === 'acg2' ? entry.template : entry.template.params;
+    return Object.fromEntries(['條目名稱', '用戶名稱', '提名理由', '核對用'].map(key => [key, params[key]?.value || '']));
+}
+
+/**
+ * 依頁面順序列出各日期章節的提名，附上日期與章節內從 1 起算的 index。
+ * index 是當次讀取的位置，不能當成跨版本不變的提名識別。
+ */
+export function listEntries(text) {
+    return getDateSections(text).flatMap(section => collectEntriesInSection(text, section)
+        .map((entry, index) => ({...entry, date: section.date, index: index + 1})));
 }
 
 /**
@@ -419,15 +488,15 @@ function removeComments(text) {
 /**
  * 根據用戶的提名理由，解析出規則狀態。
  * @param reason {string} 用戶的提名理由。
- * @returns {object} 規則狀態。
+ * @returns {object|null} 規則選取及原文明確指定的說明、分數；無法解析時為 null。
  */
-function parseUserReason(reason) {
+export function parseUserReason(reason) {
     reason = removeComments(reason);
     let ruleStatus = {};
     if (reason.startsWith('{{ACG提名2/request|ver=1|')) {
         reason = reason.slice('{{ACG提名2/request|ver=1|'.length, -2);
     }
-    let reasonList = reason.split(/\s+/);
+    let reasonList = splitWikitext(reason, null, true);
 
     let ruleSet = NominationRuleSet();
     let ruleNames = ruleSet.ruleNames;
@@ -441,10 +510,10 @@ function parseUserReason(reason) {
         let ruleNameMod = '', ruleScoreMod = '';
         while (rule.endsWith(')') || rule.endsWith(']')) {
             if (rule.endsWith(')')) {
-                let lastLeftParen = rule.lastIndexOf('(');
-                if (lastLeftParen === -1) break;
-                ruleNameMod = rule.slice(lastLeftParen + 1, -1);
-                rule = rule.slice(0, lastLeftParen);
+                let leftParen = rule.indexOf('(');
+                if (leftParen === -1) break;
+                ruleNameMod = rule.slice(leftParen + 1, -1);
+                rule = rule.slice(0, leftParen);
             }
             if (rule.endsWith(']')) {
                 let lastLeftBracket = rule.lastIndexOf('[');
@@ -463,14 +532,14 @@ function parseUserReason(reason) {
                 ruleStatus[rule].desc = ruleNameMod;
             }
             if (ruleScoreMod !== '') {
-                ruleStatus[rule].score = parseFloat(ruleScoreMod);
-                if (isNaN(ruleStatus[rule].score)) {
-                    console.log('[ACGATool] 分數不是數字', ruleScoreMod);  // 分數不是數字，報錯
+                ruleStatus[rule].score = Number(ruleScoreMod);
+                if (!Number.isFinite(ruleStatus[rule].score)) {
+                    console.log(t('[ACGATool] 分數不是數字', '[ACGATool] 分数不是数字'), ruleScoreMod);  // 分數不是數字，報錯
                     return null;
                 }
             }
         } else {
-            console.log('[ACGATool] 不在提名規則中', rule);  // 不在提名規則中，報錯
+            console.log(t('[ACGATool] 不在提名規則中', '[ACGATool] 不在提名规则中'), rule);  // 不在提名規則中，報錯
             return null;
         }
     }
@@ -483,6 +552,7 @@ function parseUserReason(reason) {
  * @returns {object} 提名數據。
  */
 export function queried2NomData(queried) {
+    if (!queried) return null;
     let nomData = {};
 
     if (queried.type === 'main' || queried.type === 'extra') {
@@ -522,93 +592,4 @@ export async function getXToolsInfo(pageName) {
         console.error('Error fetching XTools data:', error);
         return '';
     }
-}
-
-export async function editPage(pageName, newText, editSummary) {
-    let response = await mwApi.postWithToken('csrf', {
-        action: 'edit', title: pageName, text: newText, summary: editSummary,
-    });
-    if (response.edit && response.edit.result === 'Success') {
-        return true;
-    } else {
-        console.error('Edit failed:', response);
-        return false;
-    }
-}
-
-export async function appendToPage(pageName, appendText, editSummary) {
-    let response = await mwApi.postWithToken('csrf', {
-        action: 'edit', title: pageName, appendtext: appendText, summary: editSummary,
-    });
-    if (response.edit && response.edit.result === 'Success') {
-        return true;
-    } else {
-        console.error('Edit failed:', response);
-        return false;
-    }
-}
-
-/**
- * 編輯 Module:ACGaward/list。
- * @param {string} awarder 得分者。
- * @param {number} score 得分。
- * @return {Promise<boolean>} 是否成功提交。
- */
-export async function editACGAScoreList(awarder, score) {
-    let scorelistText = await getFullText('Module:ACGaward/list');
-    let scorelistLines = scorelistText.trim().split('\n').slice(1, -1);  // 去掉 'return {' 和 '}' 行
-    let scorelist = {};
-    for (let line of scorelistLines) {
-        let match = line.match(/^\s*\[?(?:'([^']+)'|"([^"]+)")\]?\s*=\s*([+-]?[\d.]+)\s*,?\s*$/);
-        if (match) {
-            let name = match[1] || match[2];  // 使用第一個捕獲組或第二個捕獲組
-            scorelist[name] = parseFloat(match[3]);
-        }
-    }
-    let originalScore = scorelist[awarder] || 0;  // 獲取原始分數
-    scorelist[awarder] = originalScore + score;  // 更新分數
-    let editSummary = awarder + ' ' + originalScore + '+' + score + '=' + scorelist[awarder];
-
-    let sortedNames = Object.keys(scorelist).sort((a, b) => {
-        // 按照名稱排序，忽略大小寫
-        return a.toLowerCase().localeCompare(b.toLowerCase(), "en");
-    });
-    let newScorelistText = 'return {\n';
-    for (let name of sortedNames) {
-        let nameQuoted = name.includes('"') ? "'" + name + "'" : '"' + name + '"';  // 確保名稱被正確引用
-        newScorelistText += '    [' + nameQuoted + '] = ' + scorelist[name].toString() + ',\n';
-    }
-    newScorelistText += '}';
-
-    // 提交修改
-    let success = await editPage('Module:ACGaward/list', newScorelistText, editSummary + '（[[User:SuperGrey/gadgets/ACGATool|核對分數]]）');
-    if (success) {
-        mw.notify(state.convByVar({
-            hant: 'Module:ACGaward/list 已成功更新！', hans: 'Module:ACGaward/list 已成功更新！',
-        }), {
-            title: state.convByVar({
-                hant: '成功', hans: '成功',
-            }), autoHide: true,
-        });
-        return false;  // 成功提交
-    } else {
-        mw.notify(state.convByVar({
-            hant: 'Module:ACGaward/list 更新失敗！', hans: 'Module:ACGaward/list 更新失败！',
-        }), {
-            type: 'error', title: state.convByVar({
-                hant: '錯誤', hans: '错误',
-            }),
-        });
-        return true;  // 提交失敗
-    }
-}
-
-/**
- * 刷新頁面。
- */
-export function refreshPage() {
-    // 2秒後刷新頁面
-    setTimeout(function () {
-        location.reload();
-    }, 2000);
 }

@@ -1,6 +1,7 @@
 import esbuild from 'esbuild';
 
 const watch = process.argv.includes('--watch');
+const minify = process.argv.includes('--minify');
 
 const buildOptions = {
   entryPoints: ['src/main.js'],
@@ -9,7 +10,7 @@ const buildOptions = {
   format: 'iife',
   charset: 'utf8',
   target: ['es2017'],
-  minify: false,
+  minify: minify,
   sourcemap: false,
   banner: { js: `// Main page: [[User:SuperGrey/gadgets/ACGATool]]
 // <nowiki>` },

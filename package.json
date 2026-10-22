@@ -1,15 +1,17 @@
 {
   "name": "acgatool",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "description": "ACGATool Codex rewrite build setup",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "watch": "node build.mjs --watch"
+    "watch": "node build.mjs --watch",
+    "test": "node --import ./tests/dry-run.js --test tests/*.test.js",
+    "release": "node build.mjs --minify"
   },
   "devDependencies": {
-    "esbuild": "^0.21.5"
+    "esbuild": "^0.21.5",
+    "linkedom": "0.18.12"
   }
 }
-
