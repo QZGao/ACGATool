@@ -420,23 +420,7 @@ export function getOrderedRuleStatus(ruleNames, ruleStatus) {
     return ruleNames.filter(rule => ruleStatus.hasOwnProperty(rule)).map(rule => ({rule, ...ruleStatus[rule]}));
 }
 
-/**
- * 規則只保存選取狀態與自訂值，預設文字及分數在使用時取得。
- * 舊草稿以 ogDesc／maxScore 記錄當時的預設值；依這些基準移除預設副本，
- * 不拿當前語言判斷自訂文字，也不改寫呼叫端傳入的資料。
- */
-export function normalizeRuleStatus(ruleStatus = {}) {
-    return Object.fromEntries(Object.entries(ruleStatus || {}).map(([key, value]) => {
-        const {ogDesc, maxScore, ...rule} = value;
-        if (ogDesc !== undefined && rule.desc === ogDesc) delete rule.desc;
-        if (maxScore !== undefined && rule.score === maxScore) delete rule.score;
-        // 合法數字可由 score 還原；不合法的原輸入須保留，供使用者繼續修正。
-        if (!Object.prototype.hasOwnProperty.call(rule, 'score') || Number.isFinite(rule.score)) delete rule.scoreInput;
-        return [key, rule];
-    }));
-}
-
-/** 只補上缺省值；明確輸入的零分、空白說明或不合法分數不能被預設值蓋掉。 */
+/** 規則只保存選取狀態與自訂值；使用時補上預設值，保留明確輸入的零分、空白及無效分數。 */
 export function ruleValues(rule, defaults) {
     return {desc: defaults.desc, score: defaults.score, ...rule};
 }
@@ -452,7 +436,7 @@ export function generateReason(ruleStatus, check = false) {
     let reasonText = '', unselectedReasonText = '';
     let reasonScore = 0;
     let {ruleNames, ruleDict} = NominationRuleSet();
-    let orderedRuleStatus = getOrderedRuleStatus(ruleNames, normalizeRuleStatus(ruleStatus));
+    let orderedRuleStatus = getOrderedRuleStatus(ruleNames, ruleStatus);
     for (const ruleItem of orderedRuleStatus) {
         // 規則彈窗會建立所有選項；從未申請或採用的未選項不能自動寫成「不符合」。
         if (check && ruleItem.applicable === false && !ruleItem.selected) continue;

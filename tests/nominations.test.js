@@ -10,7 +10,7 @@ const text = `=== 10月14日 ===\n{{ACG提名2${row(1, '甲')}${row(2, '乙')}\n
 const nomination = index => ({
     pageName: index === 1 ? '甲' : '乙', awarder: 'Example', reviewed: true, message: '',
     source: {date: '10月14日', index, values: entryValues(queryEntry(text, '10月14日', index))},
-    ruleStatus: {'1a': {selected: true, desc: '短新增', ogDesc: '短新增', score: 1, maxScore: 1}},
+    ruleStatus: {'1a': {selected: true}},
 });
 
 test('new nomination placement follows UTC across local midnight and year boundaries', () => {

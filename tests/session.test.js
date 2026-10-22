@@ -7,7 +7,7 @@ import {parseUserReason} from '../src/wiki/api.js';
 import {reviewData} from '../src/nomination/scoring.js';
 import {REGISTER, SCORES} from '../src/wiki/submission.js';
 
-function fixture() {
+function fixture(defaultAwarder = '') {
     const values = new Map(), queues = new Map();
     const storage = {get length() { return values.size; }, key: i => [...values.keys()][i],
         getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key)};
@@ -17,7 +17,8 @@ function fixture() {
         queues.set(name, next);
         return next;
     }};
-    return {storage, a: createSessionStore(storage, 'test', locks), b: createSessionStore(storage, 'test', locks)};
+    const reload = () => createSessionStore(storage, 'test', locks, defaultAwarder);
+    return {storage, a: reload(), b: reload(), reload};
 }
 const nomination = {id: 'nom', pageName: '甲', awarder: 'A', ruleStatus: {}};
 
@@ -30,6 +31,53 @@ function dataForMode(mode, index = 1, checked = '') {
         '提名理由': '{{ACG提名2/request|ver=1|1a}}', '核對用': `{{ACG提名2/check|ver=1|${checked}}}`}};
     return mode === 'check' ? reviewData(data, source) : {...data, source};
 }
+
+test('blank and unchanged forms stay local until input and keep their order when first saved', async () => {
+    const {a, b, storage} = fixture('A'); await a.init();
+    const blank = {...nomination, pageName: ''};
+    const {result: [first, second]} = await a.add('new', [blank, {...blank, id: 'second'}]);
+    const {result: [edit]} = await a.add('edit', [dataForMode('edit', 2)]);
+    const {result: [check]} = await a.add('check', [dataForMode('check', 3)]);
+    assert.equal(storage.getItem(a.key), null);
+    assert.deepEqual((await b.read()).items, []);
+    const before = (await a.read()).items.find(item => item.id === second).nomination;
+    await a.patch(second, before, {...before, pageName: '第二筆先輸入'});
+    assert.deepEqual(JSON.parse(storage.getItem(a.key)).items.map(item => item.id), [second]);
+    assert.deepEqual((await a.read()).items.map(item => item.id), [first, second, edit, check]);
+    const {result: [other]} = await b.add('new', [{...nomination, id: 'other'}]);
+    const stored = storage.getItem(a.key);
+    assert.deepEqual((await a.read()).items.map(item => item.id), [first, second, edit, check, other]);
+    assert.equal(storage.getItem(a.key), stored, 'local display order does not rewrite shared order');
+    await a.patch(second, {...before, pageName: '第二筆先輸入'}, before);
+    assert.deepEqual(JSON.parse(storage.getItem(a.key)).items.map(item => item.id), [other]);
+    const original = (await a.read()).items.find(item => item.id === edit).nomination;
+    await a.patch(edit, original, {...original, pageName: '修改名稱'});
+    assert.ok((await b.read()).items.some(item => item.id === edit));
+    await a.patch(edit, {...original, pageName: '修改名稱'}, original);
+    assert.equal((await b.read()).items.some(item => item.id === edit), false);
+    const review = (await a.read()).items.find(item => item.id === check).nomination;
+    await a.patch(check, review, {...review, reviewed: true});
+    assert.ok((await b.read()).items.some(item => item.id === check));
+    await a.patch(first, blank, {...blank, awarder: 'Other'});
+    assert.equal((await b.read()).items.find(item => item.id === first).nomination.awarder, 'Other');
+});
+
+test('invalid local data logs an error and permits initialization and fresh work', async context => {
+    const errors = [];
+    context.mock.method(console, 'error', (...args) => errors.push(args));
+    for (const invalid of ['{', 'null', '[]', JSON.stringify({schema: 3, revision: 0,
+        items: [null], drafts: [], fields: {message: '', summary: ''}, conflicts: [], submissions: []})]) {
+        const {a, b, storage} = fixture();
+        storage.setItem(a.key, invalid);
+        const empty = await a.init();
+        assert.deepEqual(empty.items, []);
+        assert.deepEqual(empty.drafts, []);
+        assert.equal(storage.getItem(a.key), invalid);
+        await a.add('new', [nomination]);
+        assert.equal((await b.read()).items[0].nomination.pageName, '甲');
+    }
+    assert.ok(errors.length >= 4);
+});
 
 test('shared edits merge distinct fields and retain both versions of a competing field', async () => {
     const {a, b} = fixture(); await a.init();
@@ -79,7 +127,7 @@ test('all operation types move through the draft box without moving submission f
         assert.ok(!('message' in (await b.read()).drafts[0]));
         await b.restore([id]);
         assert.equal((await a.read()).drafts.length, 0);
-        await a.discard(id);
+        await b.discard(id);
         assert.equal((await b.read()).items.length, 0);
     }
     assert.deepEqual((await a.read()).fields, {message: '整批說明', summary: '摘要'});
@@ -91,22 +139,27 @@ test('restoring drafts leaves blocked entries intact and restores the rest after
     const {result: [blocked]} = await a.add('edit', [data]);
     await a.stash(blocked);
     const original = (await a.read()).drafts[0];
-    await b.add('edit', [dataForMode('edit')]);
+    await a.add('edit', [dataForMode('edit')]);
+    const {result: [unavailable]} = await a.add('edit', [{...dataForMode('edit', 2), pageName: '原列不存在的草稿'}]);
+    await a.stash(unavailable, true);
+    const parked = (await a.read()).drafts.find(item => item.id === unavailable);
     const {result: [missing, valid]} = await a.add('new', [nomination, {...nomination, id: 'another', pageName: '可恢復的條目'}]);
     await a.stash(missing); await a.stash(valid);
     await b.discard(missing, true);
     const before = await a.read(), write = storage.setItem;
     storage.setItem = () => { throw new Error('quota'); };
-    await assert.rejects(a.restore([blocked, missing, valid]), /quota/);
+    const available = item => item.id !== unavailable;
+    await assert.rejects(a.restore([blocked, missing, unavailable, valid], available), /quota/);
     assert.deepEqual(await a.read(), before);
     storage.setItem = write;
-    const {result} = await a.restore([blocked, missing, valid]);
+    const {result} = await a.restore([blocked, missing, unavailable, valid], available);
     assert.deepEqual(result.restored, [valid]);
-    assert.deepEqual(result.failures.map(failure => failure.id), [blocked, missing]);
+    assert.deepEqual(result.failures.map(failure => failure.id), [blocked, missing, unavailable]);
     assert.match(result.failures[0].reason, /已在表單/);
     assert.match(result.failures[1].reason, /另一個分頁/);
     const restored = await b.read();
-    assert.deepEqual(restored.drafts, [original]);
+    assert.match(result.failures[2].reason, /找不到原提名/);
+    assert.deepEqual(restored.drafts, [original, parked]);
     assert.equal(restored.items.at(-1).id, valid);
 });
 
@@ -128,8 +181,8 @@ test('stash all moves current editable work atomically and retains pending saves
     const {a, b, storage} = fixture(); await a.init();
     await a.fields({message: '', summary: ''}, {message: '整批說明', summary: '摘要'});
     const ids = [];
-    for (const [mode, data] of [['new', dataForMode('new', 1)], ['edit', dataForMode('edit', 2)],
-        ['check', dataForMode('check', 3)], ['check', dataForMode('check', 4, '0')]]) {
+    for (const [mode, data] of [['new', dataForMode('new', 1)], ['edit', {...dataForMode('edit', 2), pageName: '本地修改'}],
+        ['check', {...dataForMode('check', 3), message: '核對中的說明'}], ['check', dataForMode('check', 4, '0')]]) {
         const {result: [id]} = await a.add(mode, [data]); ids.push(id);
     }
     const {result: [pending]} = await a.add('new', [{...nomination, ruleStatus: parseUserReason('1a')}]);
@@ -156,12 +209,12 @@ test('stash all moves current editable work atomically and retains pending saves
     assert.deepEqual(after.fields, before.fields);
     assert.deepEqual(after.submissions, before.submissions);
     await b.restore(ids);
-    assert.equal((await a.read()).items.length, 5);
+    assert.equal((await b.read()).items.length, 5);
     assert.equal((await a.read()).drafts.length, 0);
 });
 
-test('successful submission clears only its frozen items and preserves later input from another tab', async () => {
-    const {a, b, storage} = fixture(); await a.init();
+test('successful submission delivers its result to the page and preserves later input from another tab', async () => {
+    const {a, b, storage, reload} = fixture(); await a.init();
     await a.add('new', [{...nomination, ruleStatus: parseUserReason('1a')}]);
     await a.fields({message: '', summary: ''}, {message: '已送出的說明', summary: '已送出的摘要'});
     const expected = {items: sessionProgress((await a.read())).items, fields: (await a.read()).fields};
@@ -174,15 +227,18 @@ test('successful submission clears only its frozen items and preserves later inp
             return {revid: 2};
         },
     };
-    await createSubmitController(a, () => {}, io).start(expected);
+    let result;
+    await createSubmitController(a, completed => { if (completed) result = completed; }, io).start(expected);
     assert.deepEqual((await a.read()).items.map(item => item.nomination.id), ['later']);
     assert.deepEqual((await a.read()).fields, {message: '下一批說明', summary: '下一批摘要'});
     const saved = JSON.parse(storage.getItem(a.key));
-    assert.deepEqual(saved.submissions[0].itemIds, expected.items.map(item => item.id));
-    assert.equal(saved.submissions[0].finished, true);
-    assert.deepEqual(saved.submissions[0].draft, {mode: 'mixed',
-        operation: {steps: [{key: 'registry', title: REGISTER, status: 'succeeded', revid: 2}]}});
+    assert.deepEqual(saved.submissions, []);
+    assert.equal(typeof result.id, 'string');
+    assert.deepEqual(result, {id: result.id,
+        steps: [{key: 'registry', title: REGISTER, status: 'succeeded', revid: 2}]});
     assert.doesNotMatch(storage.getItem(a.key), /已送出的說明|已送出的摘要/);
+    assert.deepEqual((await reload().init()).submissions, []);
+    assert.deepEqual((await a.read()).submissions, []);
 });
 
 test('returning from a failed save permits offline editing without another query or write', async () => {
@@ -228,7 +284,7 @@ test('reading collects only orphaned submissions older than six hours and never 
         {id: 'active', itemIds: [active], createdAt: now - sixHours - 1},
         {id: 'stashed', itemIds: [stashed], createdAt: now - sixHours - 1},
         {id: 'archive', itemIds: [], createdAt: now - sixHours - 1},
-    ];
+    ].map(submission => ({...submission, draft: {mode: submission.id === 'archive' ? 'archive' : 'mixed'}}));
     storage.setItem(a.key, JSON.stringify(before));
     const after = await b.read();
     assert.deepEqual(after.submissions.map(item => item.id), ['boundary', 'active', 'stashed', 'archive']);
@@ -243,7 +299,7 @@ test('reading collects only orphaned submissions older than six hours and never 
 test('a partial submission remains resumable after six hours and clears its content only on full success', async context => {
     let now = Date.UTC(2026, 9, 22, 12);
     context.mock.method(Date, 'now', () => now);
-    const {a, storage} = fixture(); await a.init();
+    const {a, storage, reload} = fixture(); await a.init();
     const check = {...dataForMode('check'), reviewed: true};
     await a.add('check', [check]);
     await a.add('new', [{...nomination, id: 'added', pageName: '新增條目', ruleStatus: parseUserReason('1a')}]);
@@ -262,27 +318,62 @@ test('a partial submission remains resumable after six hours and clears its cont
             return {revid};
         },
     };
-    const controller = createSubmitController(a, () => {}, io);
+    let result;
+    const controller = createSubmitController(a, completed => { if (completed) result = completed; }, io);
     assert.equal(await controller.start({items: sessionProgress(initial).items, fields: initial.fields}), false);
+    assert.equal(result, undefined);
     now += 7 * 60 * 60 * 1000;
     const pending = await a.read();
     assert.deepEqual(pending.items, initial.items);
     assert.deepEqual(pending.fields, initial.fields);
     assert.equal(pending.submissions[0].createdAt, now - 7 * 60 * 60 * 1000);
     assert.deepEqual(pending.submissions[0].draft.operation.steps.map(step => step.status), ['succeeded', 'failed']);
+    assert.deepEqual((await reload().init()).submissions, pending.submissions);
+    await a.stash(initial.items.find(item => item.mode === 'check').id, true);
+    assert.equal((await a.read()).drafts.length, 1);
     fail = false;
     assert.equal(await controller.step(pending.submissions[0].id, 'scores'), true);
     const saved = JSON.parse(storage.getItem(a.key));
     assert.deepEqual(writes, [REGISTER, SCORES]);
     assert.deepEqual(saved.items, []);
+    assert.deepEqual(saved.drafts, []);
     assert.deepEqual(saved.fields, {message: '', summary: ''});
-    assert.deepEqual(saved.submissions[0].draft, {mode: 'mixed', operation: {steps: [
+    assert.deepEqual(saved.submissions, []);
+    assert.deepEqual(result, {id: pending.submissions[0].id, steps: [
         {key: 'registry', title: REGISTER, status: 'succeeded', revid: 2},
         {key: 'scores', title: SCORES, status: 'succeeded', revid: 2},
-    ]}});
+    ]});
     assert.doesNotMatch(storage.getItem(a.key), /這批說明|這批摘要|新增條目|edit|submitted/);
-    await controller.dismiss(saved.submissions[0].id);
+    assert.deepEqual((await reload().init()).submissions, []);
     assert.deepEqual((await a.read()).submissions, []);
+});
+
+test('reloading an edit conflict replaces the pending submission with the retained proposal for review', async () => {
+    const {a} = fixture(); await a.init();
+    const original = dataForMode('edit');
+    const proposedRules = parseUserReason('1c(本地自訂規則)[2]');
+    await a.add('edit', [{...original, pageName: 'Local title', awarder: 'B', ruleStatus: proposedRules}]);
+    const initial = await a.read();
+    const text = `=== 10月14日 ===\n{{ACG提名2\n${Object.entries(original.source.values).map(([name, value]) => `|${name}1 = ${value}`).join('\n')}\n}}`
+        .replace('request|ver=1|1a', 'request|ver=1|1b');
+    let reads = 0, writes = 0;
+    const io = {read: async () => { reads++; return {text, revid: 2}; },
+        write: async () => { writes++; throw new Error('unexpected write'); }};
+    const controller = createSubmitController(a, () => {}, io);
+    await assert.rejects(controller.start({items: initial.items, fields: initial.fields}), /已變更/);
+    const pending = await a.read();
+    assert.deepEqual(pending.items, initial.items);
+    await controller.rebase(pending.submissions[0].id);
+    const refreshed = await a.read(), item = refreshed.items[0];
+    assert.deepEqual(refreshed.submissions, []);
+    assert.equal(item.nomination.pageName, 'Local title');
+    assert.equal(item.nomination.previousProposal.awarder, 'B');
+    assert.deepEqual(item.nomination.previousProposal.ruleStatus, proposedRules);
+    assert.equal(item.needsReview, true);
+    assert.match(item.nomination.source.values['提名理由'], /1b/);
+    assert.equal(sessionProgress(refreshed).complete, false);
+    assert.equal(reads, 2);
+    assert.equal(writes, 0);
 });
 
 test('per-type completion counts share submission eligibility and exclude unchanged or submitted work', () => {

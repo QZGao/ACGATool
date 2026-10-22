@@ -10,6 +10,7 @@ import {
     entryValues,
     getDateSections,
     getFullText,
+    listEntries,
     queried2NomData,
     queryEntry
 } from "../wiki/api.js";
@@ -108,7 +109,7 @@ function archiveChapter(date) {
 /**
  * 讀取提名資料後，在頁面加入編輯與核對入口，隱藏自己的核對入口。
  * 此處的身分判斷只控制顯示；提交時仍須根據最新來源再次檢查。
- * 附在原始列上的日期與位置只供 DOM 對接，不作為跨版本儲存識別。
+ * 附在原始列上的日期與四欄快照供 DOM 對接，儲存時仍讀取最新原文。
  */
 export async function addEditButtonsToPage(sourceText) {
     // 保留使用者熟悉的頁首雙按鈕：手動入口在前，小工具的藍色入口在後。
@@ -136,10 +137,17 @@ export async function addEditButtonsToPage(sourceText) {
     const recentSections = new Set(getDateSections(fulltext)
         .filter(section => hasRecentActivity(fulltext.slice(section.start, section.end), now)).map(section => section.date));
     const sections = getNominationSections(content);
+    // 同一份原文只解析一次；標題列與核對列共用這份日期內的提名索引。
+    const entriesByDate = new Map();
+    for (const entry of listEntries(fulltext)) {
+        if (!entriesByDate.has(entry.date)) entriesByDate.set(entry.date, []);
+        entriesByDate.get(entry.date).push(entry);
+    }
     for (const section of sections) {
         const h3 = $(section.heading);
         const date = h3.text().trim();
         let index = 0;
+        const entries = entriesByDate.get(date) || [];
 
         // 歸檔入口沿用標題的 editsection；由標題往上找容器，兼容 CD 的標題包裝。
         const $heading = h3.closest('.mw-heading');
@@ -161,32 +169,24 @@ export async function addEditButtonsToPage(sourceText) {
             const table = $(tableElement);
             // 說明內可含其他表格；只處理這張提名表格自己的列。
             let rows = table.find('tr').filter((_, row) => $(row).closest('table')[0] === tableElement).slice(1);
-            let title = "";
+            let entry, values, rechecking;
             rows.each(function () {
                 let row = $(this);
                 let th = row.children('th');
                 if (th.length !== 0) {
+                    entry = entries[index++];
+                    values = entry ? entryValues(entry) : null;
+                    rechecking = values ? !!parseCheck(values['核對用']) : false;
+                }
+                const currentIndex = index;
+                row.attr('data-acga-date', date);
+                if (values) row.attr('data-acga-source-values', JSON.stringify(values));
+                if (th.length !== 0) {
                     // 提名行
                     let nomEntry = th.first();
-                    let nomEntryA = nomEntry.find('a');
-                    if (nomEntryA.length !== 0) {
-                        title = nomEntry.find('a').first().attr('title');
-                    } else {
-                        title = nomEntry.text().trim();
-                    }
-                    ++index;
-
-                    // 加入編輯按鈕
-                    const currentIndex = index;
-                    row.attr({'data-acga-date': date, 'data-acga-source-index': currentIndex});
-                    const currentEntry = queryEntry(fulltext, date, currentIndex);
-                    if (currentEntry) {
-                        const values = entryValues(currentEntry);
-                        row.attr('data-acga-source-values', JSON.stringify(values));
-                        bindTitleStatus(nomEntry[0], values['條目名稱']);
-                    }
+                    if (values) bindTitleStatus(nomEntry[0], values['條目名稱']);
                     // 已核分項目由核對列的覆核入口處理，避免鉛筆暗中切換操作種類。
-                    if (currentEntry && !parseCheck(entryValues(currentEntry)['核對用'])) {
+                    if (entry && !rechecking) {
                         const editButton = iconButton(cdxIconEdit, state.conv({hant: '編輯提名', hans: '编辑提名'}), () =>
                             editNomination(date, currentIndex), {showLabel: true}).addClass('acga-control acga-edit-button');
                         nomEntry.append(' ').append(editButton);
@@ -195,15 +195,9 @@ export async function addEditButtonsToPage(sourceText) {
                     // 核對行
                     let td = row.children('td').first();
                     let mwNoTalk = td.find('.mw-notalk').first();
-                    const currentIndex = index;
-
-                    row.attr({'data-acga-date': date, 'data-acga-source-index': currentIndex});
-                    const entry = queryEntry(fulltext, date, currentIndex);
-                    if (entry) row.attr('data-acga-source-values', JSON.stringify(entryValues(entry)));
                     if (!entry || isOwnNomination(entryOwnership(fulltext, entry), mw.config.get('wgUserName'))) return;
 
                     // 依來源的有效核分結果區分核對與覆核，不依賴其他小工具可改寫的列 class。
-                    const rechecking = !!parseCheck(entryValues(entry)['核對用']);
                     const label = state.conv({
                         hant: rechecking ? '覆核／更正得分' : '核對', hans: rechecking ? '复核／更正得分' : '核对',
                     });

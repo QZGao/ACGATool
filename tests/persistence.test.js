@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {submitWorkspace, REGISTER, SCORES, getNewNominationPlacement} from '../src/wiki/submission.js';
-import {entryValues, queryEntry, queried2NomData, getDateSections, parseUserReason} from '../src/wiki/api.js';
+import {entryValues, queryEntry, queried2NomData, getDateSections} from '../src/wiki/api.js';
 import {reviewData} from '../src/nomination/scoring.js';
 import {createItem} from '../src/nomination/operations.js';
 
@@ -13,9 +13,9 @@ function fixture() {
     const nomination = reviewData(queried2NomData(entry), {date: '10月14日', index: 1, values: entryValues(entry)});
     nomination.reviewed = true;
     const pages = new Map([[REGISTER, {text, revid: 1}], [SCORES, {text: scores, revid: 1}]]);
-    const writes = [], edits = [];
+    const reads = [], writes = [], edits = [];
     const io = {
-        read: async title => clone(pages.get(title)),
+        read: async title => { reads.push(title); return clone(pages.get(title)); },
         write: async edit => {
             assert.doesNotMatch(edit.summary, /\[ACGATool:/);
             assert.doesNotMatch(edit.text, /<!--\/?ACGATool|-- ACGATool /);
@@ -27,7 +27,7 @@ function fixture() {
             return {revid: page.revid + 1};
         },
     };
-    return {draft: {mode: 'mixed', items: [createItem('check', nomination)], message: ''}, io, writes, pages, edits};
+    return {draft: {mode: 'mixed', items: [createItem('check', nomination)], message: ''}, io, reads, writes, pages, edits};
 }
 
 test('new nominations append at the bottom and only add a missing UTC date heading', async () => {
@@ -125,7 +125,7 @@ test('changed score-bearing fields stop the entire batch before any write', asyn
 });
 
 test('signatures are submitted for server expansion and score updates use the latest totals', async () => {
-    const {draft, io, pages} = fixture();
+    const {draft, io, pages, reads} = fixture();
     const write = io.write;
     io.write = async edit => {
         const result = await write(edit);
@@ -139,6 +139,7 @@ test('signatures are submitted for server expansion and score updates use the la
     };
     assert.equal(await submitWorkspace(draft, () => {}, io), true);
     assert.match(pages.get(SCORES).text, /\["A"\] = 61,/);
+    assert.deepEqual(reads, [REGISTER, SCORES, SCORES]);
 });
 
 test('one mixed batch edits, reviews and appends more than 25 nominations with shared submission fields', async () => {
@@ -160,23 +161,4 @@ test('one mixed batch edits, reviews and appends more than 25 nominations with s
         '新增提名 30 筆、修改提名 1 筆、核對 1 筆：修正與核對 ([[User:SuperGrey/gadgets/ACGATool|ACGATool]])',
         '核對[[Test]]（A +1 分）：修正與核對 ([[User:SuperGrey/gadgets/ACGATool|ACGATool]])',
     ]);
-});
-
-test('reloading an edit conflict retains the complete local proposal and requires acknowledgement', async () => {
-    const {draft, io, pages, writes, edits} = fixture();
-    const {reloadForReview} = await import('../src/nomination/conflicts.js');
-    const entry = queryEntry(pages.get(REGISTER).text, '10月14日', 1);
-    const proposedRules = parseUserReason('1c(本地自訂規則)[2]');
-    const item = createItem('edit', {...queried2NomData(entry), source: draft.items[0].nomination.source,
-        pageName: 'Local title', awarder: 'B', ruleStatus: proposedRules});
-    const mixed = {mode: 'mixed', items: [item]};
-    pages.get(REGISTER).text = pages.get(REGISTER).text.replace('request|ver=1|1a', 'request|ver=1|1b');
-    await assert.rejects(submitWorkspace(mixed, () => {}, io), /已變更/);
-    await reloadForReview(mixed, io);
-    assert.equal(mixed.items[0].nomination.pageName, 'Local title');
-    assert.equal(mixed.items[0].nomination.previousProposal.awarder, 'B');
-    assert.deepEqual(mixed.items[0].nomination.previousProposal.ruleStatus, proposedRules);
-    assert.equal(mixed.items[0].needsReview, true);
-    await assert.rejects(submitWorkspace(mixed, () => {}, io), /差異/);
-    assert.deepEqual(writes, []);
 });

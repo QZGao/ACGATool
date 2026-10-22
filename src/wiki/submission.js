@@ -1,7 +1,7 @@
 import {t} from '../i18n.js';
 /**
  * 編排登記處與積分榜的兩次獨立編輯。
- * operation 保留提交快照、入帳差額及各步驟狀態；部分完成時從未完成步驟恢復。
+ * draft 是唯一的提交內容快照；operation 只保留入帳差額及各步驟狀態。
  */
 import {updateEntries, entryValues, getDateSections} from './api.js';
 import {ReviewConflict, validateNominations} from '../nomination/conflicts.js';
@@ -108,19 +108,15 @@ export function prepareMixed(text, draft) {
 }
 
 /**
- * 建立提交快照與分步操作，並在任何寫入前驗證所需頁面與積分調整。
- * 此函式只讀取及準備資料；呼叫端須先持久保存 operation 才能開始送出。
+ * 從最新頁面準備登記處編輯，並在寫入前驗證積分調整。
+ * 初次提交及登記處重試共用；準備出的本文直接用於該次編輯請求。
  */
-async function prepareOperation(draft, io) {
-    const operation = {submitted: JSON.parse(JSON.stringify({items: draft.items, message: draft.message, summary: draft.summary})), steps: []};
+async function prepareRegistry(draft, io) {
     const checking = draft.items.some(item => item.mode === 'check');
     const [registry, scoreboard] = await Promise.all([io.read(REGISTER), checking ? io.read(SCORES) : null]);
     const prepared = prepareMixed(registry.text, draft);
-    operation.results = prepared.results;
     if (scoreboard) prepareScoreText(scoreboard.text, prepared.results);
-    operation.steps.push({key: 'registry', title: REGISTER, status: 'pending'});
-    if (scoreboard) operation.steps.push({key: 'scores', title: SCORES, status: 'pending'});
-    return operation;
+    return {...prepared, snapshot: registry};
 }
 
 /**
@@ -130,12 +126,16 @@ async function prepareOperation(draft, io) {
 export async function submitWorkspace(draft, persist, io = wikiTransport, stepKey = null) {
     if (draft.conflicts?.length) throw new ReviewConflict(draft.conflicts);
     if (stepKey && !draft.operation) throw new Error(t('沒有可重試的儲存步驟。', '没有可重试的保存步骤。'));
+    let preparedRegistry;
     if (!draft.operation) {
-        try { draft.operation = await prepareOperation(draft, io); }
+        try { preparedRegistry = await prepareRegistry(draft, io); }
         catch (error) {
             if (error instanceof ReviewConflict) { draft.conflicts = error.changes; await persist(); }
             throw error;
         }
+        const steps = [{key: 'registry', title: REGISTER, status: 'pending'}];
+        if (preparedRegistry.results.length) steps.push({key: 'scores', title: SCORES, status: 'pending'});
+        draft.operation = {results: preparedRegistry.results, steps};
         await persist();
     }
     const operation = draft.operation;
@@ -147,18 +147,17 @@ export async function submitWorkspace(draft, persist, io = wikiTransport, stepKe
         if (step.status === 'succeeded') continue;
         let edit;
         try {
-            const current = await io.read(step.title);
             if (step.key === 'scores') {
+                // 積分榜寫入前讀取最新總分，保留登記處儲存期間的其他加減分。
+                const current = await io.read(SCORES);
                 const text = prepareScoreText(current.text, operation.results);
                 if (text === current.text) { step.status = 'succeeded'; step.revid = current.revid; await persist(); continue; }
-                edit = editRequest(SCORES, current, text, submissionSummary(operation.submitted, true));
+                edit = editRequest(SCORES, current, text, submissionSummary(draft, true));
             } else {
-                // 登記處送出前仍重新讀取並比較來源，內容變更時維持中斷及重新核對流程。
-                const submitted = operation.submitted;
-                const prepared = prepareMixed(current.text, submitted);
+                // 首次沿用本輪準備結果；重試則重新讀取及比對來源，不保存本文副本。
+                const prepared = preparedRegistry || await prepareRegistry(draft, io);
                 operation.results = prepared.results;
-                if (operation.results.length) prepareScoreText((await io.read(SCORES)).text, operation.results);
-                edit = editRequest(REGISTER, current, prepared.text, submissionSummary(submitted));
+                edit = editRequest(REGISTER, prepared.snapshot, prepared.text, submissionSummary(draft));
             }
         } catch (error) {
             step.status = error instanceof ReviewConflict ? 'conflict' : 'failed';

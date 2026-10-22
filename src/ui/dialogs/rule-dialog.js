@@ -1,5 +1,6 @@
 import {t} from '../../i18n.js';
-import {NominationRules, normalizeRuleStatus, ruleValues} from '../../nomination/rules.js';
+import {NominationRules, ruleValues} from '../../nomination/rules.js';
+import {copy} from '../../nomination/operations.js';
 let windowManager;
 
 /** 規則視窗只編輯自己的副本，未按完成的內容永不進入 localStorage。 */
@@ -15,11 +16,11 @@ export function initRuleEditor(root) {
 
 export async function chooseRules(nomination, checking) {
     const dialog = new RulesDialog({size: 'large'});
-    dialog.nomination = {ruleStatus: normalizeRuleStatus(nomination.ruleStatus)};
+    dialog.nomination = {ruleStatus: copy(nomination.ruleStatus)};
     dialog.check = checking;
     windowManager.addWindows([dialog]);
     const result = await windowManager.openWindow(dialog).closed;
-    const rules = result?.action === 'done' ? normalizeRuleStatus(dialog.nomination.ruleStatus) : null;
+    const rules = result?.action === 'done' ? dialog.nomination.ruleStatus : null;
     await windowManager.removeWindows(['ACGARules']);
     windowManager.$element.children('.acga-rule-measure').remove();
     return rules;

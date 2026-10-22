@@ -1,18 +1,38 @@
 import {t} from '../i18n.js';
-import {copy, equal, createItem, sameSource, lockedItem} from '../nomination/operations.js';
+import {copy, equal, createItem, sameSource, lockedItem, hasInput} from '../nomination/operations.js';
 import {newId} from '../nomination/scoring.js';
 
 const empty = () => ({schema: 3, revision: 0, items: [], drafts: [], fields: {message: '', summary: ''}, conflicts: [], submissions: []});
 
-/** 讀取時清理孤立的未完成提交；成功的提交內容已在完成時清除，只剩結果畫面資料。 */
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const validItem = item => object(item) && typeof item.id === 'string' && ['new', 'edit', 'check'].includes(item.mode) &&
+    object(item.nomination) && ['pageName', 'awarder'].every(field => typeof item.nomination[field] === 'string') &&
+    object(item.nomination.ruleStatus) && Object.values(item.nomination.ruleStatus).every(object) &&
+    (item.mode === 'new' || object(item.nomination.source) && typeof item.nomination.source.date === 'string' &&
+        Number.isInteger(item.nomination.source.index) && object(item.nomination.source.values) &&
+        ['條目名稱', '用戶名稱', '提名理由', '核對用'].every(field => typeof item.nomination.source.values[field] === 'string'));
+
+/** 驗證啟動與表單同步會用到的資料結構，不把壞記錄交給畫面後才拋錯。 */
+function validSession(session) {
+    return session?.schema === 3 && Number.isInteger(session.revision) &&
+        ['items', 'drafts', 'conflicts', 'submissions'].every(name => Array.isArray(session[name])) &&
+        object(session.fields) && ['message', 'summary'].every(field => typeof session.fields[field] === 'string') &&
+        [...session.items, ...session.drafts].every(validItem) &&
+        session.conflicts.every(conflict => object(conflict) && typeof conflict.id === 'string' && typeof conflict.field === 'string') &&
+        session.submissions.every(submission => object(submission) && typeof submission.id === 'string' &&
+            Array.isArray(submission.itemIds) && object(submission.draft) && ['mixed', 'archive'].includes(submission.draft.mode) &&
+            (!submission.draft.operation || object(submission.draft.operation) && Array.isArray(submission.draft.operation.steps) &&
+                submission.draft.operation.steps.every(step => object(step) && typeof step.key === 'string' && typeof step.status === 'string')));
+}
+
+/** 讀取時清理孤立的未完成提交。 */
 function collectSubmissions(session) {
     const reachable = new Set([...session.items, ...session.drafts].map(item => item.id));
     const cutoff = Date.now() - 6 * 60 * 60 * 1000;
     const retained = session.submissions.filter(submission => {
-        if (submission.finished) return true;
         // 歸檔沒有逐筆表單，仍由儲存進度提供操作入口，不能據此視為孤立紀錄。
         if (!submission.itemIds.length || submission.itemIds.some(id => reachable.has(id))) return true;
-        return !Number.isFinite(submission.createdAt) || submission.createdAt >= cutoff;
+        return submission.createdAt >= cutoff;
     });
     if (retained.length === session.submissions.length) return false;
     session.submissions = retained;
@@ -24,35 +44,67 @@ function collectSubmissions(session) {
  * 串行化；每次只套用受影響欄位，不能用記憶體中的整份舊快照覆寫其他分頁。
  * locks 可注入記憶體實作，測試不需要瀏覽器或網路。
  */
-export function createSessionStore(storage, prefix, locks = globalThis.navigator?.locks) {
+export function createSessionStore(storage, prefix, locks = globalThis.navigator?.locks, defaultAwarder = '') {
     const key = `${prefix}:session`;
+    let localItems = [];
+    let itemOrder = [];
     const load = () => {
-        const raw = storage.getItem(key);
-        const session = raw ? JSON.parse(raw) : empty();
-        if (session.schema !== 3 || !['items', 'drafts', 'conflicts', 'submissions'].every(name => Array.isArray(session[name])) || !session.fields) throw new Error(t('無法讀取編輯資料，原資料已保留。', '无法读取编辑资料，原资料已保留。'));
-        return session;
+        try {
+            const raw = storage.getItem(key);
+            const session = raw ? JSON.parse(raw) : empty();
+            if (!validSession(session)) {
+                throw new Error(t('本機編輯資料格式不符。', '本机编辑数据格式不符。'));
+            }
+            return session;
+        } catch (error) {
+            console.error(t('[ACGATool] 無法讀取本機編輯資料，按不存在處理。', '[ACGATool] 无法读取本机编辑数据，按不存在处理。'), error);
+            return empty();
+        }
     };
     const lock = (name, callback, options = {}) => {
         if (!locks?.request) return Promise.reject(new Error(t('此瀏覽器無法協調多個分頁的編輯，請更新瀏覽器後重試。', '此浏览器无法协调多个分页的编辑，请更新浏览器后重试。')));
         return locks.request(`${prefix}:${name}`, options, callback);
     };
-    const write = session => {
-        try { storage.setItem(key, JSON.stringify(session)); }
-        catch (error) { error.code = 'local-storage'; throw error; }
+    const persistable = (session, item) => hasInput(item, defaultAwarder) || lockedItem(session, item.id) ||
+        session.conflicts.some(conflict => conflict.itemId === item.id);
+    const withLocalItems = stored => {
+        const session = copy(stored);
+        // 別頁已開始編輯同一來源時，改用共同工作區的資料，移除本頁尚未修改的副本。
+        localItems = localItems.filter(item => ![...session.items, ...session.drafts].some(other => other.id === item.id) &&
+            !session.items.some(other => sameSource(other.nomination.source, item.nomination.source)));
+        session.items.push(...copy(localItems));
+        // 首次輸入由記憶體轉入 localStorage 時，保留本頁的表單順序與輸入框位置。
+        const order = new Map(itemOrder.map((id, index) => [id, index]));
+        session.items.sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity));
+        return session;
+    };
+    const write = (session, stored) => {
+        const persistent = {...session, items: session.items.filter(item => persistable(session, item))};
+        const storedOrder = new Map(stored.items.map((item, index) => [item.id, index]));
+        persistent.items.sort((a, b) => (storedOrder.get(a.id) ?? Infinity) - (storedOrder.get(b.id) ?? Infinity));
+        const ids = new Set(persistent.items.map(item => item.id));
+        if (!equal(persistent, stored)) {
+            persistent.revision = stored.revision + 1;
+            try { storage.setItem(key, JSON.stringify(persistent)); }
+            catch (error) { error.code = 'local-storage'; throw error; }
+            session.revision = persistent.revision;
+        }
+        localItems = copy(session.items.filter(item => !ids.has(item.id)));
+        itemOrder = session.items.map(item => item.id);
     };
     // 讀取時的垃圾清理也要持有狀態鎖，避免覆寫另一分頁剛恢復的表單。
     const readLocked = () => {
-        const session = load();
-        if (collectSubmissions(session)) { session.revision++; write(session); }
+        const stored = load(), session = withLocalItems(stored);
+        collectSubmissions(session);
+        write(session, stored);
         return session;
     };
     const read = () => lock('state', readLocked);
     const mutate = callback => lock('state', () => {
-        const session = load();
+        const stored = load(), session = withLocalItems(stored);
         collectSubmissions(session);
         const result = callback(session);
-        session.revision++;
-        write(session);
+        write(session, stored);
         return {session, result};
     });
     const editable = (session, id) => {
@@ -89,17 +141,10 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
     };
     return {
         key, read, mutate,
-        async init() {
-            return lock('state', () => {
-                if (storage.getItem(key)) return readLocked();
-                const session = empty();
-                write(session);
-                return session;
-            });
-        },
+        init: read,
         add(mode, nominations) {
             return mutate(session => nominations.map(nomination => {
-                if (nomination.source && session.submissions.some(item => !item.finished && item.draft.archive?.date === nomination.source.date)) throw new Error(t('此小節正在歸檔，請先處理其儲存結果。', '此小节正在归档，请先处理其保存结果。'));
+                if (nomination.source && session.submissions.some(item => item.draft.archive?.date === nomination.source.date)) throw new Error(t('此小節正在歸檔，請先處理其儲存結果。', '此小节正在归档，请先处理其保存结果。'));
                 const existing = session.items.find(item => sameSource(item.nomination.source, nomination.source));
                 if (existing) {
                     if (existing.mode !== mode) throw new Error(t('這筆提名已有另一種編輯操作，請先暫存或取消該筆操作。', '这项提名已有另一种编辑操作，请先暂存或取消该项操作。'));
@@ -131,22 +176,27 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
                 session.conflicts = session.conflicts.filter(item => item.id !== id);
             });
         },
-        stash(id) {
-            return mutate(session => moveToDrafts(session, [editable(session, id)]));
+        stash(id, restoring = false) {
+            return mutate(session => {
+                // 恢復時找不到原列，也將儲存中的表單移入同一草稿箱，保留其提交紀錄。
+                const item = restoring ? session.items.find(item => item.id === id) : editable(session, id);
+                return item ? moveToDrafts(session, [item]) : 0;
+            });
         },
         stashAll() {
             // 在同一把狀態鎖內選取與搬移，避免跨分頁更新遺失或保存失敗時只暫存半批。
             // 已送出的操作仍由儲存流程持有；空白、未改動及未完成的表單都可以暫存。
             return mutate(session => moveToDrafts(session, session.items.filter(item => !lockedItem(session, item.id))));
         },
-        restore(ids) {
+        restore(ids, sourceAvailable = () => true) {
             return mutate(session => {
                 const restored = [], failures = [];
                 for (const id of ids) {
                     const item = session.drafts.find(item => item.id === id);
                     let reason;
                     if (!item) reason = t('此草稿已在另一個分頁移除或恢復。', '此草稿已在另一个分页移除或恢复。');
-                    else if (item.nomination.source && session.submissions.some(submission => !submission.finished && submission.draft.archive?.date === item.nomination.source.date)) reason = t('此小節正在歸檔。', '此小节正在归档。');
+                    else if (!sourceAvailable(item)) reason = t('找不到原提名。', '找不到原提名。');
+                    else if (item.nomination.source && session.submissions.some(submission => submission.draft.archive?.date === item.nomination.source.date)) reason = t('此小節正在歸檔。', '此小节正在归档。');
                     else if (session.items.some(other => sameSource(other.nomination.source, item.nomination.source))) reason = t('此提名已在表單中。', '此提名已在表单中。');
                     if (reason) { failures.push({id, reason}); continue; }
                     session.items.push(item);

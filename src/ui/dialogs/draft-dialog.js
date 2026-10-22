@@ -53,7 +53,10 @@ export function initDraftDialog() {
     DraftDialog.prototype.getActionProcess = function (action) {
         return new OO.ui.Process(async () => {
             if (action === 'restore' || action === 'discard') {
-                try { await this[action](this.choices.filter(choice => choice.checkbox.isSelected()).map(choice => choice.item)); }
+                const selected = this.choices.filter(choice => choice.checkbox.isSelected()).map(choice => choice.item);
+                // 多選草稿只確認一次；取消時保留原視窗與勾選項目。
+                if (action === 'discard' && !await OO.ui.confirm(t(`確定刪除所選的 ${selected.length} 筆暫存草稿？`, `确定删除所选的 ${selected.length} 项暂存草稿？`))) return;
+                try { await this[action](selected); }
                 catch (error) { throw new OO.ui.Error(error.message, {recoverable: true}); }
             }
             this.close({action});

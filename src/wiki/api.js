@@ -476,17 +476,6 @@ export function listEntries(text) {
 }
 
 /**
- * 以日期與原始四欄快照，從最新本文重新找出唯一且未變更的提名。
- * 找不到或有多筆相符時停止，避免將舊的字元位置套到其他提名。
- */
-export function findUnchangedEntry(text, source) {
-    const matches = listEntries(text).filter(entry => entry.date === source.date &&
-        JSON.stringify(entryValues(entry)) === JSON.stringify(source.values));
-    if (matches.length !== 1) throw new Error(t('提名已變更、移除或無法唯一辨識，請重新核對。', '提名已变更、移除或无法唯一辨识，请重新核对。'));
-    return matches[0];
-}
-
-/**
  * Removes comments from the given text.
  * @param text {string} The text to remove comments from.
  * @returns {string} The text without comments.

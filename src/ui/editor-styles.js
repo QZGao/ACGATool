@@ -45,9 +45,6 @@ export function initEditorStyles() {
         .acga-dock-panel .oo-ui-textInputWidget { max-width: none; }
         .acga-dock-panel .acga-actions { margin-top: .6em; }
         .acga-dock .oo-ui-buttonElement { margin: 0; }
-        .acga-dock .acga-drafts { display: flex; flex-wrap: wrap; gap: .5em; }
-        .acga-dock .acga-drafts > strong { flex-basis: 100%; }
-        .acga-dock-options { margin-bottom: .8em; }
         .acga-conflicts { overflow-x: auto; }
         .acga-conflicts:empty { display: none; }
         .acga-conflicts table { width: 100%; border-collapse: collapse; }
@@ -93,8 +90,6 @@ export function initEditorStyles() {
         .acga-edit-table th, .acga-edit-table td { overflow-wrap: anywhere; }
         .acga-edit-table .acgnom-title-cell { text-align: center; }
         .acga-table-scroll { overflow-x: auto; }
-        .acga-drafts .oo-ui-buttonElement { max-width: 100%; }
-        .acga-drafts .oo-ui-labelElement-label { white-space: normal; }
         .acga-editor .oo-ui-horizontalLayout { min-width: 0; }
         .acga-actions { display: flex; flex-wrap: wrap; gap: .5em; margin: 0; }
         .acga-rules details { margin: .75em 0; }

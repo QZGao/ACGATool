@@ -1,7 +1,8 @@
 import {t} from '../i18n.js';
-import {entryValues, listEntries} from '../wiki/api.js';
-import {stripComments} from './scoring.js';
+import {entryValues, listEntries, queried2NomData} from '../wiki/api.js';
+import {stripComments, reviewData} from './scoring.js';
 import {entryOwnership} from './ownership.js';
+import {copy} from './operations.js';
 
 // changes 是可存入草稿的欄位差異資料，供介面高亮與重新核對使用。
 export class ReviewConflict extends Error {
@@ -51,26 +52,19 @@ export function validateNominations(text, nominations) {
 }
 
 /**
- * 在使用者要求重新核對後載入最新來源。
+ * 根據呼叫端提供的最新原文重建編輯資料，不讀取頁面或修改提交紀錄。
  * 受影響項目撤銷完成標記，舊提案存入 previousProposal；其餘項目保留核對決定。
- * @param {object} draft 草稿會就地更新，舊 operation 只在成功重建資料後清除。
- * @param {object} io 唯讀查詢使用的實際或 dry-run 介面。
+ * @returns {object[]} 重建的操作；原輸入與未受影響的新提名保持不變。
  */
-export async function reloadForReview(draft, io) {
-    const {REGISTER} = await import('../wiki/submission.js');
-    const {queried2NomData} = await import('../wiki/api.js');
-    const {reviewData} = await import('./scoring.js');
-    const {copy} = await import('./operations.js');
-    const items = draft.items;
+export function refreshReviewItems(items, text, previousChanges = []) {
     const existing = items.filter(item => item.mode !== 'new');
-    const registry = await io.read(REGISTER);
     const sources = existing.map(item => item.nomination);
-    const inspection = inspectNominations(registry.text, sources);
+    const inspection = inspectNominations(text, sources);
     if (inspection.entries.some(entry => !entry)) throw new Error(t('無法唯一辨識原提名。原輸入仍保留，請核實提名是否已移動或刪除。', '无法唯一辨识原提名。原输入仍保留，请核实提名是否已移动或删除。'));
-    const changes = [...(draft.conflicts || []), ...inspection.changes];
+    const changes = [...previousChanges, ...inspection.changes];
     const refreshed = new Map(existing.map((item, index) => {
         const old = item.nomination, entry = inspection.entries[index];
-        const source = {date: entry.date, index: entry.index, values: entryValues(entry), ownership: entryOwnership(registry.text, entry)};
+        const source = {date: entry.date, index: entry.index, values: entryValues(entry), ownership: entryOwnership(text, entry)};
         const data = queried2NomData(entry);
         if (!data) throw new Error(t('目前提名格式無法讀取，原輸入仍保留。', '目前提名格式无法读取，原输入仍保留。'));
         const fresh = item.mode === 'check' ? reviewData(data, source) : {...data, source};
@@ -84,8 +78,5 @@ export async function reloadForReview(draft, io) {
         const nomination = item.mode === 'edit' ? {...old, source, previousProposal} : {...fresh, reviewed: false, previousProposal};
         return [item, {...item, nomination, reviewDiff: diff, needsReview: item.mode === 'edit'}];
     }));
-    const updated = items.map(item => refreshed.get(item) || item);
-    draft.items = updated;
-    draft.operation = null;
-    draft.conflicts = [];
+    return items.map(item => refreshed.get(item) || item);
 }

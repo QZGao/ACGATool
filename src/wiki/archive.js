@@ -31,8 +31,8 @@ export async function prepareArchive(date, io = wikiTransport) {
     if (!utc) throw new Error(t('無法確認此小節的 UTC 年月，請檢查提名簽名。', '无法确认此小节的 UTC 年月，请检查提名签名。'));
     const target = `WikiProject:ACG/維基ACG專題獎/存檔/${utc[1]}年${utc[2]}月`;
     return {mode: 'archive', archive: {date, source, target}, operation: {mode: 'archive', steps: [
-        {key: 'archive', label: t('存檔頁', '存档页'), title: target, status: 'pending'},
-        {key: 'registry', label: t('登記處', '登记处'), title: REGISTER, status: 'pending'},
+        {key: 'archive', title: target, status: 'pending'},
+        {key: 'registry', title: REGISTER, status: 'pending'},
     ]}};
 }
 

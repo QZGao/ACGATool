@@ -3,7 +3,7 @@
  * 本模組只建立畫面並更新傳入的提名；發布與草稿保存由呼叫端的回呼處理。
  */
 import {t} from '../i18n.js';
-import {NominationRuleSet, normalizeRuleStatus, ruleValues} from '../nomination/rules.js';
+import {NominationRuleSet, ruleValues} from '../nomination/rules.js';
 import {parseUserReason} from '../wiki/api.js';
 import {cdxIconTrash, cdxIconLogIn} from './icons.js';
 import {iconButton} from './icon-button.js';
@@ -14,19 +14,16 @@ import {bindTitleStatus} from '../page/title-status.js';
 
 /**
  * 取得原頁面的一對提名列，排除編輯器自己建立的列。
- * 日期與 index 只用來對接這次渲染的 DOM；儲存時仍須重新定位及驗證 wikitext。
+ * 日期與四欄快照對接這次渲染的 DOM；儲存時仍須重新定位及驗證 wikitext。
  * @returns {jQuery} 原提名與核對列；新提名或找不到來源時為空集合。
  */
 export function sourceRows(source) {
     if (!source) return $();
-    const $rows = $('[data-acga-date][data-acga-source-index]').filter((_, element) =>
+    const $rows = $('[data-acga-date][data-acga-source-values]').filter((_, element) =>
         !$(element).closest('.acga-editor').length && $(element).attr('data-acga-date') === source.date);
-    if ($rows.is('[data-acga-source-values]')) {
-        // 正文刷新後其他提名可能插入或移除。完整快照唯一對應時才隱藏原列。
-        const $matched = $rows.filter((_, element) => $(element).attr('data-acga-source-values') === JSON.stringify(source.values));
-        return $matched.length === 2 ? $matched : $();
-    }
-    return $rows.filter((_, element) => Number($(element).attr('data-acga-source-index')) === source.index);
+    // 正文刷新後其他提名可能插入或移除。完整快照唯一對應時才隱藏原列。
+    const $matched = $rows.filter((_, element) => $(element).attr('data-acga-source-values') === JSON.stringify(source.values));
+    return $matched.length === 2 ? $matched : $();
 }
 
 /**
@@ -54,7 +51,6 @@ function action(label, handler) {
  * 只展示尚未使用的規則選項不算否決；無效分數顯示問號，提交驗證仍由計分模組負責。
  */
 export function ruleFragments(ruleStatus, selected = true) {
-    ruleStatus = normalizeRuleStatus(ruleStatus);
     const {ruleNames, ruleDict} = NominationRuleSet();
     const $result = $('<span>');
     let count = 0, total = 0;
@@ -98,7 +94,7 @@ function userContents(nomination) {
  * @param {object} nomination 可修改的草稿資料，含來源快照與核分狀態。
  * @param {number} index 草稿陣列位置，呈現時使用從 1 起算的行編號。
  * @param {object} callbacks checking 決定模式；touch／onReviewed 通知資料變更；onInputSettled 在組合輸入結束後處理延後的同步。
- * @returns {object} 原始列節點、原地同步與組合輸入介面；核對模式另附 reviewWidget。
+ * @returns {object} 原始列節點、原地同步與組合輸入介面。
  */
 export function appendNominationRows($table, nomination, index, {checking, openRules, touch, onReviewed, onRemove, onStash, onInputSettled}) {
     const status = nomination.original ? 'rechecking' : 'pending';
@@ -228,14 +224,6 @@ export function appendNominationRows($table, nomination, index, {checking, openR
     $resultCell.append($scorePreview);
     if (nomination.previousProposal) $resultCell.append($('<details>').append($('<summary>').text(t('先前草稿的核對內容', '先前草稿的核对内容')), $('<p>').text(nomination.previousProposal.awarder), ruleFragments(nomination.previousProposal.ruleStatus).$element, $('<p>').text(nomination.previousProposal.message || '')));
     const $reviewed = $('<input>').attr({type: 'checkbox', 'data-acga-field': 'reviewed'}).prop('checked', nomination.reviewed);
-    // 提供與編輯器相同的選取介面，讓欄位變更或遠端衝突能撤銷這筆的完成標記。
-    const reviewWidget = {
-        isSelected: () => $reviewed.prop('checked'),
-        setSelected: value => {
-            if (value === $reviewed.prop('checked') && value === nomination.reviewed) return;
-            $reviewed.prop('checked', value); nomination.reviewed = value; onReviewed();
-        },
-    };
     $reviewed.on('change', () => { nomination.reviewed = $reviewed.prop('checked'); onReviewed(); });
     $resultCell.append($('<label>').addClass('acga-inline-option acga-reviewed').append($reviewed, ' ', nomination.original ? t('覆核完成', '复核完成') : t('核對完成', '核对完成')));
     // 核對操作跟在完成標記後；按鈕放在 label 外，避免點擊時切換 checkbox。
@@ -247,5 +235,5 @@ export function appendNominationRows($table, nomination, index, {checking, openR
         $reviewed.prop('checked', !!nomination.reviewed);
         refreshScore();
     };
-    return {...controls, reviewWidget};
+    return controls;
 }
