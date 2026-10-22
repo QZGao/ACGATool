@@ -24,7 +24,6 @@ let queuedUpdates = 0;
 let storageFailure = null, unsavedTasks = [];
 const views = new Map();
 const completedResults = new Map();
-const renderedResults = new Set();
 let refreshing = false, pageReady = false;
 
 function signature(item) {
@@ -131,7 +130,7 @@ export function initOOUI() {
         navigator.locks, mw.config.get('wgUserName') || '');
     ready = store.init();
     controller = createSubmitController(store, result => {
-        if (result) completedResults.set(result.id, result);
+        if (result) completedResults.set(result.id, {...result, refreshStatus: 'pending'});
         if (session) sync();
     });
     saveButton = button(t('送出全部', '提交全部'), openConfirmation, ['primary', 'progressive']);
@@ -346,7 +345,7 @@ async function sync() {
     // 等待跨分頁狀態鎖時可能又有本地輸入；讓該次保存完成後再同步，保留輸入與 IME。
     if (queuedUpdates || storageFailure) return;
     if (!refreshing) {
-        // 正文完成索引後才判斷來源；刷新期間暫時 detach 的列不算恢復失敗。
+        // 正文完成索引後才判斷來源；刷新尚未完成時不判定恢復失敗。
         const missing = current.items.filter(item => !views.get(item.id)?.placed && !sourceAvailable(item));
         let moved = 0;
         for (const item of missing) {
@@ -403,28 +402,32 @@ async function sync() {
     updatePublishedResults();
 }
 
-/** 成功結果直接更新正文；浮層與尚未提交的輸入留在共同工作區，不靠整頁重載。 */
+/** 有其他表單時，本次結果留待手動重載；只有正文確實更新成功才隱藏重載按鈕。 */
 async function updatePublishedResults() {
-    const pending = [...completedResults.values()].filter(result => !renderedResults.has(result.id));
-    if (refreshing || !pending.length || composing() || queuedUpdates || windows.getCurrentWindow()) return;
+    const results = [...completedResults.values()];
+    const pending = results.filter(result => result.refreshStatus === 'pending');
+    if (refreshing || !pending.length) return;
+    if (session.items.length || views.size) {
+        pending.forEach(result => { result.refreshStatus = 'manual'; });
+        return;
+    }
+    if (composing() || queuedUpdates || windows.getCurrentWindow()) return;
     refreshing = true;
     try {
         let active, selection;
         const replaced = await refreshRegistryContent([dock.$element, windows.$element], () => {
-            // 讀取正文期間也可能開始了輸入法組合，替換前必須再檢查。
+            // 查詢期間可能新開表單，替換前再檢查；跳過後不因稍後關閉表單而自動重試。
+            if (session.items.length || views.size) {
+                pending.forEach(result => { result.refreshStatus = 'manual'; });
+                return false;
+            }
             if (composing() || queuedUpdates || windows.getCurrentWindow()) return false;
             active = document.activeElement;
             selection = [active?.selectionStart, active?.selectionEnd];
-            for (const view of views.values()) {
-                view.rows.$entry.add(view.rows.$check).detach();
-                for (const [element, display] of view.hidden) element.style.display = display;
-                view.hidden = []; view.placed = false;
-            }
-            $newSection?.remove(); $newSection = $newTable = $date = null;
-            clearTimeout(previewTimer);
         });
         if (replaced) {
-            pending.forEach(submission => renderedResults.add(submission.id));
+            // 此輪查詢前已完成的結果都已包含在新正文中。
+            results.forEach(result => { result.refreshStatus = 'done'; });
             await sync();
             if (document.contains(active) && document.activeElement !== active && active?.matches('input, textarea')) {
                 active.focus();
@@ -432,7 +435,7 @@ async function updatePublishedResults() {
             }
         }
     } catch (error) {
-        pending.forEach(submission => renderedResults.add(submission.id));
+        pending.forEach(result => { result.refreshStatus = 'manual'; });
         dock.$notice.text(t('儲存已完成，但正文更新失敗。可查看已儲存版本，或使用「關閉並重新載入頁面」。', '储存已完成，但正文更新失败。可查看已保存版本，或使用「关闭并重新载入页面」。'));
     } finally {
         refreshing = false;
@@ -607,8 +610,8 @@ function renderProgress() {
             dock.showPanel(null);
             if (reload) location.reload();
         };
-        $pane.append($block.append($('<div>').addClass('acga-actions').append(
-            button(t('關閉', '关闭'), () => close(false)).$element,
-            button(t('關閉並重新載入頁面', '关闭并重新载入页面'), () => close(true)).$element)));
+        const $actions = $('<div>').addClass('acga-actions').append(button(t('關閉', '关闭'), () => close(false)).$element);
+        if (result.refreshStatus !== 'done') $actions.append(button(t('關閉並重新載入頁面', '关闭并重新载入页面'), () => close(true)).$element);
+        $pane.append($block.append($actions));
     }
 }

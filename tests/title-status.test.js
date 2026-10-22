@@ -58,8 +58,6 @@ test('stale and destroyed bindings cannot paint late results, while pending titl
     assert.equal(first.querySelectorAll('img').length, 0);
     assert.equal(second.querySelectorAll('img').length, 0);
     assert.equal(requests.length, 2);
-    // 正文刷新會暫時拆下編輯列，這不代表綁定已銷毀。
-    first.remove();
     requests[1].resolve(response(requests[1].params, 'Category:新條目推薦候選')); await settle();
     assert.equal(first.querySelector('img').getAttribute('title'), '新條目推薦候選');
     assert.equal(first.querySelectorAll('img').length, 1);

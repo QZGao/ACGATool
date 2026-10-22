@@ -81,7 +81,7 @@ export function bindTitleStatus(cell, pageName) {
                 if (destroyed) return;
                 try {
                     const found = await categories.get(talk);
-                    // 正文刷新會暫時 detach 待編輯列；結果仍寫回原節點，重新掛載即可顯示。
+                    // 只接受仍有效的綁定及目前標題所對應的回應。
                     if (destroyed || version !== requestVersion) return;
                     status = 'loaded';
                     const matched = getTitleStatuses(found);
