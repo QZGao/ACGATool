@@ -15,8 +15,8 @@ export async function refreshRegistryContent(retained, beforeReplace) {
     retained.forEach($element => $element.detach());
     $root.empty().append($content.length ? $content.contents() : $parsed.contents());
     retained.forEach($element => $root.append($element));
-    // 維基小工具（包括 CD）可重新處理伺服器產生的正文。
-    mw.hook('wikipage.content').fire($root);
+    // 通知外層內容容器，讓監聽者可在其內找到更新後的 .mw-parser-output。
+    mw.hook('wikipage.content').fire($('#mw-content-text'));
     const {addEditButtonsToPage} = await import('./controls.js');
     await addEditButtonsToPage(text);
     window.scrollTo({top: position});
