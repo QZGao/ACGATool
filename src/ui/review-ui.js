@@ -12,7 +12,7 @@ export function fieldLabel(field) {
         '無法唯一辨識原提名，可能已移動、刪除或出現重複項目。': t('無法唯一辨識原提名，可能已移動、刪除或出現重複項目。', '无法唯一辨识原提名，可能已移动、删除或出现重复项目。'),
         pageName: t('條目', '条目'), awarder: t('得分者'), ruleStatus: t('規則', '规则'),
         message: t('說明', '说明'), summary: t('編輯摘要', '编辑摘要'), reviewed: t('核對完成', '核对完成'),
-        invalid: t('提名有效性'), booking: t('入帳狀態', '入账状态'),
+        invalid: t('提名有效性'),
     }[field] || field;
 }
 
@@ -20,10 +20,6 @@ export function fieldLabel(field) {
 export function fieldText(field, value) {
     if (field === 'reviewed') return value ? t('核對完成', '核对完成') : t('尚未核對完成', '尚未核对完成');
     if (field === 'invalid') return value ? t('提名無效', '提名无效') : t('提名有效');
-    if (field === 'booking') return {
-        unknown: t('尚未確認是否入帳', '尚未确认是否入账'), recorded: t('已有入帳記錄', '已有入账记录'),
-        booked: t('原核分已入帳', '原核分已入账'), unbooked: t('原核分尚未入帳', '原核分尚未入账'),
-    }[value] || String(value ?? '');
     try {
         const rules = field === 'ruleStatus' ? value : field === '提名理由' ? parseUserReason(value) :
             field === '核對用' ? parseCheck(value)?.ruleStatus : null;

@@ -3,13 +3,14 @@ import {t} from '../i18n.js';
  * 編排登記處與積分榜的兩次獨立編輯。
  * operation 保留提交快照、入帳差額及各步驟狀態；部分完成時從未完成步驟恢復。
  */
-import {updateEntries, entryValues, listEntries, getDateSections} from './api.js';
-import {ReviewConflict, validateNominations, validateAccounting} from '../nomination/conflicts.js';
+import {updateEntries, entryValues, getDateSections} from './api.js';
+import {ReviewConflict, validateNominations} from '../nomination/conflicts.js';
 import {entryOwnership, assertCanCheck} from '../nomination/ownership.js';
 import {wikiTransport, writeStep} from './transport.js';
 import {generateReason} from '../nomination/rules.js';
 import {operationStatus, hasChanges} from '../nomination/operations.js';
-import {newId, readRecord, parseCheck, previousBooking, checkWikitext, prepareScoreText, scoreDeltas} from '../nomination/scoring.js';
+import {newId, parseCheck, previousBooking, checkWikitext, prepareScoreText, stripComments} from '../nomination/scoring.js';
+import {submissionSummary} from './edit-summary.js';
 
 export const REGISTER = 'WikiProject:ACG/維基ACG專題獎/登記處';
 export const SCORES = 'Module:ACGaward/list';
@@ -25,45 +26,27 @@ export function getNewNominationPlacement(dates, now = new Date()) {
     return {date, newSection: !dates.includes(date)};
 }
 
-/**
- * 整批驗證後產生登記處修改與差額入帳資料，不執行寫入。
- * 每筆 result.before 是先前實際入帳的基準，不一定等於登記處顯示的核分。
- * @param {string} text 最新登記處本文。
- * @param {object[]} nominations 已逐筆核對、含來源快照與入帳基準的項目。
- * @param {string} [operation] 整批提交識別，重試時沿用。
- * @returns {object} text、results、按得分者彙總的差額 scores 及 operation。
- */
-export function prepareChecks(text, nominations, operation = newId()) {
-    if (!nominations.length) throw new Error(t('請先逐筆完成核對。', '请先逐项完成核对。'));
-    const entries = validateNominations(text, nominations);
-    const prepared = nominations.map((nomination, index) => checkUpdate(text, entries[index], nomination, operation));
-    const results = prepared.map(item => item.result);
-    return {text: updateEntries(text, prepared.map(item => item.update)), scores: scoreDeltas(results), results, operation};
-}
-
 /** 以已驗證的來源產生單筆修改與入帳資料，不重查修改中的本文。 */
-function checkUpdate(text, entry, nomination, operation) {
+function checkUpdate(text, entry, nomination) {
     if (!nomination.reviewed) throw new Error(t('請先逐筆完成核對。', '请先逐项完成核对。'));
-    assertCanCheck(entryOwnership(text, entry), mw.config.get('wgUserName'), nomination.awarder);
+    assertCanCheck(entryOwnership(text, entry), mw.config.get('wgUserName'));
     const reason = generateReason(nomination.ruleStatus, true);
     if (!reason) throw new Error(t('請檢查規則分數。', '请检查规则分数。'));
     const score = nomination.invalid ? 0 : reason.reasonScore;
     nomination.id ||= newId();
     if (!nomination.awarder.trim()) throw new Error(t('請填寫得分者。', '请填写得分者。'));
+    const changes = {'用戶名稱': nomination.awarder.trim(), '核對用': checkWikitext(nomination, reason)};
+    // 只在更正名稱時改寫條目欄；一般核分保留原欄位的註解與格式。
+    if (nomination.pageName.trim() !== stripComments(entryValues(entry)['條目名稱'])) changes['條目名稱'] = nomination.pageName.trim();
     return {
-        result: {id: nomination.id, awarder: nomination.awarder.trim(), score, before: previousBooking(nomination)},
-        update: {entry, changes: {'用戶名稱': nomination.awarder.trim(), '核對用': checkWikitext(nomination, reason, operation)}},
+        result: {id: nomination.id, source: {date: entry.date, index: entry.index}, awarder: nomination.awarder.trim(), score, before: previousBooking(nomination)},
+        update: {entry, changes},
     };
 }
 
-function registryMarker(id) { return `<!--ACGATool-save:${id}-->`; }
-/**
- * 保存一次寫入的完整本文、基底版本與查證標記。
- * 若回應未明，必須以這份原請求查證，不能重算差額後當成新請求送出。
- */
-function makeAttempt(title, snapshot, text, operation, label) {
-    const tag = `[ACGATool:${operation}]`;
-    return {title, text, tag, marker: registryMarker(operation), summary: `${label} ${tag}`,
+/** 以目前頁面版本組成這次編輯請求，交由 MediaWiki 檢查編輯衝突。 */
+function editRequest(title, snapshot, text, summary) {
+    return {title, text, summary,
         base: {revid: snapshot.revid, starttimestamp: snapshot.starttimestamp}};
 }
 
@@ -95,13 +78,11 @@ function editUpdate(entry, nomination) {
     }};
 }
 
-function prepareEdit(text, draft) {
-    const nomination = draft.nominations[0];
-    return updateEntries(text, [editUpdate(validateNominations(text, [nomination])[0], nomination)]);
-}
-
-/** 混合操作共用同一份登記處版本；所有來源先驗證，新提名最後追加。 */
-export function prepareMixed(text, draft, operation) {
+/**
+ * 混合操作共用同一份登記處版本；所有來源先驗證，新提名最後追加，不執行寫入。
+ * results 的 before 是先前實際入帳的基準，供積分榜計算差額。
+ */
+export function prepareMixed(text, draft) {
     const items = draft.items.filter(hasChanges);
     if (!items.length) throw new Error(t('沒有待提交的操作。', '没有待提交的操作。'));
     for (const item of items) {
@@ -117,7 +98,7 @@ export function prepareMixed(text, draft, operation) {
     existing.forEach((item, index) => {
         if (item.mode === 'edit') updates.push(editUpdate(entries[index], item.nomination));
         else {
-            const prepared = checkUpdate(text, entries[index], item.nomination, operation);
+            const prepared = checkUpdate(text, entries[index], item.nomination);
             updates.push(prepared.update); results.push(prepared.result);
         }
     });
@@ -131,44 +112,24 @@ export function prepareMixed(text, draft, operation) {
  * 此函式只讀取及準備資料；呼叫端須先持久保存 operation 才能開始送出。
  */
 async function prepareOperation(draft, io) {
-    const operation = {id: newId(), mode: draft.mode, submitted: JSON.parse(JSON.stringify({nominations: draft.nominations, items: draft.items, message: draft.message, summary: draft.summary})), steps: []};
-    const checking = draft.mode === 'check' || draft.items?.some(item => item.mode === 'check');
+    const operation = {submitted: JSON.parse(JSON.stringify({items: draft.items, message: draft.message, summary: draft.summary})), steps: []};
+    const checking = draft.items.some(item => item.mode === 'check');
     const [registry, scoreboard] = await Promise.all([io.read(REGISTER), checking ? io.read(SCORES) : null]);
-    let text;
-    if (draft.mode === 'mixed') {
-        const prepared = prepareMixed(registry.text, draft, operation.id);
-        text = prepared.text;
-        operation.results = prepared.results;
-        if (scoreboard) {
-            validateAccounting(scoreboard.text, prepared.results, operation.id);
-            prepareScoreText(scoreboard.text, prepared.results, operation.id);
-        }
-    } else if (draft.mode === 'new') text = prepareNew(registry.text, draft);
-    else if (draft.mode === 'edit') text = prepareEdit(registry.text, draft);
-    else {
-        const prepared = prepareChecks(registry.text, draft.nominations, operation.id);
-        text = prepared.text;
-        operation.results = prepared.results;
-        validateAccounting(scoreboard.text, prepared.results, operation.id);
-        prepareScoreText(scoreboard.text, prepared.results, operation.id);
-    }
-    operation.steps.push({key: 'registry', title: REGISTER, status: 'pending',
-        attempt: makeAttempt(REGISTER, registry, text + '\n' + registryMarker(operation.id), operation.id, draft.summary || '[[User:SuperGrey/gadgets/ACGATool|' + t('提名與核分', '提名与核分') + ']]')});
+    const prepared = prepareMixed(registry.text, draft);
+    operation.results = prepared.results;
+    if (scoreboard) prepareScoreText(scoreboard.text, prepared.results);
+    operation.steps.push({key: 'registry', title: REGISTER, status: 'pending'});
     if (scoreboard) operation.steps.push({key: 'scores', title: SCORES, status: 'pending'});
     return operation;
 }
 
 /**
- * 提交或恢復一份草稿，修改其 operation 以記錄每個頁面的進度。
- * 已成功的步驟跳過；saving／unknown 保留原請求交由 writeStep 查證。
- * @param {object} draft 目前草稿，含提名、說明及可選的未完成 operation。
- * @param {Function} persist 同步保存草稿的回呼；失敗必須拋出錯誤以阻止後續寫入。
- * @param {object} [io] read、write、findReceipt 介面；dry-run 測試注入記憶體實作。
- * @returns {Promise<boolean>} 全部完成為 true；需重試或查證為 false；前置驗證失敗會拋錯。
+ * 提交草稿並保存各頁面的進度；重試只執行指定步驟，已成功的步驟跳過。
+ * io 提供 read、write，dry-run 測試注入記憶體實作。
  */
-export async function submitWorkspace(draft, persist, io = wikiTransport, action = null) {
+export async function submitWorkspace(draft, persist, io = wikiTransport, stepKey = null) {
     if (draft.conflicts?.length) throw new ReviewConflict(draft.conflicts);
-    if (action && !draft.operation) throw new Error(t('沒有可查詢或重試的儲存步驟。', '没有可查询或重试的保存步骤。'));
+    if (stepKey && !draft.operation) throw new Error(t('沒有可重試的儲存步驟。', '没有可重试的保存步骤。'));
     if (!draft.operation) {
         try { draft.operation = await prepareOperation(draft, io); }
         catch (error) {
@@ -178,53 +139,33 @@ export async function submitWorkspace(draft, persist, io = wikiTransport, action
         await persist();
     }
     const operation = draft.operation;
-    const selected = action ? operation.steps.filter(step => step.key === action.stepKey) : operation.steps;
+    const selected = stepKey ? operation.steps.filter(step => step.key === stepKey) : operation.steps;
     if (!selected.length) throw new Error(t('找不到指定的儲存步驟。', '找不到指定的保存步骤。'));
     for (const step of selected) {
         const index = operation.steps.indexOf(step);
         if (operation.steps.slice(0, index).some(previous => previous.status !== 'succeeded')) throw new Error(t('請先完成前一個儲存步驟。', '请先完成前一个保存步骤。'));
-        if (action?.kind === 'query' && !['unknown', 'saving', 'succeeded'].includes(step.status)) throw new Error(t('此步驟沒有結果未明的請求。', '此步骤没有结果未明的请求。'));
-        if (action?.kind === 'retry' && ['unknown', 'saving'].includes(step.status)) throw new Error(t('請先查詢上次儲存結果。', '请先查询上次保存结果。'));
         if (step.status === 'succeeded') continue;
-        // 確定尚未寫入的步驟才可依最新版本重建；結果未明時必須沿用原 attempt。
-        if (!['saving', 'unknown'].includes(step.status)) {
-            try {
-                const current = await io.read(step.title);
-                if (step.key === 'scores') {
-                    // 兩頁不能原子提交；入帳前再次檢查登記處仍是本次已發布的核分內容。
-                    const registered = await io.read(REGISTER);
-                    validateNominations(registered.text, operation.expectedNominations);
-                    validateAccounting(current.text, operation.results, operation.id);
-                    const text = prepareScoreText(current.text, operation.results, operation.id);
-                    if (text === current.text) { step.status = 'succeeded'; step.revid = current.revid; await persist(); continue; }
-                    step.attempt = makeAttempt(SCORES, current, text, operation.id, operation.submitted.summary || '[[User:SuperGrey/gadgets/ACGATool|' + t('積分調整', '积分调整') + ']]');
-                    step.attempt.marker = '"operation":' + JSON.stringify(operation.id);
-                } else {
-                    const submitted = operation.submitted;
-                    let text;
-                    if (operation.mode === 'mixed') text = prepareMixed(current.text, submitted, operation.id).text;
-                    else if (operation.mode === 'new') text = prepareNew(current.text, submitted);
-                    else if (operation.mode === 'edit') text = prepareEdit(current.text, submitted);
-                    else text = prepareChecks(current.text, submitted.nominations, operation.id).text;
-                    if (operation.results?.length) {
-                        validateAccounting((await io.read(SCORES)).text, operation.results, operation.id);
-                        // 第一步成功後，用發布後的快照檢查第二步；不能再拿發布前的核分作比較。
-                        operation.expectedNominations = operation.results.map(result => {
-                            const entry = listEntries(text).find(entry => readRecord(entryValues(entry)['核對用'])?.id === result.id);
-                            return {id: result.id, pageName: entryValues(entry)['條目名稱'], source: {
-                                date: entry.date, index: entry.index, values: entryValues(entry), ownership: entryOwnership(text, entry),
-                            }};
-                        });
-                    }
-                    step.attempt = makeAttempt(REGISTER, current, text + '\n' + registryMarker(operation.id), operation.id, submitted.summary || '[[User:SuperGrey/gadgets/ACGATool|' + t('提名與核分', '提名与核分') + ']]');
-                }
-            } catch (error) {
-                step.status = error instanceof ReviewConflict ? 'conflict' : 'failed';
-                if (error instanceof ReviewConflict) draft.conflicts = error.changes;
-                step.error = error.message; await persist(); return false;
+        let edit;
+        try {
+            const current = await io.read(step.title);
+            if (step.key === 'scores') {
+                const text = prepareScoreText(current.text, operation.results);
+                if (text === current.text) { step.status = 'succeeded'; step.revid = current.revid; await persist(); continue; }
+                edit = editRequest(SCORES, current, text, submissionSummary(operation.submitted, true));
+            } else {
+                // 登記處送出前仍重新讀取並比較來源，內容變更時維持中斷及重新核對流程。
+                const submitted = operation.submitted;
+                const prepared = prepareMixed(current.text, submitted);
+                operation.results = prepared.results;
+                if (operation.results.length) prepareScoreText((await io.read(SCORES)).text, operation.results);
+                edit = editRequest(REGISTER, current, prepared.text, submissionSummary(submitted));
             }
+        } catch (error) {
+            step.status = error instanceof ReviewConflict ? 'conflict' : 'failed';
+            if (error instanceof ReviewConflict) draft.conflicts = error.changes;
+            step.error = error.message; await persist(); return false;
         }
-        if (!await writeStep(step, persist, io)) return false;
+        if (!await writeStep(step, edit, persist, io)) return false;
     }
     return operation.steps.every(step => step.status === 'succeeded');
 }

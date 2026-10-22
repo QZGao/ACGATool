@@ -103,24 +103,53 @@ function splitParameters(innerContent, offset) {
  * @param {number} start The starting index where "{{" is found.
  * @returns {object} An object { endIndex } where endIndex is the index immediately after the closing "}}".
  */
-function findTemplateEnd(text, start) {
-    let braceCount = 0;
+export function findTemplateEnd(text, start) {
+    const closing = [];
     let i = start;
     while (i < text.length) {
+        if (text.startsWith('<!--', i)) {
+            const end = text.indexOf('-->', i + 4);
+            i = end < 0 ? text.length : end + 3;
+            continue;
+        }
+        if (text.startsWith('{{{', i)) {
+            closing.push('}}}'); i += 3; continue;
+        }
         if (text.slice(i, i + 2) === '{{') {
-            braceCount++;
+            closing.push('}}');
             i += 2;
             continue;
         }
-        if (text.slice(i, i + 2) === '}}') {
-            braceCount--;
-            i += 2;
-            if (braceCount === 0) break;
+        if (closing.length && text.startsWith(closing.at(-1), i)) {
+            i += closing.pop().length;
+            if (!closing.length) break;
             continue;
         }
         i++;
     }
     return {endIndex: i};
+}
+
+/** 只在模板與連結之外切分參數；規則文字另保留括號內的空白與巢狀說明。 */
+export function splitWikitext(text, delimiter, ruleGroups = false) {
+    const parts = [], closing = [];
+    const pairs = [['{{{', '}}}'], ['{{', '}}'], ['[[', ']]'], ...(ruleGroups ? [['(', ')'], ['[', ']']] : [])];
+    let start = 0;
+    for (let i = 0; i < text.length;) {
+        if (text.startsWith('<!--', i)) {
+            const end = text.indexOf('-->', i + 4);
+            i = end < 0 ? text.length : end + 3; continue;
+        }
+        if (closing.length && text.startsWith(closing.at(-1), i)) { i += closing.pop().length; continue; }
+        const pair = pairs.find(([open]) => text.startsWith(open, i));
+        if (pair) { closing.push(pair[1]); i += pair[0].length; continue; }
+        if (!closing.length && (delimiter === null ? /\s/.test(text[i]) : text[i] === delimiter)) {
+            parts.push(text.slice(start, i)); start = i + 1;
+        }
+        i++;
+    }
+    parts.push(text.slice(start));
+    return parts;
 }
 
 /**
@@ -478,7 +507,7 @@ export function parseUserReason(reason) {
     if (reason.startsWith('{{ACG提名2/request|ver=1|')) {
         reason = reason.slice('{{ACG提名2/request|ver=1|'.length, -2);
     }
-    let reasonList = reason.split(/\s+/);
+    let reasonList = splitWikitext(reason, null, true);
 
     let ruleSet = NominationRuleSet();
     let ruleNames = ruleSet.ruleNames;
@@ -492,10 +521,10 @@ export function parseUserReason(reason) {
         let ruleNameMod = '', ruleScoreMod = '';
         while (rule.endsWith(')') || rule.endsWith(']')) {
             if (rule.endsWith(')')) {
-                let lastLeftParen = rule.lastIndexOf('(');
-                if (lastLeftParen === -1) break;
-                ruleNameMod = rule.slice(lastLeftParen + 1, -1);
-                rule = rule.slice(0, lastLeftParen);
+                let leftParen = rule.indexOf('(');
+                if (leftParen === -1) break;
+                ruleNameMod = rule.slice(leftParen + 1, -1);
+                rule = rule.slice(0, leftParen);
             }
             if (rule.endsWith(']')) {
                 let lastLeftBracket = rule.lastIndexOf('[');

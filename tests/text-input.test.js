@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {bindTextInput} from '../src/ui/text-input.js';
+import {collectUnsavedInputs} from '../src/ui/dialogs/discard-input-dialog.js';
 
 function widget(value = '') {
     const events = new Map(), control = new EventEmitter();
@@ -52,4 +53,22 @@ test('composition is committed once after the final input in either event order,
         assert.equal(input.writes, 0);
         binding.destroy();
     }
+});
+
+test('discard preview combines typing and retains rule-dialog edits, literal text and pending actions', () => {
+    const rules = {'1a': {selected: true, desc: '自訂文字', score: null, scoreInput: 'abc'}};
+    const inputs = [
+        {key: 'item', label: '原條目', before: {pageName: '原條目'}, after: {pageName: '中間輸入'}},
+        {key: 'item', label: '最後輸入', before: {pageName: '中間輸入', ruleStatus: {}}, after: {pageName: '最後輸入', ruleStatus: rules}},
+        {key: 'fields', label: '提名說明與摘要', before: {summary: '原摘要', message: ''}, after: {summary: '暫時修改', message: '第一行\n<!--原樣保留-->'}},
+        {key: 'fields', label: '提名說明與摘要', before: {summary: '暫時修改'}, after: {summary: '原摘要'}},
+        {label: '暫存：另一條目'},
+    ];
+    const original = structuredClone(inputs);
+    assert.deepEqual(collectUnsavedInputs(inputs), [
+        {label: '最後輸入', values: {pageName: '最後輸入', ruleStatus: rules}},
+        {label: '提名說明與摘要', values: {message: '第一行\n<!--原樣保留-->'}},
+        {label: '暫存：另一條目', values: {}},
+    ]);
+    assert.deepEqual(inputs, original);
 });

@@ -1,44 +1,46 @@
 import {t} from '../i18n.js';
 /**
- * 核對結果與已入帳結果分開處理。
- * 提名 id 跨覆核沿用；operation 識別一次批次提交，供收據查證與重試去重。
+ * 解析核對結果、保留覆核歷史並計算積分差額。
+ * 提名及提交識別只保存在本機。
  */
-import {parseUserReason} from '../wiki/api.js';
+import {findTemplateEnd, parseUserReason, splitWikitext} from '../wiki/api.js';
 import {generateReason} from './rules.js';
 
 export const newId = () => crypto.randomUUID();
 export const stripComments = text => text.replace(/<!--[\s\S]*?-->/g, '').trim();
 
-/**
- * 讀取核對欄中的編碼記錄；before 保存該次提交前的入帳基準。
- * 登記處已寫入、積分榜尚未寫入時，這份基準可供恢復使用。
- * @returns {object|null} 含 id、before、operation 的記錄；沒有標記時為 null。
- */
-export function readRecord(text) {
-    const match = text.match(/<!--ACGATool:([^>]+)-->/);
-    if (!match) return null;
-    const record = JSON.parse(decodeURIComponent(match[1]));
-    if (!record.id || !record.before || !Number.isFinite(record.before.score)) throw new Error(t('入帳記錄格式不完整。', '入账记录格式不完整。'));
-    return record;
+/** 取得核對模板的外層參數；內層模板的管線與等號保留在參數值中。 */
+function checkTemplates(text) {
+    const visible = text.replace(/<!--[\s\S]*?-->/g, comment => ' '.repeat(comment.length));
+    const pattern = /{{\s*ACG提名2\/check\s*(?=[|}])/g;
+    const templates = [];
+    let match;
+    while ((match = pattern.exec(visible))) {
+        const {endIndex: end} = findTemplateEnd(text, match.index);
+        const raw = text.slice(match.index, end), parts = splitWikitext(raw.slice(2, -2), '|');
+        const args = {};
+        let positional = 1;
+        for (const part of parts.slice(1)) {
+            const [key, ...value] = splitWikitext(part, '=');
+            if (!value.length) args[positional++] = part.trim();
+            else args[stripComments(key)] = value.join('=').trim();
+        }
+        templates.push({args, raw, start: match.index, end});
+        pattern.lastIndex = end;
+    }
+    return templates;
 }
 
 /**
  * 解析唯一仍有效的核分模板，忽略已撤銷的歷史結果。
- * 保留同意與否決的規則、自訂分數及覆核狀態，不據此推定是否已入帳。
+ * 保留同意與否決的規則、自訂分數及覆核狀態。
  * @returns {object|null} 含 score、ruleStatus、invalid、status 及原模板位置；未核對為 null。
- * @throws {Error} 規則版本、內容或多個有效結果無法安全解讀。
+ * @throws {Error} 規則內容無法讀取，或存在多個未撤銷的有效結果。
  */
 export function parseCheck(text) {
     const active = [];
-    for (const match of text.matchAll(/{{\s*ACG提名2\/check\s*\|([^{}]*)}}/g)) {
-        const args = {};
-        for (const part of match[1].split('|')) {
-            const equal = part.indexOf('=');
-            if (equal < 0) args['1'] = part.trim();
-            else args[part.slice(0, equal).trim()] = part.slice(equal + 1).trim();
-        }
+    for (const {args, raw, start, end} of checkTemplates(text)) {
         if (args.status === 'rescinded') continue;
-        if (args.ver !== '1') throw new Error(t('此核對結果的規則版本暫不支援。', '此核对结果的规则版本暂不支持。'));
         if (!args['1'] && !args.no) continue;
         const invalid = args['1'] === '0';
         const yes = parseUserReason(invalid ? '' : (args['1'] || ''));
@@ -47,60 +49,29 @@ export function parseCheck(text) {
         for (const value of Object.values(no)) value.selected = false;
         const ruleStatus = {...no, ...yes};
         active.push({score: invalid ? 0 : generateReason(ruleStatus, true).reasonScore,
-            invalid, ruleStatus, status: args.status || 'done', start: match.index, end: match.index + match[0].length, raw: match[0]});
+            invalid, ruleStatus, status: args.status || 'done', start, end, raw});
     }
     if (active.length > 1) throw new Error(t('存在多個未撤銷的核對結果，請先確認有效的結果。', '存在多个未撤销的核对结果，请先确认有效的结果。'));
-    if (!active.length && stripComments(text).replace(/{{\s*ACG提名2\/check\s*\|[^{}]*}}/g, '').trim()) {
-        throw new Error(t('原核對內容不是可辨識的核分模板，請手動覆核。', '原核对内容不是可辨识的核分模板，请手动复核。'));
-    }
     return active[0] || null;
 }
 
 /**
- * 讀取積分榜註解中的入帳收據。
- * operations 用來判定整批是否已寫入；entries 依註解順序保留每筆提名最後的入帳結果。
- * @returns {{operations: Map, entries: Map}} 提交識別與提名識別的兩組索引。
+ * 將來源提名與原核對結果組成覆核草稿。
+ * 既有核分就是覆核的原分數，不另設入帳狀態。
  */
-export function scoreReceipts(text) {
-    const operations = new Map(), entries = new Map();
-    for (const line of text.split('\n')) {
-        if (!line.startsWith('-- ACGATool ')) continue;
-        const receipt = JSON.parse(line.slice('-- ACGATool '.length));
-        if (!receipt.operation || !Array.isArray(receipt.entries)) throw new Error(t('積分榜入帳記錄格式錯誤。', '积分榜入账记录格式错误。'));
-        operations.set(receipt.operation, receipt);
-        for (const entry of receipt.entries) {
-            if (!entry.id || !entry.awarder || !Number.isFinite(entry.score) || entry.score < 0) throw new Error(t('積分榜入帳記錄格式錯誤。', '积分榜入账记录格式错误。'));
-            entries.set(entry.id, entry);
-        }
-    }
-    return {operations, entries};
-}
-
-/**
- * 將來源提名、原核對結果與積分榜收據組成覆核草稿。
- * 入帳基準優先採積分榜收據，其次採登記處記錄的 before；舊的正分核分若兩者皆無，
- * 標為 unknown，要求使用者確認，避免把「已核分」直接當成「已入帳」。
- */
-export function reviewData(data, source, scoreText) {
+export function reviewData(data, source) {
     const original = parseCheck(source.values['核對用']);
-    const record = readRecord(source.values['核對用']);
-    const id = record?.id || newId();
-    const receipt = scoreReceipts(scoreText).entries.get(id);
-    const baseline = receipt ? {awarder: receipt.awarder, score: receipt.score} : record?.before;
-    return {...data, source, id, original, baseline,
-        booking: baseline ? 'recorded' : original?.score > 0 ? 'unknown' : 'unbooked',
+    return {...data, source, id: newId(), original,
         ruleStatus: original ? {...Object.fromEntries(Object.entries(data.ruleStatus || {}).map(([key, value]) => [key, {...value, selected: false}])), ...original.ruleStatus} : data.ruleStatus,
         invalid: original?.invalid || false, message: '', reviewed: false};
 }
 
 /**
- * 取得要扣回的得分者與分數；沒有可追查基準時，只接受使用者明確選定的入帳狀態。
+ * 以原核對結果取得要扣回的得分者與分數。
  */
 export function previousBooking(nomination) {
-    if (nomination.baseline) return nomination.baseline;
-    if (nomination.booking === 'unknown') throw new Error(t('請確認原核分是否已登記至積分榜。', '请确认原核分是否已登记至积分榜。'));
     return {awarder: stripComments(nomination.source.values['用戶名稱']),
-        score: nomination.booking === 'booked' ? nomination.original.score : 0};
+        score: nomination.original?.score || 0};
 }
 
 /**
@@ -118,70 +89,116 @@ export function scoreDeltas(results) {
 }
 
 /**
- * 保留先前核分與簽名，將舊結果標為 rescinded，再追加本次核分與入帳基準。
- * 回傳值供登記處使用；積分是否完成仍由積分榜收據判定。
+ * 保留先前核分與簽名，將舊結果標為 rescinded，再追加本次核分與簽名。
  */
-export function checkWikitext(nomination, reason, operation) {
-    const before = previousBooking(nomination);
+export function checkWikitext(nomination, reason) {
     const body = nomination.invalid || !reason.reasonText ? '0' : reason.reasonText + (reason.unselectedReasonText ? '|no=' + reason.unselectedReasonText : '');
-    let history = nomination.source.values['核對用'].replace(/<!--ACGATool:[^>]+-->/g, '').trim();
+    let history = nomination.source.values['核對用'];
     if (nomination.original) {
-        const old = nomination.original.raw;
-        const rescinded = old.replace(/\|\s*status\s*=[^|}]*/g, '').replace(/}}$/, '|status=rescinded}}');
-        history = history.replace(old, rescinded) + '<br />';
-    } else history = '';
-    // 額外編碼連字號，避免記錄文字形成 HTML 註解中的 -- 或提前結束註解。
-    const metadata = encodeURIComponent(JSON.stringify({id: nomination.id, before, operation})).replace(/-/g, '%2D');
-    // 標出本次簽名範圍，讓後續比對只忽略 MediaWiki 展開 ~~~~ 的差異。
-    return `${history}{{ACG提名2/check|ver=1|${body}}}${nomination.message}--<!--ACGATool-signature:${operation}-->~~~~<!--/ACGATool-signature:${operation}--><!--ACGATool:${metadata}-->`;
+        const {raw, start, end} = nomination.original;
+        const parts = splitWikitext(raw.slice(2, -2), '|').filter((part, index) =>
+            !index || stripComments(splitWikitext(part, '=')[0]) !== 'status');
+        const rescinded = '{{' + parts.join('|') + '|status=rescinded}}';
+        history = history.slice(0, start) + rescinded + history.slice(end);
+    } else {
+        // 移除空的待核對佔位模板；周圍的文字、其他模板及歷史記錄照原樣保留。
+        for (const template of checkTemplates(history).reverse()) {
+            if (!template.args['1'] && !template.args.no) history = history.slice(0, template.start) + history.slice(template.end);
+        }
+    }
+    history = history.trim();
+    if (history) history += '<br />';
+    return `${history}{{ACG提名2/check|ver=1|${body}}}${nomination.message}--~~~~`;
 }
 
 const quoteLua = value => '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 
+/** 解析分數中的數字運算式；字元只作數字與運算子處理，不執行 Lua 程式。 */
+function readScore(expression) {
+    const tokens = [], pattern = /\s*(0[xX][\da-fA-F]+|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[()+\-*/%^])/gy;
+    let offset = 0;
+    while (offset < expression.length) {
+        pattern.lastIndex = offset;
+        const match = pattern.exec(expression);
+        if (!match) return NaN;
+        tokens.push(match[1]); offset = pattern.lastIndex;
+    }
+    let index = 0;
+    const precedence = {'+': 1, '-': 1, '*': 2, '/': 2, '%': 2, '^': 4};
+    const parse = (minimum = 0) => {
+        const token = tokens[index++];
+        let value;
+        if (token === '+' || token === '-') value = (token === '-' ? -1 : 1) * parse(3);
+        else if (token === '(') {
+            value = parse();
+            if (tokens[index++] !== ')') return NaN;
+        } else value = Number(token);
+        while ((precedence[tokens[index]] || 0) >= Math.max(minimum, 1)) {
+            const operator = tokens[index++], priority = precedence[operator];
+            const right = parse(priority + (operator === '^' ? 0 : 1));
+            if (operator === '+') value += right;
+            else if (operator === '-') value -= right;
+            else if (operator === '*') value *= right;
+            else if (operator === '/') value /= right;
+            else if (operator === '%') value -= Math.floor(value / right) * right;
+            else value **= right;
+        }
+        return value;
+    };
+    const value = parse();
+    return index === tokens.length ? value : NaN;
+}
+
 /**
- * 套用差額並在同一份 Lua 本文追加收據；保留其他用戶、註解與原有排版。
- * 同一 operation 已入帳且內容相同時原樣返回；內容不同或 Lua 格式不支援時停止，
- * 避免重複加分或因重新輸出模組而丟失無法解析的資料。此函式不執行 Lua，也不寫入頁面。
+ * 用等長空白遮住 Lua 註解，保留原始位置；字串中的 -- 不當成註解。
+ * 每筆分數在解析時驗證為有限數字，後續只更新需要調整的數值片段。
+ */
+function parseScoreList(text) {
+    const visible = text.replace(/("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*')|--\[(=*)\[[\s\S]*?\]\2\]|--[^\r\n]*/g,
+        (part, quoted) => quoted || part.replace(/[^\r\n]/g, ' '));
+    const table = /\{([\s\S]*)\}/.exec(visible);
+    if (!table) throw new Error(t('找不到積分榜資料表。', '找不到积分榜数据表。'));
+    const start = table.index + table[0].indexOf('{') + 1, body = table[1];
+    const entries = new Map();
+    const pattern = /(?:\[\s*(["'])((?:\\[\s\S]|(?!\1)[^\\])*)\1\s*\]|([A-Za-z_]\w*))\s*=\s*([^,;{}]+)/g;
+    for (const match of body.matchAll(pattern)) {
+        const user = match[3] || match[2].replace(/\\([\\"'])/g, '$1');
+        const value = match[4].trim(), score = readScore(value);
+        if (!Number.isFinite(score)) throw new Error(t(`積分榜中「${user}」的分數不是有限數字。`, `积分榜中「${user}」的分数不是有限数字。`));
+        const valueStart = start + match.index + match[0].length - match[4].trimStart().length;
+        entries.set(user, {score, start: valueStart, end: valueStart + value.length});
+    }
+    return {entries, end: start + body.length, separator: body.trimEnd() && !/[,;]$/.test(body.trimEnd()) ? ',' : ''};
+}
+
+/**
+ * 先讀取積分榜與確認原得分者，再套用差額。保留其他用戶、註解及原有排版。
+ * 新得分者不存在時新增帳號；原核分非零時，原得分者必須已在榜中。
  * @param {string} text 最新積分榜原始碼。
- * @param {object[]} results 每筆含 id、awarder、score 及 before。
- * @param {string} operation 本批提交識別。
+ * @param {object[]} results 每筆含 awarder、score 及 before。
  * @returns {string} 待儲存的積分榜本文。
  */
-export function prepareScoreText(text, results, operation) {
-    const receipts = scoreReceipts(text);
-    const entries = results.map(({id, awarder, score}) => ({id, awarder, score}));
-    if (receipts.operations.has(operation)) {
-        if (JSON.stringify(receipts.operations.get(operation).entries) !== JSON.stringify(entries)) throw new Error(t('提交識別與入帳內容不符。', '提交标识与入账内容不符。'));
-        return text;
+export function prepareScoreText(text, results) {
+    const {entries, end, separator} = parseScoreList(text);
+    for (const {before, score} of results) {
+        if (!Number.isFinite(before.score) || !Number.isFinite(score)) throw new Error(t('增減分數必須是有限數字。', '增减分数必须是有限数字。'));
+        if (before.score !== 0 && !entries.has(before.awarder)) throw new Error(t(`積分榜找不到原得分者「${before.awarder}」。`, `积分榜找不到原得分者「${before.awarder}」。`));
     }
-    for (const result of results) {
-        const existing = receipts.entries.get(result.id);
-        if (existing && (existing.awarder !== result.before.awarder || existing.score !== result.before.score)) throw new Error(t('此提名的已入帳結果已變更，請重新覆核。', '此提名的已入账结果已变更，请重新复核。'));
+    const changes = [], added = [];
+    for (const [user, delta] of scoreDeltas(results)) {
+        if (delta === 0) continue;
+        const entry = entries.get(user);
+        if (entry) {
+            // 運算式內的註解也保留；行尾註解加換行，避免吃掉原本後接的分隔符。
+            const comments = text.slice(entry.start, entry.end).match(/--\[(=*)\[[\s\S]*?\]\1\]|--[^\r\n]*/g) || [];
+            const replacement = String(entry.score + delta) + comments.map(comment => ' ' + comment + '\n').join('');
+            changes.push({...entry, replacement});
+        } else added.push(`    [${quoteLua(user)}] = ${delta},`);
     }
-    const deltas = scoreDeltas(results);
-    const seen = new Set();
-    let opened = false, closed = false;
-    const lines = text.split('\n').map(line => {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('--')) return line;
-        if (trimmed === 'return {' && !opened) { opened = true; return line; }
-        if (trimmed === '}' && opened && !closed) { closed = true; return line; }
-        const match = line.match(/^(\s*\[(["'])((?:\\.|[^\\])*?)\2\]\s*=\s*)([+-]?\d+(?:\.\d+)?)(\s*,?\s*)$/);
-        if (!opened || closed || !match) throw new Error(t('積分榜格式無法安全修改。', '积分榜格式无法安全修改。'));
-        const user = match[3].replace(/\\([\\"'])/g, '$1');
-        if (seen.has(user)) throw new Error(t('積分榜有重複用戶。', '积分榜有重复用户。'));
-        seen.add(user);
-        const score = Number(match[4]) + (deltas.get(user) || 0);
-        if (!Number.isFinite(score) || score < 0) throw new Error(t('調整後總分不合理，請確認原分數是否已入帳。', '调整后总分不合理，请确认原分数是否已入账。'));
-        return deltas.has(user) ? match[1] + score + match[5] : line;
-    });
-    if (!opened || !closed) throw new Error(t('積分榜格式無法安全修改。', '积分榜格式无法安全修改。'));
-    const newLines = [];
-    for (const [user, score] of deltas) {
-        if (seen.has(user) || score === 0) continue;
-        if (!Number.isFinite(score) || score < 0 || /[\r\n]/.test(user)) throw new Error(t('原得分者的積分無法扣回。', '原得分者的积分无法扣回。'));
-        newLines.push(`    [${quoteLua(user)}] = ${score},`);
+    if (added.length) changes.push({start: end, end, replacement: separator + '\n' + added.join('\n') + '\n'});
+    // 從尾端替換，讓前面欄位的位置維持解析時的索引。
+    for (const change of changes.sort((a, b) => b.start - a.start)) {
+        text = text.slice(0, change.start) + change.replacement + text.slice(change.end);
     }
-    lines.splice(lines.findIndex(line => line.trim() === '}'), 0, ...newLines);
-    return lines.join('\n').trimEnd() + '\n-- ACGATool ' + JSON.stringify({operation, entries}) + '\n';
+    return text;
 }

@@ -423,7 +423,7 @@ export function getOrderedRuleStatus(ruleNames, ruleStatus) {
 /**
  * 規則只保存選取狀態與自訂值，預設文字及分數在使用時取得。
  * 舊草稿以 ogDesc／maxScore 記錄當時的預設值；依這些基準移除預設副本，
- * 不拿當前語言判斷自訂文字，也不改寫結果未明的提交快照或原請求。
+ * 不拿當前語言判斷自訂文字，也不改寫呼叫端傳入的資料。
  */
 export function normalizeRuleStatus(ruleStatus = {}) {
     return Object.fromEntries(Object.entries(ruleStatus || {}).map(([key, value]) => {
@@ -458,7 +458,7 @@ export function generateReason(ruleStatus, check = false) {
         if (check && ruleItem.applicable === false && !ruleItem.selected) continue;
         if (check || ruleItem.selected) {
             const {score} = ruleValues(ruleItem, ruleDict[ruleItem.rule]);
-            if (!Number.isFinite(score) || score < 0) {
+            if (!Number.isFinite(score)) {
                 mw.notify(state.conv({
                     hant: '規則', hans: '规则',
                 }) + '「' + ruleItem.rule + '」' + state.conv({

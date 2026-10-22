@@ -29,15 +29,10 @@ export function entryOwnership(text, entry) {
 
 export function isOwnNomination(ownership, username) {
     const user = normalizeUser(username || '');
-    return !!user && (ownership.awarder === user || ownership.nominators.includes(user));
+    return !!user && ownership.awarder === user;
 }
 
-/**
- * 在開啟核對與提交時檢查身分，涵蓋將得分者更正為自己的情況。
- * 隱藏按鈕不足以保護恢復的舊草稿；無法辨識提名人時也不能假定可以核對。
- */
-export function assertCanCheck(ownership, username, proposedAwarder) {
-    if (!username) throw new Error(t('請先登入後再核對。', '请先登录后再核对。'));
-    if (isOwnNomination(ownership, username) || normalizeUser(proposedAwarder) === normalizeUser(username)) throw new Error(t('不能核對自己提名或自己得分的項目。', '不能核对自己提名或自己得分的项目。'));
-    if (!ownership.nominators.length) throw new Error(t('無法辨識提名人，請手動核對此筆提名。', '无法辨识提名人，请手动核对这项提名。'));
+/** 開啟與提交時只檢查原提名的得分者；提名人及更正後的得分者不作為限制。 */
+export function assertCanCheck(ownership, username) {
+    if (isOwnNomination(ownership, username)) throw new Error(t('不能核對自己為得分者的提名。', '不能核对自己为得分者的提名。'));
 }

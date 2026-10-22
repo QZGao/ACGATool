@@ -1,7 +1,7 @@
 import {t} from '../i18n.js';
 import {parseUserReason} from '../wiki/api.js';
 import {NominationRuleSet, normalizeRuleStatus, ruleValues} from './rules.js';
-import {previousBooking, newId, readRecord} from './scoring.js';
+import {newId} from './scoring.js';
 
 export const copy = value => JSON.parse(JSON.stringify(value));
 export const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -29,8 +29,7 @@ export function createItem(mode, nomination) {
 /** 一個來源在工作區只保留一份編輯；不同來源與新提名則可以並存。 */
 export function sameSource(a, b) {
     if (!a || !b) return false;
-    const first = readRecord(a.values['核對用'])?.id, second = readRecord(b.values['核對用'])?.id;
-    return first && second ? first === second : a.date === b.date && equal(a.values, b.values);
+    return a.date === b.date && equal(a.values, b.values);
 }
 
 /** 純驗證不發通知；欄位提示、進度條與提交前驗證共用相同的完成條件。 */
@@ -38,18 +37,18 @@ export function operationStatus(item) {
     const n = item.nomination, errors = [];
     if (!n.pageName?.trim()) errors.push({field: 'pageName', message: t('請填寫條目名稱。', '请填写条目名称。')});
     if (!n.awarder?.trim()) errors.push({field: 'awarder', message: t('請填寫得分者。', '请填写得分者。')});
+    if (/[\r\n]/.test(n.awarder || '')) errors.push({field: 'awarder', message: t('得分者名稱不能包含換行。', '得分者名称不能包含换行。')});
     const {ruleDict} = NominationRuleSet();
     const rules = Object.entries(normalizeRuleStatus(n.ruleStatus)).filter(([, rule]) => rule.selected || item.mode === 'check' && rule.applicable !== false);
     if (item.mode !== 'check' && !rules.length) errors.push({field: 'ruleStatus', message: t('請選擇提名規則。', '请选择提名规则。')});
     if (rules.some(([key, rule]) => {
         if (!ruleDict[key]) return true;
         const {score} = ruleValues(rule, ruleDict[key]);
-        return !Number.isFinite(score) || score < 0;
+        return !Number.isFinite(score);
     })) {
-        errors.push({field: 'ruleStatus', message: t('請檢查規則分數，須為零或正數。', '请检查规则分数，须为零或正数。')});
+        errors.push({field: 'ruleStatus', message: t('規則分數必須是有限數字。', '规则分数必须是有限数字。')});
     }
     if (item.mode === 'check') {
-        try { previousBooking(n); } catch (error) { errors.push({field: 'booking', message: error.message}); }
         if (!n.reviewed) errors.push({field: 'reviewed', message: n.original ? t('請完成此筆覆核。', '请完成这项复核。') : t('請完成此筆核對。', '请完成这项核对。')});
     }
     if (item.needsReview) errors.push({field: 'source', message: t('來源已變更，請確認標示的差異。', '来源已变更，请确认标示的差异。')});

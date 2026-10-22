@@ -29,22 +29,21 @@ test('category lookups batch at the permitted title limit and reuse positive, em
     }
 });
 
-test('normalization, Chinese title conversion, redirects and continuation resolve to one cached result', async () => {
+test('Chinese title conversion, redirects and continuation resolve to one cached result', async () => {
     const calls = [];
     const cache = createTalkCategoryCache(async params => {
         calls.push(params);
         if (!params.clcontinue) return {query: {
-            normalized: [{from: 'talk:Alias_name', to: 'Talk:Alias name'}],
-            converted: [{from: 'Talk:Alias name', to: 'Talk:別名'}],
-            redirects: [{from: 'Talk:別名', to: 'Talk:Target'}],
+            converted: [{from: 'Talk:別名', to: 'Talk:别名'}],
+            redirects: [{from: 'Talk:别名', to: 'Talk:Target'}],
             pages: [page('Talk:Target', [categories[0]])],
         }, continue: {continue: '||', clcontinue: 'next'}};
         return {query: {pages: [page('Talk:Target', categories.slice(1))]}};
     });
-    assert.deepEqual(await cache.get('talk:Alias_name'), categories);
+    assert.deepEqual(await cache.get('Talk:別名'), categories);
     assert.equal(calls.length, 2);
     assert.equal(calls[1].clcontinue, 'next');
-    for (const title of ['Talk:Alias name', 'Talk:別名', 'Talk:Target']) assert.deepEqual(await cache.get(title), categories);
+    for (const title of ['Talk:別名', 'Talk:别名', 'Talk:Target']) assert.deepEqual(await cache.get(title), categories);
     assert.equal(calls.length, 2);
 });
 

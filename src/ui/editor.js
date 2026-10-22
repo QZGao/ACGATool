@@ -4,6 +4,7 @@ import {getArticleRoot, getNominationSections} from '../page/sections.js';
 import {initRuleEditor, chooseRules} from './dialogs/rule-dialog.js';
 import {initEditorStyles} from './editor-styles.js';
 import {DraftDialog, initDraftDialog} from './dialogs/draft-dialog.js';
+import {collectUnsavedInputs, confirmDiscardInputs, initDiscardInputDialog} from './dialogs/discard-input-dialog.js';
 import {appendNominationRows, createNominationTable, sourceRows, ruleFragments} from './table-editor.js';
 import {createSessionStore} from '../session/session-store.js';
 import {createSubmitController} from '../session/session-submit.js';
@@ -34,7 +35,7 @@ function signature(item) {
 // 只有來源結構改變（例如使用者載入新版本）才需要重新建立表單。
 function structure(item) {
     const n = item.nomination;
-    return JSON.stringify([item.mode, n.source, n.original, n.baseline, n.previousProposal]);
+    return JSON.stringify([item.mode, n.source, n.original, n.previousProposal]);
 }
 
 function composing() {
@@ -55,14 +56,16 @@ function report(error) {
 }
 
 /** 本分頁的輸入依事件順序保存；完成後同步資料與派生顯示，保留原輸入框。 */
-function update(task, retainInput = false) {
+function update(task, retainInput = false, inputs = []) {
+    // 失敗的規則彈窗修改未必已顯示在表單上，須連同重試函式保存實際輸入供確認。
+    const pending = {run: task, inputs: copy(inputs)};
     queuedUpdates++;
     const next = queue.catch(() => {}).then(async () => {
-        if (storageFailure) { unsavedTasks.push(task); throw storageFailure; }
+        if (storageFailure) { unsavedTasks.push(pending); throw storageFailure; }
         try { return await task(); }
         catch (error) {
             // 本地輸入保存失敗時保留畫面，不以舊資料蓋回去；另一分頁可能剛送出或取消該筆。
-            if (error.code === 'local-storage' || retainInput) { storageFailure = error; unsavedTasks.push(task); }
+            if (error.code === 'local-storage' || retainInput) { storageFailure = error; unsavedTasks.push(pending); }
             throw error;
         }
     });
@@ -82,14 +85,32 @@ function showStorageFailure() {
         ' ', button(t('重試保存', '重试保存'), async () => {
             await queue.catch(() => {});
             try {
-                while (unsavedTasks.length) { await unsavedTasks[0](); unsavedTasks.shift(); }
+                while (unsavedTasks.length) { await unsavedTasks[0].run(); unsavedTasks.shift(); }
                 storageFailure = null; dock.$notice.empty(); sync();
             } catch (error) { storageFailure = error; showStorageFailure(); }
-        }).$element, ' ', button(t('捨棄未保存輸入', '舍弃未保存输入'), () => {
-            unsavedTasks = []; storageFailure = null;
-            for (const view of views.values()) removeView(view);
-            views.clear(); dock.$notice.empty(); sync();
-        }).$element);
+        }).$element, ' ', button(t('捨棄未保存輸入', '舍弃未保存输入'), discardUnsavedInputs).$element);
+}
+
+async function discardUnsavedInputs() {
+    await settleInputs();
+    const pending = [...unsavedTasks];
+    const entries = collectUnsavedInputs(pending.flatMap(task => task.inputs));
+    if (!await confirmDiscardInputs(windows, entries)) return;
+    // 確認只適用於彈窗列出的內容，不能連帶丟掉其後才進入佇列的輸入。
+    if (pending.length !== unsavedTasks.length || pending.some((task, index) => task !== unsavedTasks[index])) {
+        throw new Error(t('未保存輸入已變更，請重新檢視後再捨棄。', '未保存输入已变更，请重新检查后再舍弃。'));
+    }
+    unsavedTasks = []; storageFailure = null;
+    for (const view of views.values()) removeView(view);
+    views.clear(); dock.$notice.empty(); await sync();
+}
+
+function nominationInput(id, before, after) {
+    const fields = ['pageName', 'awarder', 'ruleStatus', 'message', 'invalid', 'reviewed']
+        .filter(field => !equal(before[field], after[field]));
+    return {key: id, label: after.pageName || before.pageName || t('未填條目', '未填条目'),
+        before: Object.fromEntries(fields.map(field => [field, before[field] ?? null])),
+        after: Object.fromEntries(fields.map(field => [field, after[field] ?? null]))};
 }
 
 function button(label, handler, flags) {
@@ -103,6 +124,7 @@ export function initOOUI() {
     initEditorStyles();
     windows = initRuleEditor(root);
     initDraftDialog();
+    initDiscardInputDialog();
     dock = createDock(root);
     store = createSessionStore(window.localStorage, `ACGATool:v1:${mw.config.get('wgDBname')}:${mw.config.get('wgUserName') || 'anonymous'}`);
     ready = store.init();
@@ -120,14 +142,15 @@ export function initOOUI() {
 
 export async function resumeOpenWorkspace() {
     await ready;
-    sync();
+    await sync();
     return session.items.length > 0;
 }
 
 async function addItems(mode, nominations) {
     await ready;
-    const {result} = await update(() => store.add(mode, nominations));
-    sync();
+    const {result} = await update(() => store.add(mode, nominations), false,
+        nominations.map((n, index) => nominationInput(`open:${n.id || index}`, {}, n)));
+    await sync();
     focusItem(result.at(-1));
 }
 
@@ -190,7 +213,7 @@ function renderItem(item) {
         const before = view.lastSent, after = copy(n);
         if (equal(before, after)) return;
         view.lastSent = after;
-        update(() => store.patch(item.id, before, after), true);
+        update(() => store.patch(item.id, before, after), true, [nominationInput(item.id, before, after)]);
     };
     const touch = () => { if (item.mode === 'check') n.reviewed = false; save(); };
     const $table = item.mode === 'new' ? (ensureNewTable(), $newTable) : createNominationTable();
@@ -200,12 +223,15 @@ function renderItem(item) {
             await settleInputs();
             const before = copy(n);
             const rules = await chooseRules(before, item.mode === 'check');
-            if (rules) await update(() => store.patch(item.id, before, {...before, ruleStatus: rules,
-                ...(item.mode === 'check' ? {reviewed: false} : {})}));
+            if (rules) {
+                const after = {...before, ruleStatus: rules, ...(item.mode === 'check' ? {reviewed: false} : {})};
+                await update(() => store.patch(item.id, before, after), false, [nominationInput(item.id, before, after)]);
+            }
             afterComposition();
         },
         onRemove: async () => { await settleInputs(); return discard(item.id); },
-        onStash: async () => { await settleInputs(); return update(() => store.stash(item.id)); },
+        onStash: async () => { await settleInputs(); return update(() => store.stash(item.id), false,
+            [{label: t('暫存：', '暂存：') + (n.pageName || t('未填條目', '未填条目'))}]); },
     });
     const $rows = view.rows.$entry.add(view.rows.$check);
     $rows.attr('data-acga-operation', item.id).addClass('acga-editor-row');
@@ -273,15 +299,16 @@ function refreshView(view, item) {
                     const target = current.items.find(row => row.id === item.id);
                     if (target && equal(target, expected)) target.needsReview = false;
                     else throw new Error(t('內容已變更，請重新檢視。', '内容已变更，请重新检查。'));
-                }));
+                }), false, [{label: t('確認來源差異：', '确认来源差异：') + n.pageName}]);
             }).$element);
             $extras.append($diff);
         }
         if (n.previousProposal && item.mode === 'check') $extras.append(button(t('套用先前輸入', '应用先前输入'), async () => {
             await settleInputs();
             const proposed = n.previousProposal;
-            return update(() => store.patch(item.id, n, {...n, awarder: proposed.awarder, ruleStatus: proposed.ruleStatus,
-                message: proposed.message || '', invalid: !!proposed.invalid, reviewed: false}));
+            const before = copy(n), after = {...before, pageName: proposed.pageName, awarder: proposed.awarder, ruleStatus: proposed.ruleStatus,
+                message: proposed.message || '', invalid: !!proposed.invalid, reviewed: false};
+            return update(() => store.patch(item.id, before, after), false, [nominationInput(item.id, before, after)]);
         }).$element);
     }
     const status = operationStatus(item);
@@ -307,10 +334,15 @@ function refreshView(view, item) {
 }
 
 /** 同步持久資料；本地保存只更新派生顯示，IME 組合中的操作留待輸入結束。 */
-function sync() {
+async function sync() {
     if (queuedUpdates) return;
     if (storageFailure) { showStorageFailure(); return; }
-    session = store.read();
+    let current;
+    try { current = await store.read(); }
+    catch (error) { report(error); return; }
+    // 等待跨分頁狀態鎖時可能又有本地輸入；讓該次保存完成後再同步，保留輸入與 IME。
+    if (queuedUpdates || storageFailure) return;
+    session = current;
     for (const [id, view] of views) {
         if (view.rows.isComposing()) continue;
         const item = session.items.find(item => item.id === id);
@@ -376,7 +408,7 @@ async function updatePublishedResults() {
         });
         if (replaced) {
             pending.forEach(submission => renderedResults.add(submission.id));
-            sync();
+            await sync();
             if (document.contains(active) && document.activeElement !== active && active?.matches('input, textarea')) {
                 active.focus();
                 if (selection[0] !== null) try { active.setSelectionRange(...selection); } catch { /* 非文字輸入沒有選取範圍。 */ }
@@ -387,26 +419,36 @@ async function updatePublishedResults() {
         dock.$notice.text(t('儲存已完成，但正文更新失敗。可查看已儲存版本，或使用「關閉並重新載入頁面」。', '储存已完成，但正文更新失败。可查看已保存版本，或使用「关闭并重新载入页面」。'));
     } finally {
         refreshing = false;
-        sync();
+        await sync();
     }
 }
 
 async function discard(id) {
-    const {result} = await update(() => store.discard(id));
+    const title = views.get(id).item.nomination.pageName || t('未填條目', '未填条目');
+    const {result} = await update(() => store.discard(id), false, [{label: t('取消操作：') + title}]);
     dock.$notice.empty().append(t('已取消此筆操作。', '已取消此项操作。'), ' ', button(t('復原', '恢复'), () => update(() => store.mutate(current => {
         if (current.items.some(item => item.id === id) || current.drafts.some(item => item.id === id)) throw new Error(t('此操作已恢復。', '此操作已恢复。'));
         if (current.items.some(item => sameSource(item.nomination.source, result.nomination.source))) throw new Error(t('這筆提名已有其他編輯，請先暫存或取消該筆操作後再復原。', '这项提名已有其他编辑，请先暂存或取消该项操作后再恢复。'));
         current.items.push(result);
         dock.$notice.empty();
-    }))).$element);
+    }), false, [{label: t('復原操作：', '恢复操作：') + title}])).$element);
 }
 
 async function openDraftBox() {
     await queue.catch(() => {});
-    const items = store.read().drafts.map(item => ({...item, label: `${item.nomination.awarder || t('未填用戶', '未填用户')} · ${item.nomination.pageName || t('未填條目', '未填条目')} · ${ruleFragments(item.nomination.ruleStatus).$element.text() || t('尚未選擇規則', '尚未选择规则')}`}));
+    const items = (await store.read()).drafts.map(item => ({...item, label: `${item.nomination.awarder || t('未填用戶', '未填用户')} · ${item.nomination.pageName || t('未填條目', '未填条目')} · ${ruleFragments(item.nomination.ruleStatus).$element.text() || t('尚未選擇規則', '尚未选择规则')}`}));
     const dialog = new DraftDialog({size: 'medium', items,
-        restore: selected => update(() => store.restore(selected.map(item => item.id))),
-        discard: selected => update(() => store.mutate(current => { current.drafts = current.drafts.filter(item => !selected.some(choice => choice.id === item.id)); })),
+        restore: selected => update(async () => {
+            const response = await store.restore(selected.map(item => item.id));
+            for (const failure of response.result.failures) {
+                const item = selected.find(item => item.id === failure.id);
+                const name = item.nomination.pageName || t('未填條目', '未填条目');
+                mw.notify(t(`「${name}」恢復失敗：`, `「${name}」恢复失败：`) + failure.reason, {type: 'error'});
+            }
+            return response;
+        }, false, selected.map(item => ({label: t('恢復草稿：', '恢复草稿：') + (item.nomination.pageName || t('未填條目', '未填条目'))}))),
+        discard: selected => update(() => store.mutate(current => { current.drafts = current.drafts.filter(item => !selected.some(choice => choice.id === item.id)); }),
+            false, selected.map(item => ({label: t('刪除草稿：', '删除草稿：') + (item.nomination.pageName || t('未填條目', '未填条目'))}))),
     });
     windows.addWindows([dialog]);
     await windows.openWindow(dialog).closed;
@@ -417,7 +459,8 @@ async function openDraftBox() {
 async function stashAll() {
     await settleInputs();
     if (storageFailure) return showStorageFailure();
-    const {result: count} = await update(() => store.stashAll());
+    const {result: count} = await update(() => store.stashAll(), false,
+        session.items.filter(item => !lockedItem(session, item.id)).map(item => ({label: t('暫存：', '暂存：') + (item.nomination.pageName || t('未填條目', '未填条目'))})));
     if (confirming) { confirming = false; dock.showPanel(null); }
     dock.$notice.text(t(`已暫存 ${count} 筆操作。`, `已暂存 ${count} 项操作。`));
 }
@@ -434,7 +477,8 @@ function initConfirmation() {
             if (!fieldsBaseline || fieldsBaseline[field] === value) return;
             const before = {...fieldsBaseline}, after = {...before, [field]: value};
             fieldsBaseline = after;
-            update(() => store.fields(before, after), true);
+            update(() => store.fields(before, after), true, [{key: 'fields', label: t('提名說明與編輯摘要', '提名说明与编辑摘要'),
+                before: {[field]: before[field]}, after: {[field]: value}}]);
         }, afterComposition));
     }
     confirmButton = button(t('確認送出', '确认提交'), async () => {
@@ -450,7 +494,7 @@ function initConfirmation() {
 async function openConfirmation() {
     await settleInputs();
     if (storageFailure) return showStorageFailure();
-    sync();
+    await sync();
     confirming = true;
     syncConfirmation(sessionProgress(session));
     dock.showPanel('confirm');
@@ -472,7 +516,7 @@ function syncConfirmation(progress) {
 async function save(task) {
     busy = true; sync(); dock.showPanel('progress');
     try { await task(); }
-    finally { busy = false; sync(); }
+    finally { busy = false; await sync(); }
 }
 
 function renderSyncConflicts() {
@@ -482,8 +526,10 @@ function renderSyncConflicts() {
         $pane.append($('<p>').text(`${name}：${fieldLabel(conflict.field)}` + t('在不同分頁有不同修改。', '在不同分页有不同修改。')));
         $pane.append($('<p>').text(t('目前保存：') + fieldText(conflict.field, conflict.current)), $('<p>').text(t('這次輸入：', '这次输入：') + fieldText(conflict.field, conflict.proposed)));
         $pane.append($('<div>').addClass('acga-actions').append(
-            button(t('使用目前保存的內容', '使用目前保存的内容'), () => update(() => store.resolve(conflict.id, false))).$element,
-            button(t('使用這次輸入', '使用这次输入'), () => update(() => store.resolve(conflict.id, true))).$element));
+            button(t('使用目前保存的內容', '使用目前保存的内容'), () => update(() => store.resolve(conflict.id, false), false,
+                [{label: name + t('：使用目前保存的內容', '：使用目前保存的内容')}])).$element,
+            button(t('使用這次輸入', '使用这次输入'), () => update(() => store.resolve(conflict.id, true), false,
+                [{key: conflict.itemId || 'fields', label: name, before: {[conflict.field]: conflict.current}, after: {[conflict.field]: conflict.proposed}}])).$element));
     }
     if (session.conflicts.length && !composing()) dock.showPanel('sync');
 }
@@ -498,13 +544,13 @@ function renderProgress() {
         for (const [index, step] of (operation?.steps || []).entries()) {
             // 依步驟鍵重新選擇顯示語言，舊儲存紀錄的 label 不會把介面鎖在原語言。
             const name = {registry: t('登記處', '登记处'), scores: t('積分榜', '积分榜'), archive: t('存檔頁', '存档页')}[step.key] || step.label;
-            const labels = {pending: t('等待儲存', '等待保存'), saving: t('正在儲存／等待查證', '正在保存／等待查证'), succeeded: t('✓ 已完成'), failed: t('儲存失敗', '保存失败'), unknown: t('結果未明', '结果未明'), conflict: t('內容已變更', '内容已变更')};
+            const labels = {pending: t('等待儲存', '等待保存'), saving: t('正在儲存', '正在保存'), succeeded: t('✓ 已完成'), failed: t('儲存失敗', '保存失败'), conflict: t('內容已變更', '内容已变更')};
             const $row = $('<li>').append($('<strong>').text(`${name}：${labels[step.status]}`));
             if (step.error) $row.append($('<p>').text(step.error));
             if (step.status === 'succeeded' && step.revid) $row.append(' ', $('<a>').attr({href: mw.util.getUrl(step.title, {oldid: step.revid}), target: '_blank', rel: 'noopener'}).text(t('查看已儲存版本', '查看已储存版本')));
-            if (['pending', 'failed', 'saving', 'unknown'].includes(step.status)) {
-                const query = ['saving', 'unknown'].includes(step.status);
-                const retry = button(query ? t(`查詢${name}結果`, `查询${name}结果`) : (step.status === 'failed' ? t('重試儲存', '重试保存') : t('儲存', '保存')) + name, () => save(() => controller.step(submission.id, step.key, query ? 'query' : 'retry')));
+            if (['pending', 'failed', 'saving'].includes(step.status)) {
+                const retry = button((step.status === 'pending' ? t('儲存', '保存') : t('重試儲存', '重试保存')) + name,
+                    () => save(() => controller.step(submission.id, step.key)));
                 retry.setDisabled(busy || operation.steps.slice(0, index).some(previous => previous.status !== 'succeeded'));
                 $row.append(retry.$element);
             }
@@ -519,11 +565,18 @@ function renderProgress() {
         }
         const $actions = $('<div>').addClass('acga-actions');
         if (submission.finished) {
-            const close = async reload => { await update(() => controller.dismiss(submission.id)); dock.showPanel(null); if (reload) location.reload(); };
+            const close = async reload => {
+                await update(() => controller.dismiss(submission.id), false, [{label: t('關閉儲存結果', '关闭保存结果')}]);
+                dock.showPanel(null); if (reload) location.reload();
+            };
             $actions.append(button(t('關閉', '关闭'), () => close(false)).$element, button(t('關閉並重新載入頁面', '关闭并重新载入页面'), () => close(true)).$element);
         } else {
-            if (!operation?.steps.some(step => ['succeeded', 'unknown', 'saving'].includes(step.status))) {
-                const back = button(draft.mode === 'archive' ? t('取消歸檔', '取消归档') : t('返回修改'), () => save(() => controller.returnToEditing(submission.id)));
+            if (draft.mode !== 'archive' || !operation?.steps.some(step => ['succeeded', 'saving'].includes(step.status))) {
+                const back = button(draft.mode === 'archive' ? t('取消歸檔', '取消归档') : t('返回修改'), async () => {
+                    await save(() => controller.returnToEditing(submission.id));
+                    dock.showPanel(null);
+                    if (draft.mode !== 'archive') focusItem(submission.itemIds.find(id => views.has(id)));
+                });
                 back.setDisabled(busy); $actions.append(back.$element);
             }
             $actions.append(button(t('稍後處理', '稍后处理'), () => dock.showPanel(null)).$element);

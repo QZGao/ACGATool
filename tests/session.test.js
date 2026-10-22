@@ -4,7 +4,8 @@ import {createSessionStore} from '../src/session/session-store.js';
 import {createSubmitController} from '../src/session/session-submit.js';
 import {sessionProgress} from '../src/nomination/operations.js';
 import {parseUserReason} from '../src/wiki/api.js';
-import {REGISTER} from '../src/wiki/submission.js';
+import {reviewData} from '../src/nomination/scoring.js';
+import {REGISTER, SCORES} from '../src/wiki/submission.js';
 
 function fixture() {
     const values = new Map(), queues = new Map();
@@ -20,167 +21,284 @@ function fixture() {
 }
 const nomination = {id: 'nom', pageName: '甲', awarder: 'A', ruleStatus: {}};
 
+// 既有提名的操作須帶來源；同時開啟的修改／核對使用不同條目，遵守工作區的來源去重。
+function dataForMode(mode, index = 1, checked = '') {
+    const data = {...nomination, id: `nom-${index}`, pageName: `條目${index}`,
+        ruleStatus: mode === 'new' ? {} : parseUserReason('1a')};
+    if (mode === 'new') return data;
+    const source = {date: '10月14日', index, values: {'條目名稱': data.pageName, '用戶名稱': 'A',
+        '提名理由': '{{ACG提名2/request|ver=1|1a}}', '核對用': `{{ACG提名2/check|ver=1|${checked}}}`}};
+    return mode === 'check' ? reviewData(data, source) : {...data, source};
+}
+
 test('shared edits merge distinct fields and retain both versions of a competing field', async () => {
     const {a, b} = fixture(); await a.init();
     const {result: [id]} = await a.add('new', [nomination]);
-    const before = a.read().items[0].nomination;
+    const before = (await a.read()).items[0].nomination;
     await Promise.all([a.patch(id, before, {...before, pageName: '乙'}), b.patch(id, before, {...before, awarder: 'B'})]);
-    assert.equal(a.read().items[0].nomination.pageName, '乙');
-    assert.equal(a.read().items[0].nomination.awarder, 'B');
+    assert.equal((await a.read()).items[0].nomination.pageName, '乙');
+    assert.equal((await a.read()).items[0].nomination.awarder, 'B');
     await b.patch(id, before, {...before, pageName: '丙'});
-    const conflict = a.read().conflicts[0];
+    const conflict = (await a.read()).conflicts[0];
     assert.deepEqual([conflict.current, conflict.proposed], ['乙', '丙']);
     await a.resolve(conflict.id, true);
-    assert.equal(b.read().items[0].nomination.pageName, '丙');
-    assert.equal(b.read().items[0].nomination.awarder, 'B');
+    assert.equal((await b.read()).items[0].nomination.pageName, '丙');
+    assert.equal((await b.read()).items[0].nomination.awarder, 'B');
 });
 
 test('adopting a conflicting recipient after review requires a fresh review of the changed content', async () => {
     const {a, b} = fixture(); await a.init();
     const source = {date: '10月14日', index: 1, values: {'條目名稱': '甲', '用戶名稱': 'A', '提名理由': '{{ACG提名2/request|ver=1|1a}}', '核對用': ''}};
-    const {result: [id]} = await a.add('check', [{...nomination, source, ruleStatus: parseUserReason('1a'), reviewed: false, booking: 'unbooked'}]);
-    const before = a.read().items[0].nomination;
+    const {result: [id]} = await a.add('check', [{...nomination, source, ruleStatus: parseUserReason('1a'), reviewed: false}]);
+    const before = (await a.read()).items[0].nomination;
     await a.patch(id, before, {...before, awarder: 'B'});
     await b.patch(id, before, {...before, awarder: 'C'});
-    const current = a.read().items[0].nomination;
+    const current = (await a.read()).items[0].nomination;
     await a.patch(id, current, {...current, reviewed: true});
-    assert.equal(a.read().items[0].nomination.reviewed, true);
-    await b.resolve(b.read().conflicts[0].id, true);
-    const resolved = a.read().items[0].nomination;
+    assert.equal((await a.read()).items[0].nomination.reviewed, true);
+    await b.resolve((await b.read()).conflicts[0].id, true);
+    const resolved = (await a.read()).items[0].nomination;
     assert.equal(resolved.awarder, 'C');
     assert.equal(resolved.reviewed, false);
-    assert.equal(sessionProgress(a.read()).complete, false);
+    assert.equal(sessionProgress((await a.read())).complete, false);
     await a.patch(id, resolved, {...resolved, reviewed: true});
-    assert.equal(sessionProgress(b.read()).complete, true);
-    const reviewed = b.read().items[0].nomination;
+    assert.equal(sessionProgress((await b.read())).complete, true);
+    const reviewed = (await b.read()).items[0].nomination;
     await b.patch(id, reviewed, {...reviewed, ruleStatus: parseUserReason('1b')});
-    assert.equal(sessionProgress(a.read()).complete, false, 'ordinary content updates enforce the same review boundary');
+    assert.equal(sessionProgress((await a.read())).complete, false, 'ordinary content updates enforce the same review boundary');
 });
 
 test('all operation types move through the draft box without moving submission fields', async () => {
     const {a, b} = fixture(); await a.init();
     await a.fields({message: '', summary: ''}, {message: '整批說明', summary: '摘要'});
     for (const mode of ['new', 'edit', 'check']) {
-        const {result: [id]} = await a.add(mode, [nomination]);
+        const {result: [id]} = await a.add(mode, [dataForMode(mode)]);
         await a.stash(id);
-        assert.equal(b.read().items.length, 0);
-        assert.equal(b.read().drafts[0].mode, mode);
-        assert.ok(!('message' in b.read().drafts[0]));
+        assert.equal((await b.read()).items.length, 0);
+        assert.equal((await b.read()).drafts[0].mode, mode);
+        assert.ok(!('message' in (await b.read()).drafts[0]));
         await b.restore([id]);
-        assert.equal(a.read().drafts.length, 0);
+        assert.equal((await a.read()).drafts.length, 0);
         await a.discard(id);
-        assert.equal(b.read().items.length, 0);
+        assert.equal((await b.read()).items.length, 0);
     }
-    assert.deepEqual(a.read().fields, {message: '整批說明', summary: '摘要'});
+    assert.deepEqual((await a.read()).fields, {message: '整批說明', summary: '摘要'});
+});
+
+test('restoring drafts leaves blocked entries intact and restores the rest after a missing selection', async () => {
+    const {a, b, storage} = fixture(); await a.init();
+    const data = {...dataForMode('edit'), pageName: '保留的本地條目名稱', ruleStatus: parseUserReason('1a(自訂說明)[2]')};
+    const {result: [blocked]} = await a.add('edit', [data]);
+    await a.stash(blocked);
+    const original = (await a.read()).drafts[0];
+    await b.add('edit', [dataForMode('edit')]);
+    const {result: [missing, valid]} = await a.add('new', [nomination, {...nomination, id: 'another', pageName: '可恢復的條目'}]);
+    await a.stash(missing); await a.stash(valid);
+    await b.discard(missing, true);
+    const before = await a.read(), write = storage.setItem;
+    storage.setItem = () => { throw new Error('quota'); };
+    await assert.rejects(a.restore([blocked, missing, valid]), /quota/);
+    assert.deepEqual(await a.read(), before);
+    storage.setItem = write;
+    const {result} = await a.restore([blocked, missing, valid]);
+    assert.deepEqual(result.restored, [valid]);
+    assert.deepEqual(result.failures.map(failure => failure.id), [blocked, missing]);
+    assert.match(result.failures[0].reason, /已在表單/);
+    assert.match(result.failures[1].reason, /另一個分頁/);
+    const restored = await b.read();
+    assert.deepEqual(restored.drafts, [original]);
+    assert.equal(restored.items.at(-1).id, valid);
 });
 
 test('failed local writes leave source and destination intact and stale edits cannot resurrect cancelled work', async () => {
     const {a, b, storage} = fixture(); await a.init();
     const {result: [id]} = await a.add('new', [nomination]);
-    const before = a.read();
+    const before = (await a.read());
     const save = storage.setItem;
     storage.setItem = () => { throw new Error('quota'); };
     await assert.rejects(a.stash(id), /quota/);
-    assert.deepEqual(a.read(), before);
+    assert.deepEqual((await a.read()), before);
     storage.setItem = save;
     await b.discard(id);
     await assert.rejects(a.patch(id, nomination, {...nomination, pageName: '乙'}), /取消或暫存/);
-    assert.equal(a.read().items.length, 0);
+    assert.equal((await a.read()).items.length, 0);
 });
 
 test('stash all moves current editable work atomically and retains pending saves and submission fields', async () => {
     const {a, b, storage} = fixture(); await a.init();
     await a.fields({message: '', summary: ''}, {message: '整批說明', summary: '摘要'});
     const ids = [];
-    for (const [mode, data] of [['new', nomination], ['edit', nomination], ['check', nomination], ['check', {...nomination, original: {score: 0}}]]) {
+    for (const [mode, data] of [['new', dataForMode('new', 1)], ['edit', dataForMode('edit', 2)],
+        ['check', dataForMode('check', 3)], ['check', dataForMode('check', 4, '0')]]) {
         const {result: [id]} = await a.add(mode, [data]); ids.push(id);
     }
-    const {result: [pending]} = await a.add('new', [nomination]);
-    await a.mutate(session => session.submissions.push({id: 'saving', itemIds: [pending], draft: {}}));
+    const {result: [pending]} = await a.add('new', [{...nomination, ruleStatus: parseUserReason('1a')}]);
+    await a.mutate(session => session.submissions.push({id: 'saving', createdAt: Date.now(), itemIds: [pending],
+        draft: {mode: 'mixed', items: [session.items.find(item => item.id === pending)], message: '', summary: ''}}));
     // 另一分頁在暫存前完成的輸入，應直接進入草稿箱，而不是被舊快照蓋回去。
-    const beforeEdit = b.read().items[1].nomination;
+    const beforeEdit = (await b.read()).items[1].nomination;
     await b.patch(ids[1], beforeEdit, {...beforeEdit, pageName: '另一分頁的修改'});
-    const before = a.read(), write = storage.setItem;
+    const before = (await a.read()), write = storage.setItem;
     storage.setItem = () => { throw new Error('quota'); };
     await assert.rejects(a.stashAll(), /quota/);
-    assert.deepEqual(a.read(), before);
+    assert.deepEqual((await a.read()), before);
     storage.setItem = write;
     await a.mutate(session => session.conflicts.push({id: 'conflict', itemId: ids[2], field: 'pageName', current: '甲', proposed: '乙'}));
-    const conflicted = a.read();
+    const conflicted = (await a.read());
     await assert.rejects(a.stashAll(), /分頁衝突/);
-    assert.deepEqual(a.read(), conflicted);
+    assert.deepEqual((await a.read()), conflicted);
     await b.resolve('conflict', false);
     assert.equal((await a.stashAll()).result, 4);
-    const after = b.read();
+    const after = (await b.read());
     assert.deepEqual(after.items.map(item => item.id), [pending]);
     assert.deepEqual(after.drafts.map(item => item.id), ids);
     assert.equal(after.drafts[1].nomination.pageName, '另一分頁的修改');
     assert.deepEqual(after.fields, before.fields);
     assert.deepEqual(after.submissions, before.submissions);
     await b.restore(ids);
-    assert.equal(a.read().items.length, 5);
-    assert.equal(a.read().drafts.length, 0);
+    assert.equal((await a.read()).items.length, 5);
+    assert.equal((await a.read()).drafts.length, 0);
 });
-
-test('migration preserves pending requests and separates old stashes from open work', async () => {
-    const {a, storage} = fixture();
-    const operation = {id: 'request', steps: [{status: 'unknown', attempt: {text: '已發出的原文'}}]};
-    storage.setItem('test:library', JSON.stringify({schema: 2, drafts: [
-        {id: 'open', mode: 'new', open: true, nominations: [nomination], message: '說明'},
-        {id: 'stash', mode: 'new', open: false, nominations: [{...nomination, id: 'other'}]},
-        {id: 'pending', mode: 'check', nominations: [nomination], operation},
-    ]}));
-    const original = storage.getItem('test:library'), write = storage.setItem;
-    storage.setItem = () => { throw new Error('quota'); };
-    await assert.rejects(a.init(), /quota/);
-    assert.equal(storage.getItem('test:library'), original);
-    assert.equal(storage.getItem('test:session'), null);
-    storage.setItem = write;
-    const session = await a.init();
-    assert.equal(session.items.length, 2);
-    assert.equal(session.drafts.length, 1);
-    assert.equal(session.fields.message, '說明');
-    assert.deepEqual(session.submissions[0].draft.operation, operation);
-    assert.deepEqual(await a.init(), session);
-});
-
 
 test('successful submission clears only its frozen items and preserves later input from another tab', async () => {
-    const {a, b} = fixture(); await a.init();
+    const {a, b, storage} = fixture(); await a.init();
     await a.add('new', [{...nomination, ruleStatus: parseUserReason('1a')}]);
     await a.fields({message: '', summary: ''}, {message: '已送出的說明', summary: '已送出的摘要'});
-    const expected = {items: sessionProgress(a.read()).items, fields: a.read().fields};
+    const expected = {items: sessionProgress((await a.read())).items, fields: (await a.read()).fields};
     const io = {
-        read: async () => ({text: '頁首', revid: 1}), findReceipt: async () => null,
-        write: async attempt => {
-            assert.equal(attempt.title, REGISTER);
+        read: async () => ({text: '頁首', revid: 1}),
+        write: async edit => {
+            assert.equal(edit.title, REGISTER);
             await b.add('new', [{...nomination, id: 'later', pageName: '稍後新增'}]);
             await b.fields(expected.fields, {message: '下一批說明', summary: '下一批摘要'});
             return {revid: 2};
         },
     };
     await createSubmitController(a, () => {}, io).start(expected);
-    assert.deepEqual(a.read().items.map(item => item.nomination.id), ['later']);
-    assert.deepEqual(a.read().fields, {message: '下一批說明', summary: '下一批摘要'});
-    assert.equal(a.read().submissions[0].finished, true);
+    assert.deepEqual((await a.read()).items.map(item => item.nomination.id), ['later']);
+    assert.deepEqual((await a.read()).fields, {message: '下一批說明', summary: '下一批摘要'});
+    const saved = JSON.parse(storage.getItem(a.key));
+    assert.deepEqual(saved.submissions[0].itemIds, expected.items.map(item => item.id));
+    assert.equal(saved.submissions[0].finished, true);
+    assert.deepEqual(saved.submissions[0].draft, {mode: 'mixed',
+        operation: {steps: [{key: 'registry', title: REGISTER, status: 'succeeded', revid: 2}]}});
+    assert.doesNotMatch(storage.getItem(a.key), /已送出的說明|已送出的摘要/);
+});
+
+test('returning from a failed save permits offline editing without another query or write', async () => {
+    const {a, b} = fixture(); await a.init();
+    await a.add('new', [{...nomination, ruleStatus: parseUserReason('1a')}]);
+    await a.fields({message: '', summary: ''}, {message: '保留說明', summary: '保留摘要'});
+    const initial = await a.read();
+    let offline = false, calls = 0;
+    const io = {
+        read: async () => { calls++; if (offline) throw new Error('offline'); return {text: '頁首', revid: 1}; },
+        write: async () => { calls++; offline = true; throw new Error('offline'); },
+    };
+    const controller = createSubmitController(a, () => {}, io);
+    assert.equal(await controller.start({items: initial.items, fields: initial.fields}), false);
+    const pending = await a.read(), requests = calls;
+    assert.equal(pending.submissions[0].draft.operation.steps[0].status, 'failed');
+    await controller.returnToEditing(pending.submissions[0].id);
+    const editable = await a.read();
+    assert.deepEqual(editable.submissions, []);
+    assert.deepEqual(editable.items, initial.items);
+    assert.deepEqual(editable.fields, initial.fields);
+    const item = editable.items[0];
+    await a.patch(item.id, item.nomination, {...item.nomination, pageName: '離線修改'});
+    const restored = await b.init();
+    assert.equal(restored.items[0].nomination.pageName, '離線修改');
+    assert.deepEqual(restored.fields, initial.fields);
+    assert.equal(calls, requests, 'returning, editing and restoring only use local storage');
+});
+
+test('reading collects only orphaned submissions older than six hours and never deletes editing data', async context => {
+    const now = Date.UTC(2026, 9, 22, 12), sixHours = 6 * 60 * 60 * 1000;
+    context.mock.method(Date, 'now', () => now);
+    const {a, b, storage} = fixture(); await a.init();
+    const {result: [active]} = await a.add('new', [nomination]);
+    const {result: [stashed]} = await a.add('new', [{...nomination, id: 'stashed'}]);
+    await a.stash(stashed);
+    await a.fields({message: '', summary: ''}, {message: '下一批說明', summary: '摘要'});
+    // 直接放入已失去表單引用的殘留紀錄，驗證垃圾清理，不以刪表單來製造過期。
+    const before = await a.read();
+    before.submissions = [
+        {id: 'orphan', itemIds: ['removed'], createdAt: now - sixHours - 1},
+        {id: 'boundary', itemIds: ['also-removed'], createdAt: now - sixHours},
+        {id: 'active', itemIds: [active], createdAt: now - sixHours - 1},
+        {id: 'stashed', itemIds: [stashed], createdAt: now - sixHours - 1},
+        {id: 'archive', itemIds: [], createdAt: now - sixHours - 1},
+    ];
+    storage.setItem(a.key, JSON.stringify(before));
+    const after = await b.read();
+    assert.deepEqual(after.submissions.map(item => item.id), ['boundary', 'active', 'stashed', 'archive']);
+    assert.deepEqual(after.items, before.items);
+    assert.deepEqual(after.drafts, before.drafts);
+    assert.deepEqual(after.fields, before.fields);
+    assert.deepEqual(after.conflicts, before.conflicts);
+    assert.deepEqual(JSON.parse(storage.getItem(a.key)), after);
+    assert.deepEqual(await a.read(), after, 'subsequent reads do not rewrite the same state');
+});
+
+test('a partial submission remains resumable after six hours and clears its content only on full success', async context => {
+    let now = Date.UTC(2026, 9, 22, 12);
+    context.mock.method(Date, 'now', () => now);
+    const {a, storage} = fixture(); await a.init();
+    const check = {...dataForMode('check'), reviewed: true};
+    await a.add('check', [check]);
+    await a.add('new', [{...nomination, id: 'added', pageName: '新增條目', ruleStatus: parseUserReason('1a')}]);
+    await a.fields({message: '', summary: ''}, {message: '這批說明', summary: '這批摘要'});
+    const initial = await a.read(), writes = [];
+    const source = `=== 10月14日 ===\n{{ACG提名2\n${Object.entries(check.source.values).map(([name, value]) => `|${name}1 = ${value}`).join('\n')}\n}}\n'''提名人：'''[[User:Nominator]]`;
+    const pages = new Map([[REGISTER, {text: source, revid: 1}], [SCORES, {text: 'return {\n ["A"] = 10,\n}', revid: 1}]]);
+    let fail = true;
+    const io = {
+        read: async title => structuredClone(pages.get(title)),
+        write: async edit => {
+            if (edit.title === SCORES && fail) throw new Error('editconflict');
+            writes.push(edit.title);
+            const revid = pages.get(edit.title).revid + 1;
+            pages.set(edit.title, {text: edit.text, revid});
+            return {revid};
+        },
+    };
+    const controller = createSubmitController(a, () => {}, io);
+    assert.equal(await controller.start({items: sessionProgress(initial).items, fields: initial.fields}), false);
+    now += 7 * 60 * 60 * 1000;
+    const pending = await a.read();
+    assert.deepEqual(pending.items, initial.items);
+    assert.deepEqual(pending.fields, initial.fields);
+    assert.equal(pending.submissions[0].createdAt, now - 7 * 60 * 60 * 1000);
+    assert.deepEqual(pending.submissions[0].draft.operation.steps.map(step => step.status), ['succeeded', 'failed']);
+    fail = false;
+    assert.equal(await controller.step(pending.submissions[0].id, 'scores'), true);
+    const saved = JSON.parse(storage.getItem(a.key));
+    assert.deepEqual(writes, [REGISTER, SCORES]);
+    assert.deepEqual(saved.items, []);
+    assert.deepEqual(saved.fields, {message: '', summary: ''});
+    assert.deepEqual(saved.submissions[0].draft, {mode: 'mixed', operation: {steps: [
+        {key: 'registry', title: REGISTER, status: 'succeeded', revid: 2},
+        {key: 'scores', title: SCORES, status: 'succeeded', revid: 2},
+    ]}});
+    assert.doesNotMatch(storage.getItem(a.key), /這批說明|這批摘要|新增條目|edit|submitted/);
+    await controller.dismiss(saved.submissions[0].id);
+    assert.deepEqual((await a.read()).submissions, []);
 });
 
 test('per-type completion counts share submission eligibility and exclude unchanged or submitted work', () => {
     const valid = {...nomination, ruleStatus: parseUserReason('1a')};
-    const source = {date: '10月14日', index: 1, values: {'條目名稱': '甲', '用戶名稱': 'A', '提名理由': '{{ACG提名2/request|ver=1|1a}}', '核對用': ''}};
-    const check = {...valid, source, booking: 'unbooked', reviewed: true};
     const session = {items: [
         {id: 'new-ready', mode: 'new', nomination: valid},
-        {id: 'new-empty', mode: 'new', nomination: {...valid, pageName: ''}},
-        {id: 'new-saving', mode: 'new', nomination: valid},
-        {id: 'edit-ready', mode: 'edit', nomination: {...valid, source, pageName: '乙'}},
-        {id: 'edit-unchanged', mode: 'edit', nomination: {...valid, source}},
-        {id: 'check-ready', mode: 'check', nomination: check},
-        {id: 'check-pending', mode: 'check', nomination: {...check, reviewed: false}},
-        {id: 'check-conflict', mode: 'check', nomination: check},
-        {id: 'recheck-zero', mode: 'check', nomination: {...check, original: {score: 0}}},
-        {id: 'recheck-pending', mode: 'check', nomination: {...check, original: {score: 1}, reviewed: false}},
-        {id: 'recheck-conflict', mode: 'check', nomination: {...check, original: {score: 1}}},
+        {id: 'new-empty', mode: 'new', nomination: {...valid, id: 'empty-nomination', pageName: ''}},
+        {id: 'new-saving', mode: 'new', nomination: {...valid, id: 'saving-nomination', pageName: '已提交的新條目'}},
+        {id: 'edit-ready', mode: 'edit', nomination: {...dataForMode('edit', 4), pageName: '更名後條目4'}},
+        {id: 'edit-unchanged', mode: 'edit', nomination: dataForMode('edit', 5)},
+        {id: 'check-ready', mode: 'check', nomination: {...dataForMode('check', 6), reviewed: true}},
+        {id: 'check-pending', mode: 'check', nomination: dataForMode('check', 7)},
+        {id: 'check-conflict', mode: 'check', nomination: {...dataForMode('check', 8), reviewed: true}},
+        {id: 'recheck-zero', mode: 'check', nomination: {...dataForMode('check', 9, '0'), reviewed: true}},
+        {id: 'recheck-pending', mode: 'check', nomination: {...dataForMode('check', 10, '1a')}},
+        {id: 'recheck-conflict', mode: 'check', nomination: {...dataForMode('check', 11, '1a'), reviewed: true}},
     ], submissions: [{itemIds: ['new-saving']}], conflicts: [{itemId: 'check-conflict'}, {itemId: 'recheck-conflict'}]};
     const progress = sessionProgress(session);
     assert.deepEqual(progress.byType, {new: {ready: 1, total: 2}, edit: {ready: 1, total: 1}, check: {ready: 1, total: 3}, recheck: {ready: 1, total: 3}});

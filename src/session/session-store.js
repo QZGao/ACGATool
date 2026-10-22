@@ -1,9 +1,23 @@
 import {t} from '../i18n.js';
-import {readLegacyDrafts} from './legacy-drafts.js';
 import {copy, equal, createItem, sameSource, lockedItem} from '../nomination/operations.js';
 import {newId} from '../nomination/scoring.js';
 
 const empty = () => ({schema: 3, revision: 0, items: [], drafts: [], fields: {message: '', summary: ''}, conflicts: [], submissions: []});
+
+/** 讀取時清理孤立的未完成提交；成功的提交內容已在完成時清除，只剩結果畫面資料。 */
+function collectSubmissions(session) {
+    const reachable = new Set([...session.items, ...session.drafts].map(item => item.id));
+    const cutoff = Date.now() - 6 * 60 * 60 * 1000;
+    const retained = session.submissions.filter(submission => {
+        if (submission.finished) return true;
+        // 歸檔沒有逐筆表單，仍由儲存進度提供操作入口，不能據此視為孤立紀錄。
+        if (!submission.itemIds.length || submission.itemIds.some(id => reachable.has(id))) return true;
+        return !Number.isFinite(submission.createdAt) || submission.createdAt >= cutoff;
+    });
+    if (retained.length === session.submissions.length) return false;
+    session.submissions = retained;
+    return true;
+}
 
 /**
  * localStorage 是共同工作區的唯一持久來源。Web Locks 將跨分頁的讀取／修改／寫入
@@ -12,7 +26,7 @@ const empty = () => ({schema: 3, revision: 0, items: [], drafts: [], fields: {me
  */
 export function createSessionStore(storage, prefix, locks = globalThis.navigator?.locks) {
     const key = `${prefix}:session`;
-    const read = () => {
+    const load = () => {
         const raw = storage.getItem(key);
         const session = raw ? JSON.parse(raw) : empty();
         if (session.schema !== 3 || !['items', 'drafts', 'conflicts', 'submissions'].every(name => Array.isArray(session[name])) || !session.fields) throw new Error(t('無法讀取編輯資料，原資料已保留。', '无法读取编辑资料，原资料已保留。'));
@@ -22,12 +36,23 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
         if (!locks?.request) return Promise.reject(new Error(t('此瀏覽器無法協調多個分頁的編輯，請更新瀏覽器後重試。', '此浏览器无法协调多个分页的编辑，请更新浏览器后重试。')));
         return locks.request(`${prefix}:${name}`, options, callback);
     };
-    const mutate = callback => lock('state', () => {
-        const session = read();
-        const result = callback(session);
-        session.revision++;
+    const write = session => {
         try { storage.setItem(key, JSON.stringify(session)); }
         catch (error) { error.code = 'local-storage'; throw error; }
+    };
+    // 讀取時的垃圾清理也要持有狀態鎖，避免覆寫另一分頁剛恢復的表單。
+    const readLocked = () => {
+        const session = load();
+        if (collectSubmissions(session)) { session.revision++; write(session); }
+        return session;
+    };
+    const read = () => lock('state', readLocked);
+    const mutate = callback => lock('state', () => {
+        const session = load();
+        collectSubmissions(session);
+        const result = callback(session);
+        session.revision++;
+        write(session);
         return {session, result};
     });
     const editable = (session, id) => {
@@ -66,23 +91,9 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
         key, read, mutate,
         async init() {
             return lock('state', () => {
-                if (storage.getItem(key)) return read();
+                if (storage.getItem(key)) return readLocked();
                 const session = empty();
-                const legacy = readLegacyDrafts(storage, prefix);
-                for (const draft of legacy) {
-                    const items = draft.nominations.map(n => createItem(draft.mode, n));
-                    if (draft.operation || draft.open || draft.mode !== 'new') session.items.push(...items);
-                    else session.drafts.push(...items);
-                    // 舊版整批說明獨立遷移，不再附在草稿箱項目上；多份文字保留供選擇。
-                    if (draft.message) {
-                        if (!session.fields.message) session.fields.message = draft.message;
-                        else if (session.fields.message !== draft.message) session.conflicts.push({id: newId(), itemId: null,
-                            field: 'message', current: session.fields.message, proposed: draft.message});
-                    }
-                    if (draft.operation || draft.conflicts?.length) session.submissions.push({id: newId(), itemIds: items.map(item => item.id), draft: copy(draft)});
-                }
-                // 一次成功寫入才算遷移完成；舊鍵保留，供使用者需要時回復。
-                storage.setItem(key, JSON.stringify(session));
+                write(session);
                 return session;
             });
         },
@@ -130,16 +141,20 @@ export function createSessionStore(storage, prefix, locks = globalThis.navigator
         },
         restore(ids) {
             return mutate(session => {
-                const selected = ids.map(id => session.drafts.find(item => item.id === id));
-                if (selected.some(item => !item)) throw new Error(t('草稿箱已在另一個分頁變更，請重新選取。', '草稿箱已在另一个分页变更，请重新选择。'));
-                const sources = [...session.items];
-                for (const item of selected) {
-                    if (item.nomination.source && session.submissions.some(submission => !submission.finished && submission.draft.archive?.date === item.nomination.source.date)) throw new Error(t('此小節正在歸檔，請先處理其儲存結果。', '此小节正在归档，请先处理其保存结果。'));
-                    if (sources.some(other => sameSource(other.nomination.source, item.nomination.source))) throw new Error(t('此提名已在表單中，請先處理目前的操作。', '此提名已在表单中，请先处理目前的操作。'));
-                    sources.push(item);
+                const restored = [], failures = [];
+                for (const id of ids) {
+                    const item = session.drafts.find(item => item.id === id);
+                    let reason;
+                    if (!item) reason = t('此草稿已在另一個分頁移除或恢復。', '此草稿已在另一个分页移除或恢复。');
+                    else if (item.nomination.source && session.submissions.some(submission => !submission.finished && submission.draft.archive?.date === item.nomination.source.date)) reason = t('此小節正在歸檔。', '此小节正在归档。');
+                    else if (session.items.some(other => sameSource(other.nomination.source, item.nomination.source))) reason = t('此提名已在表單中。', '此提名已在表单中。');
+                    if (reason) { failures.push({id, reason}); continue; }
+                    session.items.push(item);
+                    restored.push(id);
                 }
-                session.items.push(...selected);
-                session.drafts = session.drafts.filter(item => !ids.includes(item.id));
+                // 只取出成功恢復的草稿；失敗項保留原內容，讓使用者稍後處理或複製。
+                session.drafts = session.drafts.filter(item => !restored.includes(item.id));
+                return {restored, failures};
             });
         },
         discard(id, stashed = false) {

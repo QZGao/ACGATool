@@ -128,11 +128,12 @@ export function appendNominationRows($table, nomination, index, {checking, openR
     };
     const $userDisplay = checking ? $('<span>').append(userContents(nomination)) : $();
     let displayedAwarder = nomination.awarder;
+    // 覆核與一般編輯共用條目輸入框，也沿用原地同步、自動保存及輸入法處理。
+    if (checking && !nomination.original) $title.append(titleContents(nomination));
+    else textInput('pageName', t('條目名稱', '条目名称'), $title);
     if (checking) {
-        $title.append(titleContents(nomination));
         $user.append($userDisplay, ' ', action(t('更正得分者'), () => textInput('awarder', t('得分者'), $user).focus()).addClass('acga-change-awarder'));
     } else {
-        textInput('pageName', t('條目名稱', '条目名称'), $title);
         textInput('awarder', t('得分者'), $user);
     }
 
@@ -201,15 +202,6 @@ export function appendNominationRows($table, nomination, index, {checking, openR
         $old.append($rendered.length ? $rendered : $('<p>').text(nomination.source.values['核對用'].replace(/<!--[\s\S]*?-->/g, '')));
         $resultCell.append($old);
     }
-    let $booking;
-    if (nomination.original?.score > 0 && !nomination.baseline) {
-        $booking = $('<select>').attr({'aria-label': t('原分數入帳狀態', '原分数入账状态'), 'data-acga-field': 'booking'});
-        [['unknown', t('請確認原核分是否已入帳', '请确认原核分是否已入账')], ['booked', t('原核分已登記到積分榜', '原核分已登记到积分榜')], ['unbooked', t('原核分尚未登記到積分榜', '原核分尚未登记到积分榜')]].forEach(([value, label]) => $booking.append($('<option>').val(value).text(label)));
-        $booking.val(nomination.booking).on('change', () => { nomination.booking = $booking.val(); touch(); });
-        const $help = $('<span>').append(' ', link('Module:ACGaward/list', t('查看積分資料', '查看积分资料')), ' · ',
-            $('<a>').attr({href: mw.util.getUrl('Module:ACGaward/list', {action: 'history'}), target: '_blank', rel: 'noopener'}).text(t('入帳歷史', '入账历史')));
-        $resultCell.append($('<p>').addClass('acga-booking').append($booking, $help));
-    }
     const $invalid = $('<input>').attr({type: 'checkbox', 'data-acga-field': 'invalid'}).prop('checked', nomination.invalid).on('change', () => {
         nomination.invalid = $invalid.prop('checked'); touch(); refresh();
     });
@@ -226,13 +218,11 @@ export function appendNominationRows($table, nomination, index, {checking, openR
     const $scorePreview = $('<p>').addClass('acga-score-preview');
     const refreshScore = () => {
         $scorePreview.empty();
-        try {
-            const before = previousBooking(nomination), score = nomination.invalid ? 0 : ruleFragments(nomination.ruleStatus).total;
-            if (Number.isFinite(score) && nomination.awarder.trim()) {
-                const changes = [...scoreDeltas([{before, awarder: nomination.awarder.trim(), score}])].filter(([, delta]) => delta !== 0);
-                $scorePreview.text(t('積分榜變動：', '积分榜变动：') + (changes.length ? changes.map(([user, delta]) => `${user} ${delta > 0 ? '+' : ''}${delta}`).join('；') : t('不變', '不变')));
-            }
-        } catch { $scorePreview.text(t('確認原核分是否入帳後，即可預覽積分調整。', '确认原核分是否入账后，即可预览积分调整。')); }
+        const before = previousBooking(nomination), score = nomination.invalid ? 0 : ruleFragments(nomination.ruleStatus).total;
+        if (Number.isFinite(score) && nomination.awarder.trim()) {
+            const changes = [...scoreDeltas([{before, awarder: nomination.awarder.trim(), score}])].filter(([, delta]) => delta !== 0);
+            $scorePreview.text(t('積分榜變動：', '积分榜变动：') + (changes.length ? changes.map(([user, delta]) => `${user} ${delta > 0 ? '+' : ''}${delta}`).join('；') : t('不變', '不变')));
+        }
     };
     refreshScore();
     $resultCell.append($scorePreview);
@@ -253,7 +243,6 @@ export function appendNominationRows($table, nomination, index, {checking, openR
     const syncInputs = controls.sync;
     controls.sync = () => {
         syncInputs();
-        if ($booking && $booking.val() !== nomination.booking) $booking.val(nomination.booking);
         $invalid.prop('checked', !!nomination.invalid);
         $reviewed.prop('checked', !!nomination.reviewed);
         refreshScore();

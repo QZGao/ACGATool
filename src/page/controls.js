@@ -2,7 +2,6 @@ import state, {t} from "../i18n.js";
 import {getArticleRoot, getNominationSections} from "./sections.js";
 import {entryOwnership, isOwnNomination, assertCanCheck} from "../nomination/ownership.js";
 import {reviewData, parseCheck} from "../nomination/scoring.js";
-import {SCORES} from "../wiki/submission.js";
 import {hasRecentActivity} from "../wiki/archive.js";
 import {bindTitleStatus} from "./title-status.js";
 import {cdxIconEdit, cdxIconHighlight, cdxIconSandbox} from "../ui/icons.js";
@@ -64,14 +63,14 @@ async function checkNomination(date, index) {
  */
 async function openCheckQueue(targets) {
     try {
-        const [fulltext, scoreText] = await Promise.all([getFullText(), getFullText(SCORES)]);
+        const fulltext = await getFullText();
         const nominations = targets.map(({date, index}) => {
             const entry = queryEntry(fulltext, date, index);
             const data = queried2NomData(entry);
             if (!data) throw new Error(t('小工具無法讀取該提名，請手動編輯。', '小工具无法读取该提名，请手动编辑。'));
             const ownership = entryOwnership(fulltext, entry);
-            assertCanCheck(ownership, mw.config.get('wgUserName'), data.awarder);
-            return reviewData(data, {date, index, values: entryValues(entry), ownership}, scoreText);
+            assertCanCheck(ownership, mw.config.get('wgUserName'));
+            return reviewData(data, {date, index, values: entryValues(entry), ownership});
         });
         await showCheckNominations(nominations);
     } catch (error) {

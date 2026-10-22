@@ -40,6 +40,17 @@ test('explicit descriptions and scores round-trip even when they equal a localiz
     } finally { state.init(({hant}) => hant); }
 });
 
+test('negative rule scores are editable and recipient line breaks are reported in the form', () => {
+    const item = edit(parseUserReason('1c[-2]'));
+    assert.equal(operationStatus(item).ready, true);
+    assert.equal(generateReason(item.nomination.ruleStatus, true).reasonScore, -2);
+    item.nomination.awarder = 'A\nB';
+    const status = operationStatus(item);
+    assert.equal(status.ready, false);
+    assert.deepEqual(status.errors.map(error => error.field), ['awarder']);
+    assert.match(status.errors[0].message, /不能包含換行/);
+});
+
 test('legacy defaults normalize without translating custom values or modifying saved snapshots', () => {
     const old = {
         '1c': {selected: true, desc: '長新增', ogDesc: '長新增', score: 3, maxScore: 3},

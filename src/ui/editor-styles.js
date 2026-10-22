@@ -53,9 +53,11 @@ export function initEditorStyles() {
         .acga-conflicts table { width: 100%; border-collapse: collapse; }
         .acga-conflicts th, .acga-conflicts td { text-align: left; vertical-align: baseline; padding: .5em; border: 1px solid var(--border-color-base, #a2a9b1); overflow-wrap: anywhere; white-space: pre-wrap; }
         .acga-conflicts mark { background: var(--background-color-warning-subtle, #fef6e7); color: var(--color-base, #202122); }
+        .acga-unsaved-inputs dd { white-space: pre-wrap; overflow-wrap: anywhere; }
         .acga-needs-review > .acgnom-check-cell { outline: 2px solid var(--color-error, #b32424); outline-offset: -2px; }
         .acga-save-progress li { margin-block: .75em; }
         .acga-save-progress p { margin-block: .25em; }
+        .acga-save-progress strong + .oo-ui-buttonElement { margin-inline-start: .5em; }
         .acga-edit-table { width: 100%; }
         .acga-edit-table .acgnom-title-heading, .acga-edit-table .acgnom-user-heading { width: 25%; }
         .acga-edit-table .acga-cell-input { width: 100%; max-width: none; }
@@ -88,8 +90,6 @@ export function initEditorStyles() {
         .acga-inline-option { display: inline-flex; align-items: baseline; gap: .25em; margin: .4em .75em .25em 0; }
         .acga-check-message { max-width: none; margin-top: .4em; }
         .acga-original-check { margin-block: .4em; }
-        .acga-booking { margin-block: .4em; }
-        .acga-booking select { max-width: 100%; font: inherit; }
         .acga-edit-table th, .acga-edit-table td { overflow-wrap: anywhere; }
         .acga-edit-table .acgnom-title-cell { text-align: center; }
         .acga-table-scroll { overflow-x: auto; }
