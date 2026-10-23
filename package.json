@@ -1,6 +1,6 @@
 {
   "name": "acgatool",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "private": true,
   "description": "ACGATool Codex rewrite build setup",
   "type": "module",
