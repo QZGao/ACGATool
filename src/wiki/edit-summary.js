@@ -13,7 +13,11 @@ export function formatEditSummary(description, summary = '', brief = description
     throw new Error(t('編輯摘要過長，請縮短自行填寫的摘要。', '编辑摘要过长，请缩短自行填写的摘要。'));
 }
 
-const article = title => `[[${stripComments(title)}]]`;
+const article = title => {
+    const name = stripComments(title);
+    // 「他薦／他荐」是申報項目，摘要中直接顯示名稱。
+    return /^他[薦荐]$/.test(name) ? name : `[[${name}]]`;
+};
 
 function describeNomination({mode, nomination: n}) {
     const title = article(n.pageName), awarder = n.awarder.trim();
