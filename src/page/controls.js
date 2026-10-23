@@ -109,7 +109,7 @@ function archiveChapter(date) {
 /**
  * 讀取提名資料後，在頁面加入編輯與核對入口，隱藏自己的核對入口。
  * 此處的身分判斷只控制顯示；提交時仍須根據最新來源再次檢查。
- * 附在原始列上的日期與四欄快照供 DOM 對接，儲存時仍讀取最新原文。
+ * 原始列以日期與序號識別，四欄快照供內容驗證；儲存時仍讀取最新原文。
  */
 export async function addEditButtonsToPage(sourceText) {
     // 保留使用者熟悉的頁首雙按鈕：手動入口在前，小工具的藍色入口在後。
@@ -179,7 +179,7 @@ export async function addEditButtonsToPage(sourceText) {
                     rechecking = values ? !!parseCheck(values['核對用']) : false;
                 }
                 const currentIndex = index;
-                row.attr('data-acga-date', date);
+                row.attr({'data-acga-date': date, 'data-acga-source-index': currentIndex});
                 if (values) row.attr('data-acga-source-values', JSON.stringify(values));
                 if (th.length !== 0) {
                     // 提名行

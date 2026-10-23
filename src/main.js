@@ -3,6 +3,8 @@ import {initOOUI, showNewNominationDialog, resumeOpenWorkspace} from "./ui/edito
 import {addEditButtonsToPage} from "./page/controls.js";
 
 function init() {
+    // 差異比較也可能使用 view；只在一般閱讀模式載入依賴及建立小工具介面。
+    if (mw.config.get('wgAction') !== 'view' || mw.config.get('wgDiffNewId') != null) return;
     const pageName = mw.config.get('wgPageName');
     if (pageName !== 'WikiProject:ACG/維基ACG專題獎' && pageName !== 'WikiProject:ACG/維基ACG專題獎/登記處') return;  // 非目標頁面，不執行
 

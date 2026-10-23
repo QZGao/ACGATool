@@ -4,6 +4,7 @@ import {entryValues, queryEntry, updateEntries} from '../src/wiki/api.js';
 import {prepareMixed, getNewNominationPlacement} from '../src/wiki/submission.js';
 import {createItem} from '../src/nomination/operations.js';
 import {scoreDeltas} from '../src/nomination/scoring.js';
+import {ReviewConflict} from '../src/nomination/conflicts.js';
 
 const row = (number, title) => `\n|條目名稱${number} = ${title}\n|用戶名稱${number} = Example\n|提名理由${number} = {{ACG提名2/request|ver=1|1a}}\n|核對用${number} = {{ACG提名2/check|ver=1|}}`;
 const text = `=== 10月14日 ===\n{{ACG提名2${row(1, '甲')}${row(2, '乙')}\n}}\n提名人：[[User:Nominator]]`;
@@ -40,7 +41,32 @@ test('mixed preparation uses one source snapshot for swaps and edits that tempor
     assert.match(mixed.text, /條目名稱1 = 丙/);
     assert.equal(mixed.results.length, 1);
     assert.equal(mixed.results[0].score, 1);
-    assert.throws(() => prepareMixed(text.replace('條目名稱2 = 乙', '條目名稱2 = 丁'), {items}), /已變更/);
+    assert.throws(() => prepareMixed(text.replace('條目名稱2 = 乙', '條目名稱2 = 丁'), {items}), ReviewConflict);
+});
+
+test('identical nominations are edited by section index while source changes still stop submission', () => {
+    const duplicated = text.replace('條目名稱2 = 乙', '條目名稱2 = 甲');
+    const edits = [1, 2].map(index => createItem('edit', {...nomination(1), pageName: `修改${index}`,
+        source: {date: '10月14日', index, values: entryValues(queryEntry(duplicated, '10月14日', index))}}));
+    for (const selected of [0, 1]) {
+        const saved = prepareMixed(duplicated, {items: [edits[selected]]}).text;
+        assert.equal(entryValues(queryEntry(saved, '10月14日', selected + 1))['條目名稱'], `修改${selected + 1}`);
+        const other = 1 - selected;
+        assert.deepEqual(entryValues(queryEntry(saved, '10月14日', other + 1)), edits[other].nomination.source.values);
+    }
+    const together = prepareMixed(duplicated, {items: edits}).text;
+    assert.deepEqual([1, 2].map(index => entryValues(queryEntry(together, '10月14日', index))['條目名稱']), ['修改1', '修改2']);
+
+    // 第二筆改變時仍須重新核對，不能改寫內容仍與舊快照相同的第一筆。
+    const changed = duplicated.replace('提名理由2 = {{ACG提名2/request|ver=1|1a}}', '提名理由2 = {{ACG提名2/request|ver=1|1b}}');
+    assert.throws(() => prepareMixed(changed, {items: [edits[1]]}), error => {
+        assert.ok(error instanceof ReviewConflict);
+        assert.deepEqual(error.changes[0].fields, ['提名理由']);
+        assert.equal(error.changes[0].source.index, 2);
+        return true;
+    });
+    const removed = duplicated.replace(row(2, '甲'), '');
+    assert.throws(() => prepareMixed(removed, {items: [edits[1]]}), ReviewConflict);
 });
 
 test('a changed entry or an unreviewed item prevents preparation of the entire batch', () => {

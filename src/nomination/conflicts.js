@@ -1,20 +1,20 @@
 import {t} from '../i18n.js';
 import {entryValues, listEntries, queried2NomData} from '../wiki/api.js';
-import {stripComments, reviewData} from './scoring.js';
+import {reviewData} from './scoring.js';
 import {entryOwnership} from './ownership.js';
-import {copy} from './operations.js';
+import {copy, sameSource} from './operations.js';
 
 // changes 是可存入草稿的欄位差異資料，供介面高亮與重新核對使用。
 export class ReviewConflict extends Error {
     constructor(changes) {
-        super(t('提名或已入帳分數已變更，提交已停止。請查看標示內容並重新核對。', '提名或已入账分数已变更，提交已停止。请查看标示内容并重新核对。'));
+        super(t('儲存時遇到錯誤，提交中止。請重新載入頁面後再核對。', '保存时遇到错误，提交中止。请重新载入页面后再核对。'));
         this.changes = changes;
     }
 }
 
 /**
  * 在最新本文重新定位提名並比較原始欄位與提名人。
- * 依日期內的完整快照或唯一條目名稱找，歧義時停止猜測。
+ * 先依日期與序號定位，再比較四欄快照；內容相同的其他提名不能代替原項目。
  * @returns {{entries: Array, changes: Array}} entries 與輸入同序，無法唯一定位的位置為 null；changes 供介面展示。
  */
 export function inspectNominations(text, nominations) {
@@ -22,9 +22,7 @@ export function inspectNominations(text, nominations) {
     const entries = [], changes = [];
     for (const nomination of nominations) {
         const source = nomination.source;
-        const candidates = all.filter(entry => entry.date === source.date);
-        let matches = candidates.filter(entry => JSON.stringify(entryValues(entry)) === JSON.stringify(source.values));
-        if (!matches.length) matches = candidates.filter(entry => stripComments(entryValues(entry)['條目名稱']) === stripComments(source.values['條目名稱']));
+        const matches = all.filter(entry => sameSource(entry, source));
         if (matches.length !== 1) {
             changes.push({id: nomination.id, pageName: nomination.pageName, before: source.values, after: null,
                 fields: ['無法唯一辨識原提名，可能已移動、刪除或出現重複項目。'], source: null});

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parseHTML} from 'linkedom';
 import {getNominationSections} from '../src/page/sections.js';
+import {sourceRows} from '../src/ui/table-editor.js';
 
 const table = id => `<table id="${id}" class="acgnom-table"><tbody><tr><td>提名</td></tr></tbody></table>`;
 const heading = date => `<div class="mw-heading mw-heading3"><span><h3>${date}</h3></span><span class="cd-section-actions"></span></div>`;
@@ -35,4 +36,35 @@ test('editor previews and nested tables do not alter section boundaries or dupli
         {date: '10月1日', tables: ['outer']},
         {date: '10月2日', tables: ['next-date']},
     ]);
+});
+
+test('source rows distinguish identical nominations by date and index and still validate their content', context => {
+    const {document} = parseHTML('<div><table><tbody></tbody></table></div>');
+    const source = {date: '10月14日', index: 1,
+        values: {'條目名稱': '甲', '用戶名稱': 'A', '提名理由': '1a', '核對用': ''}};
+    for (const [date, index] of [['10月14日', 1], ['10月14日', 2], ['10月15日', 1]]) {
+        for (const type of ['entry', 'check']) {
+            const row = document.createElement('tr');
+            row.id = `${date}-${index}-${type}`;
+            row.setAttribute('data-acga-date', date);
+            row.setAttribute('data-acga-source-index', index);
+            row.setAttribute('data-acga-source-values', JSON.stringify(source.values));
+            document.querySelector('tbody').append(row);
+        }
+    }
+    // sourceRows 只使用這三個 jQuery 方法；DOM 比對仍在實際文件節點上執行。
+    const selection = nodes => ({...nodes, length: nodes.length,
+        filter: predicate => selection(nodes.filter((node, index) => predicate(index, node))),
+        closest: selector => selection(nodes.map(node => node.closest(selector)).filter(Boolean)),
+        attr: name => nodes[0]?.getAttribute(name),
+    });
+    const previous = globalThis.$;
+    globalThis.$ = value => selection(value === undefined ? [] : typeof value === 'string' ? [...document.querySelectorAll(value)] : [value]);
+    context.after(() => { globalThis.$ = previous; });
+    for (const [date, index] of [['10月14日', 1], ['10月14日', 2], ['10月15日', 1]]) {
+        const rows = sourceRows({...source, date, index});
+        assert.equal(rows.length, 2);
+        assert.deepEqual([rows[0].id, rows[1].id], [`${date}-${index}-entry`, `${date}-${index}-check`]);
+    }
+    assert.equal(sourceRows({...source, values: {...source.values, '提名理由': '1b'}}).length, 0);
 });
