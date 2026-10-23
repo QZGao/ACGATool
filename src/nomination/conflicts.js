@@ -7,7 +7,7 @@ import {copy, sameSource} from './operations.js';
 // changes 是可存入草稿的欄位差異資料，供介面高亮與重新核對使用。
 export class ReviewConflict extends Error {
     constructor(changes) {
-        super(t('提名或已入帳分數已變更，提交已停止。請查看標示內容並重新核對。', '提名或已入账分数已变更，提交已停止。请查看标示内容并重新核对。'));
+        super(t('儲存時遇到錯誤，提交中止。請重新載入頁面後再核對。', '保存时遇到错误，提交中止。请重新载入页面后再核对。'));
         this.changes = changes;
     }
 }

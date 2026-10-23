@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createSessionStore} from '../src/session/session-store.js';
 import {createSubmitController} from '../src/session/session-submit.js';
 import {sessionProgress} from '../src/nomination/operations.js';
+import {ReviewConflict} from '../src/nomination/conflicts.js';
 import {parseUserReason} from '../src/wiki/api.js';
 import {reviewData} from '../src/nomination/scoring.js';
 import {REGISTER, SCORES} from '../src/wiki/submission.js';
@@ -378,7 +379,7 @@ test('reloading an edit conflict replaces the pending submission with the retain
     const io = {read: async () => { reads++; return {text, revid: 2}; },
         write: async () => { writes++; throw new Error('unexpected write'); }};
     const controller = createSubmitController(a, () => {}, io);
-    await assert.rejects(controller.start({items: initial.items, fields: initial.fields}), /已變更/);
+    await assert.rejects(controller.start({items: initial.items, fields: initial.fields}), ReviewConflict);
     const pending = await a.read();
     assert.deepEqual(pending.items, initial.items);
     await controller.rebase(pending.submissions[0].id);

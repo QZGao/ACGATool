@@ -41,7 +41,7 @@ test('mixed preparation uses one source snapshot for swaps and edits that tempor
     assert.match(mixed.text, /條目名稱1 = 丙/);
     assert.equal(mixed.results.length, 1);
     assert.equal(mixed.results[0].score, 1);
-    assert.throws(() => prepareMixed(text.replace('條目名稱2 = 乙', '條目名稱2 = 丁'), {items}), /已變更/);
+    assert.throws(() => prepareMixed(text.replace('條目名稱2 = 乙', '條目名稱2 = 丁'), {items}), ReviewConflict);
 });
 
 test('identical nominations are edited by section index while source changes still stop submission', () => {

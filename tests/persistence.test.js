@@ -4,6 +4,7 @@ import {submitWorkspace, REGISTER, SCORES, getNewNominationPlacement} from '../s
 import {entryValues, queryEntry, queried2NomData, getDateSections} from '../src/wiki/api.js';
 import {reviewData} from '../src/nomination/scoring.js';
 import {createItem} from '../src/nomination/operations.js';
+import {ReviewConflict} from '../src/nomination/conflicts.js';
 
 const clone = value => JSON.parse(JSON.stringify(value));
 function fixture() {
@@ -119,7 +120,7 @@ test('failure to persist the operation prevents any network write', async () => 
 test('changed score-bearing fields stop the entire batch before any write', async () => {
     const {draft, io, pages, writes, edits} = fixture();
     pages.get(REGISTER).text = pages.get(REGISTER).text.replace('request|ver=1|1a', 'request|ver=1|1b');
-    await assert.rejects(submitWorkspace(draft, () => {}, io), /已變更/);
+    await assert.rejects(submitWorkspace(draft, () => {}, io), ReviewConflict);
     assert.deepEqual(writes, []);
     assert.deepEqual(draft.conflicts[0].fields, ['提名理由']);
 });
