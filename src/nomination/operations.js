@@ -48,10 +48,10 @@ export function createItem(mode, nomination) {
     return {id: newId(), mode, nomination: data};
 }
 
-/** 一個來源在工作區只保留一份編輯；不同來源與新提名則可以並存。 */
+/** 日期與章節內序號識別同一筆來源；內容相同但序號不同的提名仍可各自編輯。 */
 export function sameSource(a, b) {
     if (!a || !b) return false;
-    return a.date === b.date && equal(a.values, b.values);
+    return a.date === b.date && a.index === b.index;
 }
 
 /** 純驗證不發通知；欄位提示、進度條與提交前驗證共用相同的完成條件。 */

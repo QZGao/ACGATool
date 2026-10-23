@@ -116,6 +116,24 @@ test('adopting a conflicting recipient after review requires a fresh review of t
     assert.equal(sessionProgress((await a.read())).complete, false, 'ordinary content updates enforce the same review boundary');
 });
 
+test('identical nominations keep separate edits and can be stashed and restored independently', async () => {
+    const {a, b} = fixture(); await a.init();
+    const first = dataForMode('edit');
+    const second = {...first, id: 'nom-2', source: {...first.source, index: 2}};
+    const {result: [firstId, secondId]} = await a.add('edit', [first, second]);
+    assert.notEqual(firstId, secondId);
+    assert.equal((await a.read()).items.length, 2);
+    assert.deepEqual((await a.add('edit', [second])).result, [secondId]);
+    await a.patch(firstId, first, {...first, pageName: '第一筆修改'});
+    await a.patch(secondId, second, {...second, pageName: '第二筆修改'});
+    assert.deepEqual((await b.read()).items.map(item => item.nomination.pageName), ['第一筆修改', '第二筆修改']);
+    await a.stash(firstId);
+    assert.deepEqual((await b.read()).items.map(item => item.id), [secondId]);
+    assert.deepEqual((await b.restore([firstId])).result, {restored: [firstId], failures: []});
+    assert.equal((await a.read()).items.length, 2);
+    assert.deepEqual((await a.read()).drafts, []);
+});
+
 test('all operation types move through the draft box without moving submission fields', async () => {
     const {a, b} = fixture(); await a.init();
     await a.fields({message: '', summary: ''}, {message: '整批說明', summary: '摘要'});

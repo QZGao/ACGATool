@@ -4,6 +4,7 @@
  */
 import {t} from '../i18n.js';
 import {NominationRuleSet, ruleValues} from '../nomination/rules.js';
+import {sameSource} from '../nomination/operations.js';
 import {parseUserReason} from '../wiki/api.js';
 import {cdxIconTrash, cdxIconLogIn} from './icons.js';
 import {iconButton} from './icon-button.js';
@@ -14,14 +15,16 @@ import {bindTitleStatus} from '../page/title-status.js';
 
 /**
  * 取得原頁面的一對提名列，排除編輯器自己建立的列。
- * 日期與四欄快照對接這次渲染的 DOM；儲存時仍須重新定位及驗證 wikitext。
+ * 日期與序號對接這次渲染的 DOM，四欄快照驗證內容；儲存時仍須驗證最新 wikitext。
  * @returns {jQuery} 原提名與核對列；新提名或找不到來源時為空集合。
  */
 export function sourceRows(source) {
     if (!source) return $();
-    const $rows = $('[data-acga-date][data-acga-source-values]').filter((_, element) =>
-        !$(element).closest('.acga-editor').length && $(element).attr('data-acga-date') === source.date);
-    // 正文刷新後其他提名可能插入或移除。完整快照唯一對應時才隱藏原列。
+    const $rows = $('[data-acga-date][data-acga-source-index][data-acga-source-values]').filter((_, element) =>
+        !$(element).closest('.acga-editor').length && sameSource({
+            date: $(element).attr('data-acga-date'), index: Number($(element).attr('data-acga-source-index')),
+        }, source));
+    // 只隱藏所選提名的兩列；同一位置的內容也須與開啟表單時的快照一致。
     const $matched = $rows.filter((_, element) => $(element).attr('data-acga-source-values') === JSON.stringify(source.values));
     return $matched.length === 2 ? $matched : $();
 }
